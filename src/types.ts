@@ -42,3 +42,11 @@ export interface Token {
   player_session_id: string | null;
   created_at: string;
 }
+
+export interface WsData {
+  adventureId: string;
+  role: "gm" | "player";
+  playerName?: string;
+  playerColor?: string;
+  tokenId?: string;
+}

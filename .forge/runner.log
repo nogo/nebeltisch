@@ -139,3 +139,61 @@ model: sonnet
   ─────────────────────────────────────────────────────
   Finished: 2026-03-18 22:31:54  (2m 8s)
   Status:   ✓ OK
+  Commit:   ✓ 398b62b  wu-03: Add fog mask data model and persistence
+  Changes:   15 files changed, 446 insertions(+)
+  Moved:    → .forge/done/wu-03.md
+  ─────────────────────────────────────────────────────
+
+
+wu-04: Add WebSocket layer and real-time sync
+model: sonnet
+
+  Prompt:  170 lines  (9872 bytes)
+  Log:     /home/nogo/Development/projects/fogofwar/.forge/wu/wu-04.log
+
+  Started: 2026-03-18 22:31:54
+
+  [22:32:00]  ⚙  Glob  {"pattern":"src/**/*.ts"}
+  [22:32:00]  ⚙  Glob  {"pattern":"test/**/*.ts"}
+  [22:32:03]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/index.ts"}
+  [22:32:03]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/types.ts"}
+  [22:32:03]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/test/helpers.ts"}
+  [22:32:06]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/db/adventures.ts"}
+  [22:32:07]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/db/tokens.ts"}
+  [22:32:07]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/fog/mask.ts"}
+  [22:32:07]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/fog/serialize.ts"}
+  [22:32:11]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/db/images.ts"}
+  [22:32:12]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/routes.ts"}
+  [22:35:23]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/test/api/adventures.test.…
+  [22:35:24]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/test/api/images.test.ts"}
+  [22:36:24]  ⚙  ToolSearch  {"query":"select:TodoWrite","max_results":1}
+  [22:36:32]  ⚙  TodoWrite  {"todos":[{"content":"Create src/ws/messages.ts — message type definitions","act…
+  [22:36:47]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/src/ws/messages.ts","cont…
+  [22:36:52]  ⚙  TodoWrite  {"todos":[{"content":"Create src/ws/messages.ts — message type definitions","act…
+  [22:37:00]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/src/ws/connections.ts","c…
+  [22:37:07]  ⚙  TodoWrite  {"todos":[{"content":"Create src/ws/messages.ts — message type definitions","act…
+  [22:37:12]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/t…
+  [22:37:18]  ⚙  TodoWrite  {"todos":[{"content":"Create src/ws/messages.ts — message type definitions","act…
+  [22:37:52]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/src/ws/handler.ts","conte…
+  [22:37:59]  ⚙  TodoWrite  {"todos":[{"content":"Create src/ws/messages.ts — message type definitions","act…
+  [22:38:06]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/src/index.ts","content":"…
+  [22:38:14]  ⚙  TodoWrite  {"todos":[{"content":"Create src/ws/messages.ts — message type definitions","act…
+  [22:38:27]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/test/…
+  [22:38:35]  ⚙  TodoWrite  {"todos":[{"content":"Create src/ws/messages.ts — message type definitions","act…
+  [22:38:38]  💬 Now I'll create the integration tests. I need to create the directory first:
+  [22:38:38]  ⚙  Bash  {"command":"mkdir -p /home/nogo/Development/projects/fogofwar/test/ws","descript…
+  [22:39:23]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/test/ws/handler.test.ts",…
+  [22:39:30]  ⚙  TodoWrite  {"todos":[{"content":"Create src/ws/messages.ts — message type definitions","act…
+  [22:39:34]  ⚙  Bash  {"command":"bun test 2>&1","description":"Run bun test","timeout":60000}
+  [22:39:39]  💬 All 73 tests pass.
+  [22:39:39]  ⚙  TodoWrite  {"todos":[{"content":"Run bun test and fix failures","activeForm":"Running bun t…
+  [22:39:53]  💬 `bun test` exits 0 with 73 tests passing. Here's what was built:
+
+**New files:**
+- `src/ws/messages.ts` — all client/ser
+
+  [22:39:53]  ✅ Done — tokens: 29 in / 32244 out | cost: $1.0736340000000002
+
+  ─────────────────────────────────────────────────────
+  Finished: 2026-03-18 22:39:53  (7m 59s)
+  Status:   ✓ OK
