@@ -3,7 +3,7 @@ import { initDatabase } from "./db/database";
 import { handleRequest } from "./routes";
 import { createWsHandlers, handleWsUpgrade } from "./ws/handler";
 
-const uploadsDir = "./data/uploads/";
+const uploadsDir = `${process.env.DATA_DIR || "./data"}/uploads/`;
 mkdirSync(uploadsDir, { recursive: true });
 
 const db = initDatabase();

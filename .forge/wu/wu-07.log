@@ -1,0 +1,8 @@
+73 tests pass. All files created:
+
+- **`Dockerfile`** — two-stage build (build client → runtime), non-root `bun` user, Bun-based health check (no curl dependency)
+- **`docker-compose.yml`** — single service, named volume `fogofwar-data`, `DATA_DIR=/app/data`
+- **`.dockerignore`** — excludes `node_modules`, `data`, `.git`, `.forge`, `.claude`, `public/dist`, `*.db`
+- **`.gitignore`** — added `public/dist/` and `.DS_Store`
+- **`src/index.ts`** — `uploadsDir` now uses `DATA_DIR` env var
+- **`src/db/database.ts`** — DB path now uses `DATA_DIR` env var

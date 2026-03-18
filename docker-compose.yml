@@ -1,0 +1,14 @@
+services:
+  fogofwar:
+    build: .
+    ports:
+      - "${PORT:-3000}:3000"
+    volumes:
+      - fogofwar-data:/app/data
+    environment:
+      - PORT=3000
+      - DATA_DIR=/app/data
+    restart: unless-stopped
+
+volumes:
+  fogofwar-data:
