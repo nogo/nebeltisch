@@ -70,6 +70,18 @@ export async function deleteImage(adventureId: string, password: string, imageId
   await checkOk(res);
 }
 
+export async function getAdventureByPlayerLink(playerLink: string): Promise<{ id: string; name: string; activeImageId: string | null }> {
+  const res = await fetch(`/api/adventures/join/${encodeURIComponent(playerLink)}`);
+  return (await checkOk(res)).json();
+}
+
+export async function listImagesAsPlayer(adventureId: string, playerLink: string): Promise<ImageRecord[]> {
+  const res = await fetch(`/api/adventures/${adventureId}/images`, {
+    headers: { 'X-Player-Link': playerLink },
+  });
+  return (await checkOk(res)).json();
+}
+
 export async function switchActiveImage(adventureId: string, password: string, imageId: string): Promise<void> {
   const res = await fetch(`/api/adventures/${adventureId}/active-image`, {
     method: 'PUT',

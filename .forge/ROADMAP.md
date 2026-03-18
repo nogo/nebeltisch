@@ -28,7 +28,30 @@ A collaborative tabletop tool for remote pen & paper RPGs. GM creates an adventu
 - [ ] wu-06: Player frontend and token system
 - [ ] wu-07: Docker and deployment
 
+## PoC Scope (post-core)
+- [ ] **Pan and zoom** — scroll to zoom, drag to pan. GM and players independently. Essential for large maps. Touch pinch-zoom for mobile.
+- [ ] **Undo/redo for fog** — ctrl+z / ctrl+y on fog strokes. Store stroke history, replay to reconstruct state.
+- [ ] **Player ping/pointer** — any participant clicks to flash a visible-to-all marker ("look here"). Fades after ~3 seconds.
+- [ ] **Mobile/tablet support** — touch gestures for fog erasing, token dragging, pan/zoom. Responsive layout. Players often join from phones.
+
 ## Future Improvements
 - **GM fog opacity slider** — adjustable transparency (0–100%) on the fog layer, GM-only. Lets the GM peek through fog to plan reveals. Players always see fully opaque fog. Pure client-side, no server changes needed.
-- **GM map tokens** — GM can place tokens (monsters, NPCs, treasure, traps) on the map below the fog layer. These are hidden until fog is revealed. Rendered between the map canvas and the fog canvas. GM can add, move, remove, and label them. Players see them only when the fog above is cleared.
+- **GM map tokens** — GM can place tokens (monsters, NPCs, treasure, traps) on the map below the fog layer. Hidden until fog is revealed. Rendered between map and fog canvas.
 - **Rename project** — pick final name (Nebeltisch is a candidate).
+
+## Maybe (post-PoC)
+- Fog shapes — rectangle and polygon reveal for entire rooms
+- Grid overlay — toggleable hex or square grid, configurable cell size (DSA uses hex)
+- Ruler/distance tool — measure in Schritt based on grid scale
+- Map annotations — GM-only text notes pinned to locations
+- Dice roller — integrated `/roll 3W20` chat with shared/whispered results
+- Character portrait tokens — upload image instead of colored circle
+- Status markers — condition icons (wounded, poisoned) snapped to tokens
+- Multiple adventures — GM dashboard
+- Session history — fog snapshots for rewind/branch
+- Map layers — background, middleground, foreground independently toggleable
+- Initiative tracker — ordered token list for combat rounds
+- Audio ambience — GM links ambient sound that plays for all
+- Import/export — adventure as zip (maps + fog + tokens)
+- Aventuria world map — preloaded, zoomable, persistent fog across sessions
+- Probe/Talent checks — quick 3W20 talent check without full character sheet

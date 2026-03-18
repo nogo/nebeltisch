@@ -27,6 +27,7 @@
         <label>Your name<input type="text" id="join-name" required placeholder="Aria"></label>
         <label>Color<input type="color" id="join-color" value="#e74c3c"></label>
         <button type="submit">Join</button>
+        <p id="join-error" class="error"></p>
       </form>
     </section>
   </main>
@@ -56,12 +57,24 @@
       }
     });
 
-    document.getElementById('join-form').addEventListener('submit', (e) => {
+    document.getElementById('join-form').addEventListener('submit', async (e) => {
       e.preventDefault();
       const link = document.getElementById('join-link').value.trim();
       const name = document.getElementById('join-name').value.trim();
       const color = document.getElementById('join-color').value;
-      location.href = `/player#link=${encodeURIComponent(link)}&name=${encodeURIComponent(name)}&color=${encodeURIComponent(color)}`;
+      const errEl = document.getElementById('join-error');
+      errEl.textContent = '';
+      try {
+        const res = await fetch(`/api/adventures/join/${encodeURIComponent(link)}`);
+        if (!res.ok) {
+          errEl.textContent = 'Invalid invite code.';
+          return;
+        }
+        const adv = await res.json();
+        location.href = `/player#adventureId=${encodeURIComponent(adv.id)}&link=${encodeURIComponent(link)}&name=${encodeURIComponent(name)}&color=${encodeURIComponent(color)}`;
+      } catch {
+        errEl.textContent = 'Could not connect to server.';
+      }
     });
   </script>
 </body>

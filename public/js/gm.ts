@@ -1,5 +1,6 @@
 import { connectGM } from './websocket';
 import { initCanvas } from './canvas';
+import { initTokenLayer } from './tokens';
 import type { FogStroke } from './canvas';
 import * as api from './api';
 
@@ -35,6 +36,13 @@ const canvasArea = document.getElementById('canvas-area')!;
 // --- Canvas ---
 const canvasCtrl = initCanvas(canvasArea);
 
+// --- Token layer (non-interactive for GM) ---
+const tokenCtrl = initTokenLayer(
+  canvasCtrl.getWrapper(),
+  () => canvasCtrl.getImageSize(),
+  { interactive: false }
+);
+
 // --- WebSocket ---
 const ws = connectGM(adventureId, password);
 
@@ -68,6 +76,11 @@ ws.on('joined', async (msg) => {
       }
     }
   }
+
+  const tokens = msg.tokens as Array<{ id: string; name: string; color: string; x: number; y: number }>;
+  for (const token of tokens) {
+    tokenCtrl.addToken(token);
+  }
 });
 
 ws.on('fog:stroke', (msg) => {
@@ -84,6 +97,19 @@ ws.on('fog:stroke:batch', (msg) => {
   }
 });
 
+ws.on('token:added', (msg) => {
+  const token = msg.token as { id: string; name: string; color: string; x: number; y: number };
+  tokenCtrl.addToken(token);
+});
+
+ws.on('token:moved', (msg) => {
+  tokenCtrl.moveToken(msg.tokenId as string, msg.x as number, msg.y as number);
+});
+
+ws.on('token:removed', (msg) => {
+  tokenCtrl.removeToken(msg.tokenId as string);
+});
+
 ws.on('map:switched', async (msg) => {
   activeImageId = msg.imageId as string;
   imageList = await api.listImages(adventureId, password);
@@ -95,6 +121,7 @@ ws.on('map:switched', async (msg) => {
     }
   }
   renderGallery();
+  tokenCtrl.render();
 });
 
 // --- Gallery ---

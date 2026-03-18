@@ -53,6 +53,7 @@ export interface JoinedMessage {
   adventure: { id: string; name: string; activeImageId: string | null };
   tokens: Token[];
   fogMask: string | null;
+  yourTokenId?: string;
 }
 
 export interface FogStrokeBroadcast {

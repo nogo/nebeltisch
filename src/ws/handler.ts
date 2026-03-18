@@ -143,6 +143,7 @@ export function createWsHandlers(db: Database) {
           },
           tokens,
           fogMask,
+          yourTokenId: tokenId,
         })
       );
 

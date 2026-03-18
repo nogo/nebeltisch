@@ -13,11 +13,10 @@ export interface CanvasController {
   clearBrushPreview(): void;
   screenToImage(clientX: number, clientY: number): { x: number; y: number };
   getEventTarget(): HTMLCanvasElement;
+  getWrapper(): HTMLElement;
+  getImageSize(): { w: number; h: number };
   clear(): void;
 }
-
-const FOG_ALPHA = 0.85;
-const FOG_FILL = `rgba(0,0,0,${FOG_ALPHA})`;
 
 async function decompress(data: Uint8Array): Promise<Uint8Array> {
   // Try zlib (deflate with header) first, then raw deflate
@@ -47,7 +46,9 @@ async function decompress(data: Uint8Array): Promise<Uint8Array> {
   throw new Error('Failed to decompress fog mask');
 }
 
-export function initCanvas(container: HTMLElement): CanvasController {
+export function initCanvas(container: HTMLElement, options?: { mode?: 'gm' | 'player' }): CanvasController {
+  const fogAlpha = options?.mode === 'player' ? 1.0 : 0.85;
+  const fogFill = `rgba(0,0,0,${fogAlpha})`;
   const wrapper = document.createElement('div');
   wrapper.style.cssText = 'position:relative;flex-shrink:0;';
   container.appendChild(wrapper);
@@ -63,6 +64,10 @@ export function initCanvas(container: HTMLElement): CanvasController {
   const fogCanvas = makeCanvas();
   const previewCanvas = makeCanvas();
   previewCanvas.style.pointerEvents = 'none';
+
+  if (options?.mode === 'player') {
+    fogCanvas.style.pointerEvents = 'none';
+  }
 
   const mapCtx = mapCanvas.getContext('2d')!;
   const fogCtx = fogCanvas.getContext('2d')!;
@@ -88,7 +93,7 @@ export function initCanvas(container: HTMLElement): CanvasController {
   function fillFog() {
     fogCtx.save();
     fogCtx.globalCompositeOperation = 'source-over';
-    fogCtx.fillStyle = FOG_FILL;
+    fogCtx.fillStyle = fogFill;
     fogCtx.fillRect(0, 0, imgW, imgH);
     fogCtx.restore();
   }
@@ -124,7 +129,7 @@ export function initCanvas(container: HTMLElement): CanvasController {
         id.data[i * 4 + 0] = 0;
         id.data[i * 4 + 1] = 0;
         id.data[i * 4 + 2] = 0;
-        id.data[i * 4 + 3] = Math.round(v * FOG_ALPHA);
+        id.data[i * 4 + 3] = Math.round(v * fogAlpha);
       }
       fogCtx.putImageData(id, 0, 0);
     },
@@ -139,7 +144,7 @@ export function initCanvas(container: HTMLElement): CanvasController {
         fogCtx.fillStyle = 'rgba(0,0,0,1)';
       } else {
         fogCtx.globalCompositeOperation = 'source-over';
-        fogCtx.fillStyle = FOG_FILL;
+        fogCtx.fillStyle = fogFill;
       }
       fogCtx.fill();
       fogCtx.restore();
@@ -170,6 +175,10 @@ export function initCanvas(container: HTMLElement): CanvasController {
     },
 
     getEventTarget() { return fogCanvas; },
+
+    getWrapper() { return wrapper; },
+
+    getImageSize() { return { w: imgW, h: imgH }; },
 
     clear() {
       mapCtx.clearRect(0, 0, imgW, imgH);

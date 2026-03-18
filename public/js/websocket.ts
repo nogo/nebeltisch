@@ -6,7 +6,7 @@ export interface WebSocketClient {
   close(): void;
 }
 
-export function connectGM(adventureId: string, password: string): WebSocketClient {
+function makeClient(buildUrl: () => string): WebSocketClient {
   const handlers = new Map<string, MessageHandler[]>();
   let ws: WebSocket | null = null;
   let closed = false;
@@ -16,15 +16,6 @@ export function connectGM(adventureId: string, password: string): WebSocketClien
     for (const h of handlers.get(type) ?? []) {
       try { h(msg); } catch (e) { console.error('ws handler error', e); }
     }
-  }
-
-  function buildUrl(): string {
-    const u = new URL('/ws', window.location.href);
-    u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:';
-    u.searchParams.set('adventureId', adventureId);
-    u.searchParams.set('role', 'gm');
-    u.searchParams.set('password', password);
-    return u.toString();
   }
 
   function connect() {
@@ -79,4 +70,33 @@ export function connectGM(adventureId: string, password: string): WebSocketClien
       ws?.close();
     },
   };
+}
+
+export function connectGM(adventureId: string, password: string): WebSocketClient {
+  return makeClient(() => {
+    const u = new URL('/ws', window.location.href);
+    u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:';
+    u.searchParams.set('adventureId', adventureId);
+    u.searchParams.set('role', 'gm');
+    u.searchParams.set('password', password);
+    return u.toString();
+  });
+}
+
+export function connectPlayer(
+  adventureId: string,
+  playerLink: string,
+  playerName: string,
+  playerColor: string
+): WebSocketClient {
+  return makeClient(() => {
+    const u = new URL('/ws', window.location.href);
+    u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:';
+    u.searchParams.set('adventureId', adventureId);
+    u.searchParams.set('role', 'player');
+    u.searchParams.set('playerLink', playerLink);
+    u.searchParams.set('playerName', playerName);
+    u.searchParams.set('playerColor', playerColor);
+    return u.toString();
+  });
 }
