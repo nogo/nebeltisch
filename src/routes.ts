@@ -16,6 +16,36 @@ import {
 
 const publicDir = join(import.meta.dir, "..", "public");
 
+function parseImageDimensions(buf: Buffer): { width: number; height: number } {
+  // PNG: bytes 0-7 = signature, 8-15 = IHDR length+type, 16-19 = width, 20-23 = height
+  if (buf.length >= 24 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
+    return {
+      width: buf.readUInt32BE(16),
+      height: buf.readUInt32BE(20),
+    };
+  }
+  // JPEG: scan for SOF0/SOF2 markers (0xFF 0xC0 or 0xFF 0xC2)
+  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xd8) {
+    let i = 2;
+    while (i < buf.length - 9) {
+      if (buf[i] !== 0xff) { i++; continue; }
+      const marker = buf[i + 1];
+      if (marker === 0xc0 || marker === 0xc2) {
+        return {
+          height: buf.readUInt16BE(i + 5),
+          width: buf.readUInt16BE(i + 7),
+        };
+      }
+      // Skip to next marker
+      const segLen = buf.readUInt16BE(i + 2);
+      i += 2 + segLen;
+    }
+  }
+  // WebP: RIFF header, bytes 24-27 = width (LE 14 bits), 26-29 = height (LE 14 bits) for VP8
+  // Simplified: just return 0 for unsupported formats
+  return { width: 0, height: 0 };
+}
+
 export function handleRequest(
   req: Request,
   db?: Database,
@@ -211,14 +241,17 @@ async function handleAdventureRoutes(
       const filePath = join(uploadsDir, filename);
 
       const buffer = await file.arrayBuffer();
-      writeFileSync(filePath, Buffer.from(buffer));
+      const buf = Buffer.from(buffer);
+      writeFileSync(filePath, buf);
+
+      const { width, height } = parseImageDimensions(buf);
 
       const imageRecord = createImageRecord(db, {
         adventureId: id,
         filename,
         originalName: file.name,
-        width: 0,
-        height: 0,
+        width,
+        height,
       });
       return json(imageRecord, 201);
     }

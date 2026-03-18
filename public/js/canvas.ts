@@ -121,6 +121,10 @@ export function initCanvas(container: HTMLElement, options?: { mode?: 'gm' | 'pl
       const view = new DataView(bytes.buffer);
       const w = view.getUint32(0, false);
       const h = view.getUint32(4, false);
+      if (w === 0 || h === 0) {
+        // Invalid mask dimensions — keep current fog (fully fogged)
+        return;
+      }
       const pixels = await decompress(bytes.slice(8));
       if (imgW !== w || imgH !== h) sizeAll(w, h);
       const id = fogCtx.createImageData(w, h);
