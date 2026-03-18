@@ -101,3 +101,41 @@ model: sonnet
   ─────────────────────────────────────────────────────
   Finished: 2026-03-18 22:29:46  (3m 48s)
   Status:   ✓ OK
+  Commit:   ✓ 33cce09  wu-02: Add image upload and adventure REST API
+  Changes:   16 files changed, 982 insertions(+), 3 deletions(-)
+  Moved:    → .forge/done/wu-02.md
+  ─────────────────────────────────────────────────────
+
+
+wu-03: Add fog mask data model and persistence
+model: sonnet
+
+  Prompt:  125 lines  (6789 bytes)
+  Log:     /home/nogo/Development/projects/fogofwar/.forge/wu/wu-03.log
+
+  Started: 2026-03-18 22:29:46
+
+  [22:29:50]  ⚙  Glob  {"pattern":"src/**/*.ts"}
+  [22:29:50]  ⚙  Glob  {"pattern":"test/**/*"}
+  [22:29:52]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/types.ts"}
+  [22:29:53]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/db/images.ts"}
+  [22:29:53]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/db/database.ts"}
+  [22:29:56]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/test/helpers.ts"}
+  [22:29:56]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/test/db/images.test.ts"}
+  [22:30:49]  💬 Now I have enough context. Let me implement all the required files.
+  [22:30:50]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/t…
+  [22:30:58]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/src/fog/mask.ts","content…
+  [22:31:07]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/src/fog/serialize.ts","co…
+  [22:31:27]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/test/fog/mask.test.ts","c…
+  [22:31:41]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/test/fog/serialize.test.t…
+  [22:31:46]  ⚙  Bash  {"command":"bun test 2>&1","timeout":60000}
+  [22:31:54]  💬 All 59 tests pass. Here's what was created:
+
+- **`src/types.ts`** — added `FogMask` and `FogStroke` interfaces
+- **`src/
+
+  [22:31:54]  ✅ Done — tokens: 12 in / 8650 out | cost: $0.288105
+
+  ─────────────────────────────────────────────────────
+  Finished: 2026-03-18 22:31:54  (2m 8s)
+  Status:   ✓ OK

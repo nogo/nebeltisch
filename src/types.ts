@@ -1,3 +1,16 @@
+export interface FogMask {
+  width: number;
+  height: number;
+  data: Uint8Array; // length = width * height, values 0-255
+}
+
+export interface FogStroke {
+  x: number;       // center x in image coordinates
+  y: number;       // center y in image coordinates
+  radius: number;  // brush radius in pixels
+  mode: 'reveal' | 'fog';
+}
+
 export interface Adventure {
   id: string;
   name: string;
