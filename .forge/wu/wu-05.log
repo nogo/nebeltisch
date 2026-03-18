@@ -1,0 +1,25 @@
+Everything is in order. Here's a summary of what was built:
+
+**Build output:**
+- `bun run build:client` → `public/dist/gm.js` (13.5 KB), `public/dist/player.js` (390 B)
+- `bun test` → 73 pass, 0 fail
+
+**Files created:**
+
+| File | Purpose |
+|------|---------|
+| `public/index.html` | Landing page — create/join adventure forms |
+| `public/gm.html` | GM layout: topbar, left sidebar (brush), canvas, right sidebar (gallery) |
+| `public/player.html` | Player stub |
+| `public/css/style.css` | Grid layout for GM page, home page cards |
+| `public/js/api.ts` | Typed fetch wrappers for all REST endpoints |
+| `public/js/websocket.ts` | WS client with exponential backoff reconnect (1s→30s) |
+| `public/js/canvas.ts` | Three-layer canvas (map/fog/preview), fog mask decode, stroke apply |
+| `public/js/gm.ts` | GM orchestration: WS events, gallery, brush pointer events |
+| `public/js/player.ts` | Minimal stub |
+
+**Key design decisions:**
+- **Fog mask decode:** base64 → uint32 BE width/height header → try `deflate` then `deflate-raw` to handle Bun's compression format
+- **Canvas scaling:** canvas attributes = image natural dimensions; CSS scales wrapper div to fit container; `getBoundingClientRect()` drives coordinate conversion
+- **Stroke throttle:** accumulate strokes, flush individually or as batch at 60fps; final flush on `pointerup`
+- **No double-apply:** server uses `ws.publish` which excludes sender, so GM's own strokes aren't echoed back

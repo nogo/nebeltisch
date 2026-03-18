@@ -197,3 +197,71 @@ model: sonnet
   ─────────────────────────────────────────────────────
   Finished: 2026-03-18 22:39:53  (7m 59s)
   Status:   ✓ OK
+  Commit:   ✓ 596aa72  wu-04: Add WebSocket layer and real-time sync
+  Changes:   15 files changed, 1120 insertions(+), 12 deletions(-)
+  Moved:    → .forge/done/wu-04.md
+  ─────────────────────────────────────────────────────
+
+
+wu-05: Build GM frontend with canvas fog
+model: sonnet
+
+  Prompt:  127 lines  (8362 bytes)
+  Log:     /home/nogo/Development/projects/fogofwar/.forge/wu/wu-05.log
+
+  Started: 2026-03-18 22:39:53
+
+  [22:40:00]  ⚙  Agent  {"description":"Explore existing codebase structure","subagent_type":"Explore","…
+  [22:40:01]  ⚙  Bash  {"command":"find /home/nogo/Development/projects/fogofwar -type f -name \"*.ts\"…
+  [22:40:03]  ⚙  Bash  {"command":"tree -L 3 -I 'node_modules|dist' /home/nogo/Development/projects/fog…
+  [22:40:05]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/index.ts"}
+  [22:40:05]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/ws/messages.ts"}
+  [22:40:05]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/types.ts"}
+  [22:40:05]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/fog/mask.ts"}
+  [22:40:05]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/package.json"}
+  [22:40:06]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/public/index.html"}
+  [22:40:07]  ⚙  Bash  {"command":"ls -la /home/nogo/Development/projects/fogofwar/public/"}
+  [22:40:18]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/index.ts"}
+  [22:40:18]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/ws/messages.ts"}
+  [22:40:18]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/types.ts"}
+  [22:40:19]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/fog/mask.ts"}
+  [22:40:19]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/package.json"}
+  [22:40:19]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/public/index.html"}
+  [22:40:22]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/routes.ts"}
+  [22:40:46]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/ws/handler.ts"}
+  [22:40:56]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/fog/serialize.ts"}
+  [22:43:34]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/ws/connections.ts"}
+  [22:46:03]  💬 Now I have a complete picture. Let me implement everything.
+  [22:47:48]  ⚙  Agent  {"description":"Write all frontend files","subagent_type":"general-purpose","pro…
+  [22:47:50]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/routes.ts"}
+  [22:47:51]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/package.json"}
+  [22:48:03]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/public/index.html","conte…
+  [22:48:09]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/public/gm.html","content"…
+  [22:48:10]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/public/player.html","cont…
+  [22:48:32]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/public/css/style.css","co…
+  [22:48:37]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/public/js/api.ts","conten…
+  [22:48:44]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/public/js/websocket.ts","…
+  [22:49:10]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/public/js/canvas.ts","con…
+  [22:49:32]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/public/js/gm.ts","content…
+  [22:49:33]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/public/js/player.ts","con…
+  [22:49:38]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/public/index.html"}
+  [22:49:48]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/public/index.html","conte…
+  [22:50:09]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/public/js/gm.ts","content…
+  [22:50:10]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/public/js/player.ts","con…
+  [22:50:18]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/r…
+  [22:50:20]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/package.json","content":"…
+  [22:50:33]  💬 Now let me verify the build and tests pass.
+  [22:50:33]  ⚙  Bash  {"command":"bun run build:client 2>&1","description":"Build client-side TypeScri…
+  [22:50:35]  ⚙  Bash  {"command":"bun test 2>&1","description":"Run test suite"}
+  [22:50:38]  💬 Both pass. Let me also verify the routes were added correctly:
+  [22:50:38]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/routes.ts","limit":50…
+  [22:50:49]  💬 Everything is in order. Here's a summary of what was built:
+
+**Build output:**
+- `bun run build:client` → `public/dist/g
+
+  [22:50:49]  ✅ Done — tokens: 13 in / 32548 out | cost: $1.26710495
+
+  ─────────────────────────────────────────────────────
+  Finished: 2026-03-18 22:50:50  (10m 57s)
+  Status:   ✓ OK

@@ -34,6 +34,25 @@ export function handleRequest(
     }
   }
 
+  if (req.method === "GET" && (pathname === "/gm" || pathname === "/player")) {
+    const fileName = pathname === "/gm" ? "gm.html" : "player.html";
+    try {
+      const html = readFileSync(join(publicDir, fileName), "utf-8");
+      return new Response(html, { headers: { "Content-Type": "text/html" } });
+    } catch {
+      return new Response("Not Found", { status: 404 });
+    }
+  }
+
+  if (req.method === "GET" && (pathname.startsWith("/dist/") || pathname.startsWith("/css/"))) {
+    const filePath = join(publicDir, pathname);
+    const file = Bun.file(filePath);
+    return file.exists().then((exists) => {
+      if (!exists) return new Response("Not Found", { status: 404 });
+      return new Response(file);
+    });
+  }
+
   if (req.method === "GET" && pathname === "/api/health") {
     return new Response(JSON.stringify({ status: "ok" }), {
       headers: { "Content-Type": "application/json" },

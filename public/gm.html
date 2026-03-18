@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>GM — Fog of War</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body class="gm">
+  <header id="topbar">
+    <span id="adventure-name">Loading…</span>
+    <div class="invite-row">
+      <span id="invite-link" class="invite-link-text"></span>
+      <button id="copy-invite">Copy link</button>
+    </div>
+  </header>
+
+  <aside id="sidebar-left">
+    <div class="control-group">
+      <label>Brush size: <strong id="brush-size-label">50px</strong></label>
+      <input type="range" id="brush-size" min="10" max="200" value="50">
+    </div>
+    <div class="control-group">
+      <label>Mode</label>
+      <div class="mode-buttons">
+        <button id="mode-reveal" class="active">Reveal</button>
+        <button id="mode-fog">Re-fog</button>
+      </div>
+    </div>
+    <div id="status-bar"></div>
+  </aside>
+
+  <main id="canvas-area"></main>
+
+  <aside id="sidebar-right">
+    <div id="gallery"></div>
+    <div class="upload-row">
+      <label class="upload-btn">
+        Upload map
+        <input type="file" id="upload-input" accept="image/*" hidden>
+      </label>
+    </div>
+  </aside>
+
+  <script type="module" src="/dist/gm.js"></script>
+</body>
+</html>

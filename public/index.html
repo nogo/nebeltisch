@@ -4,9 +4,65 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Fog of War</title>
+  <link rel="stylesheet" href="/css/style.css">
 </head>
-<body>
-  <h1>Fog of War</h1>
-  <p>Server is running.</p>
+<body class="home">
+  <main class="home-main">
+    <h1>Fog of War</h1>
+
+    <section class="card">
+      <h2>Create Adventure</h2>
+      <form id="create-form">
+        <label>Adventure name<input type="text" id="adv-name" required placeholder="The Lost Mines"></label>
+        <label>GM password<input type="password" id="adv-password" required placeholder="secret"></label>
+        <button type="submit">Create</button>
+        <p id="create-error" class="error"></p>
+      </form>
+    </section>
+
+    <section class="card">
+      <h2>Join Adventure</h2>
+      <form id="join-form">
+        <label>Invite code<input type="text" id="join-link" required placeholder="abc123"></label>
+        <label>Your name<input type="text" id="join-name" required placeholder="Aria"></label>
+        <label>Color<input type="color" id="join-color" value="#e74c3c"></label>
+        <button type="submit">Join</button>
+      </form>
+    </section>
+  </main>
+
+  <script>
+    document.getElementById('create-form').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const name = document.getElementById('adv-name').value.trim();
+      const password = document.getElementById('adv-password').value;
+      const errEl = document.getElementById('create-error');
+      errEl.textContent = '';
+      try {
+        const res = await fetch('/api/adventures', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, gmPassword: password }),
+        });
+        if (!res.ok) {
+          const data = await res.json();
+          errEl.textContent = data.error || 'Error creating adventure';
+          return;
+        }
+        const adv = await res.json();
+        location.href = `/gm#id=${encodeURIComponent(adv.id)}&password=${encodeURIComponent(password)}`;
+      } catch (err) {
+        errEl.textContent = String(err);
+      }
+    });
+
+    document.getElementById('join-form').addEventListener('submit', (e) => {
+      e.preventDefault();
+      const link = document.getElementById('join-link').value.trim();
+      const name = document.getElementById('join-name').value.trim();
+      const color = document.getElementById('join-color').value;
+      location.href = `/player#link=${encodeURIComponent(link)}&name=${encodeURIComponent(name)}&color=${encodeURIComponent(color)}`;
+    });
+  </script>
 </body>
 </html>

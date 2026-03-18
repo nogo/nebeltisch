@@ -27,3 +27,8 @@ A collaborative tabletop tool for remote pen & paper RPGs. GM creates an adventu
 - [ ] wu-05: GM frontend with canvas fog
 - [ ] wu-06: Player frontend and token system
 - [ ] wu-07: Docker and deployment
+
+## Future Improvements
+- **GM fog opacity slider** — adjustable transparency (0–100%) on the fog layer, GM-only. Lets the GM peek through fog to plan reveals. Players always see fully opaque fog. Pure client-side, no server changes needed.
+- **GM map tokens** — GM can place tokens (monsters, NPCs, treasure, traps) on the map below the fog layer. These are hidden until fog is revealed. Rendered between the map canvas and the fog canvas. GM can add, move, remove, and label them. Players see them only when the fog above is cleared.
+- **Rename project** — pick final name (Nebeltisch is a candidate).
