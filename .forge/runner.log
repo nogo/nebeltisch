@@ -64,3 +64,40 @@ fogofwar/
   ─────────────────────────────────────────────────────
   Finished: 2026-03-18 22:25:58  (3m 16s)
   Status:   ✓ OK
+  Commit:   ✓ 7b10a8d  wu-01: Initialize project and server skeleton
+  Changes:   27 files changed, 1820 insertions(+)
+  Moved:    → .forge/done/wu-01.md
+  ─────────────────────────────────────────────────────
+
+
+wu-02: Add image upload and adventure REST API
+model: sonnet
+
+  Prompt:  127 lines  (6595 bytes)
+  Log:     /home/nogo/Development/projects/fogofwar/.forge/wu/wu-02.log
+
+  Started: 2026-03-18 22:25:58
+
+  [22:26:02]  ⚙  Glob  {"pattern":"src/**/*"}
+  [22:26:02]  ⚙  Glob  {"pattern":"test/**/*"}
+  [22:26:06]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/index.ts"}
+  [22:26:06]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/routes.ts"}
+  [22:26:06]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/types.ts"}
+  [22:26:07]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/db/database.ts"}
+  [22:26:09]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/db/adventures.ts"}
+  [22:26:09]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/db/images.ts"}
+  [22:26:09]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/db/schema.ts"}
+  [22:28:32]  💬 Now I have the full picture. Let me implement everything in parallel where possible.
+  [22:28:56]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/src/routes.ts","content":…
+  [22:29:01]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/src/index.ts","content":"…
+  [22:29:06]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/test/helpers.ts","content…
+  [22:29:22]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/test/api/adventures.test.…
+  [22:29:39]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/test/api/images.test.ts",…
+  [22:29:42]  ⚙  Bash  {"command":"bun test 2>&1","timeout":60000}
+  [22:29:45]  💬 35 tests, all passing. Done.
+
+  [22:29:46]  ✅ Done — tokens: 12 in / 17927 out | cost: $0.4765701
+
+  ─────────────────────────────────────────────────────
+  Finished: 2026-03-18 22:29:46  (3m 48s)
+  Status:   ✓ OK
