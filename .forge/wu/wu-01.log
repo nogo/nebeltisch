@@ -1,0 +1,26 @@
+All 19 tests pass. Here's the project structure:
+
+```
+fogofwar/
+├── package.json
+├── tsconfig.json
+├── .gitignore
+├── public/index.html
+├── src/
+│   ├── index.ts          — Bun.serve() on port 3000, WS stub
+│   ├── routes.ts         — GET /, GET /api/health, /public/*, 404
+│   ├── types.ts          — Adventure, ImageRecord, Token interfaces
+│   └── db/
+│       ├── schema.ts     — createSchema(db) — IF NOT EXISTS, FK + WAL
+│       ├── database.ts   — initDatabase(path?) — creates data/ dir
+│       ├── adventures.ts — 5 CRUD functions
+│       ├── images.ts     — 5 CRUD functions
+│       └── tokens.ts     — 4 CRUD functions
+└── test/db/
+    ├── schema.test.ts    — idempotency, table presence
+    ├── adventures.test.ts — 6 tests incl. cascade + FK throw
+    ├── images.test.ts    — 4 tests incl. binary fog_mask round-trip
+    └── tokens.test.ts    — 5 tests incl. cascade
+```
+
+`bun run dev` will start on port 3000. `bun test` exits 0.
