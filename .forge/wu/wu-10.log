@@ -1,0 +1,14 @@
+This work was already completed in wu-09. All files are in place:
+
+- **`public/js/viewport.ts`** — Created: manages pan/zoom state, 100ms grace period, gesture discrimination, pointer capture, wheel zoom
+- **`public/js/canvas.ts`** — Updated: wrapper sized to image dimensions, no `screenToImage` (moved to viewport)
+- **`public/js/tokens.ts`** — Updated: accepts `screenToImage` as injected parameter
+- **`public/js/gm.ts`** — Updated: uses `createViewport()`, wires `onInteractStart`/`onPointerMove`/`onInteractEnd`/`onPointerLeave`
+- **`public/js/player.ts`** — Updated: same viewport integration for token drag
+- **`public/css/style.css`** — Updated: `touch-action: none` on both `#canvas-area` selectors
+
+Verification:
+```
+bun run build:client  → Bundled 7 modules in 2ms  ✓
+bun test              → 77 pass, 0 fail            ✓
+```
