@@ -20,19 +20,19 @@ A collaborative tabletop tool for remote pen & paper RPGs. GM creates an adventu
 
 ## Status
 - [x] Discovery complete
-- [ ] wu-01: Initialize project and server skeleton
-- [ ] wu-02: Image upload and adventure API
-- [ ] wu-03: Fog mask data model and persistence
-- [ ] wu-04: WebSocket layer and real-time sync
-- [ ] wu-05: GM frontend with canvas fog
-- [ ] wu-06: Player frontend and token system
-- [ ] wu-07: Docker and deployment
-
-## PoC Scope (post-core)
-- [ ] **Pan and zoom** — scroll to zoom, drag to pan. GM and players independently. Essential for large maps. Touch pinch-zoom for mobile.
-- [ ] **Undo/redo for fog** — ctrl+z / ctrl+y on fog strokes. Store stroke history, replay to reconstruct state.
-- [ ] **Player ping/pointer** — any participant clicks to flash a visible-to-all marker ("look here"). Fades after ~3 seconds.
-- [ ] **Mobile/tablet support** — touch gestures for fog erasing, token dragging, pan/zoom. Responsive layout. Players often join from phones.
+- [x] wu-01: Initialize project and server skeleton
+- [x] wu-02: Image upload and adventure API
+- [x] wu-03: Fog mask data model and persistence
+- [x] wu-04: WebSocket layer and real-time sync
+- [x] wu-05: GM frontend with canvas fog
+- [x] wu-06: Player frontend and token system
+- [x] wu-07: Docker and deployment
+- [ ] wu-08: Fix fog mask persistence on reload
+- [ ] wu-09: Add pan and zoom with touch gestures
+- [ ] wu-10: Redesign GM and Player UI with floating controls
+- [ ] wu-11: Redesign home page with matching visual language
+- [ ] wu-12: Add undo and redo for fog strokes
+- [ ] wu-13: Add player ping marker
 
 ## Future Improvements
 - **GM fog opacity slider** — adjustable transparency (0–100%) on the fog layer, GM-only. Lets the GM peek through fog to plan reveals. Players always see fully opaque fog. Pure client-side, no server changes needed.

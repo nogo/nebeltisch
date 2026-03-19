@@ -3,7 +3,7 @@ import {
   initCanvas,
   initTokenLayer,
   listImagesAsPlayer
-} from "./gm-e83kmrq3.js";
+} from "./gm-m6pcjxyv.js";
 
 // public/js/player.ts
 var fragment = new URLSearchParams(location.hash.slice(1));

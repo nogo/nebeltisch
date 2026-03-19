@@ -5,7 +5,7 @@ import {
   initTokenLayer,
   listImages,
   uploadImage
-} from "./gm-e83kmrq3.js";
+} from "./gm-m6pcjxyv.js";
 
 // public/js/gm.ts
 var fragment = new URLSearchParams(location.hash.slice(1));

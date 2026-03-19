@@ -56,6 +56,32 @@ describe("serializeMask / deserializeMask", () => {
     const bad = Buffer.from([0, 0, 0]);
     expect(() => deserializeMask(bad)).toThrow();
   });
+
+  test("round-trip with valid dimensions preserves exact pixel values", async () => {
+    const mask = createMask(4, 3);
+    mask.data[0] = 0;    // revealed
+    mask.data[6] = 128;  // partial
+    mask.data[11] = 255; // fogged
+    const buf = await serializeMask(mask);
+    const restored = deserializeMask(buf);
+    expect(restored.width).toBe(4);
+    expect(restored.height).toBe(3);
+    expect(restored.data[0]).toBe(0);
+    expect(restored.data[6]).toBe(128);
+    expect(restored.data[11]).toBe(255);
+  });
+
+  test("deserialize 0x0 header returns empty mask (graceful fallback)", () => {
+    const header = Buffer.allocUnsafe(8);
+    header.writeUInt32BE(0, 0);
+    header.writeUInt32BE(0, 4);
+    const compressed = Buffer.from(Bun.deflateSync(new Uint8Array(0)));
+    const data = Buffer.concat([header, compressed]);
+    const mask = deserializeMask(data);
+    expect(mask.width).toBe(0);
+    expect(mask.height).toBe(0);
+    expect(mask.data.length).toBe(0);
+  });
 });
 
 describe("saveFogMask / loadFogMask", () => {

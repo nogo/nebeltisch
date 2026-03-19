@@ -12,11 +12,12 @@ import {
   getImagesByAdventure,
   getImage,
   deleteImage,
+  updateImageDimensions,
 } from "./db/images";
 
 const publicDir = join(import.meta.dir, "..", "public");
 
-function parseImageDimensions(buf: Buffer): { width: number; height: number } {
+export function parseImageDimensions(buf: Buffer): { width: number; height: number } {
   // PNG: bytes 0-7 = signature, 8-15 = IHDR length+type, 16-19 = width, 20-23 = height
   if (buf.length >= 24 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
     return {
@@ -44,6 +45,20 @@ function parseImageDimensions(buf: Buffer): { width: number; height: number } {
   // WebP: RIFF header, bytes 24-27 = width (LE 14 bits), 26-29 = height (LE 14 bits) for VP8
   // Simplified: just return 0 for unsupported formats
   return { width: 0, height: 0 };
+}
+
+export function repairImageDimensions(db: Database, imageId: string, uploadsDir: string): void {
+  const image = getImage(db, imageId);
+  if (!image || (image.width > 0 && image.height > 0)) return;
+  try {
+    const buf = readFileSync(join(uploadsDir, image.filename));
+    const { width, height } = parseImageDimensions(buf);
+    if (width > 0 && height > 0) {
+      updateImageDimensions(db, imageId, width, height);
+    }
+  } catch {
+    // file not found or unreadable, skip
+  }
 }
 
 export function handleRequest(

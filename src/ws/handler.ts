@@ -3,6 +3,7 @@ import type { Server, ServerWebSocket } from "bun";
 import type { WsData, FogMask } from "../types";
 import { getAdventure, getAdventureByPlayerLink, setActiveImage } from "../db/adventures";
 import { getImage } from "../db/images";
+import { repairImageDimensions } from "../routes";
 import { createToken, getTokensByAdventure, updateTokenPosition, deleteToken } from "../db/tokens";
 import { createMask, applyStroke, applyStrokes } from "../fog/mask";
 import { serializeMask, saveFogMask, loadFogMask } from "../fog/serialize";
@@ -18,15 +19,19 @@ import { parseMessage, serializeMessage } from "./messages";
 const fogMaskCache = new Map<string, FogMask>(); // keyed by imageId
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
-async function getFogMaskForImage(db: Database, imageId: string): Promise<FogMask> {
+async function getFogMaskForImage(db: Database, imageId: string, uploadsDir?: string): Promise<FogMask> {
   if (fogMaskCache.has(imageId)) return fogMaskCache.get(imageId)!;
   const loaded = await loadFogMask(db, imageId);
   if (loaded) {
     fogMaskCache.set(imageId, loaded);
     return loaded;
   }
-  const image = getImage(db, imageId);
+  let image = getImage(db, imageId);
   if (!image) throw new Error(`Image ${imageId} not found`);
+  if ((image.width === 0 || image.height === 0) && uploadsDir) {
+    repairImageDimensions(db, imageId, uploadsDir);
+    image = getImage(db, imageId) ?? image;
+  }
   const mask = createMask(image.width, image.height);
   fogMaskCache.set(imageId, mask);
   return mask;
@@ -39,8 +44,16 @@ function scheduleSave(db: Database, imageId: string): void {
     saveTimers.delete(imageId);
     const mask = fogMaskCache.get(imageId);
     if (mask) await saveFogMask(db, imageId, mask);
-  }, 1000);
+  }, 500);
   saveTimers.set(imageId, timer);
+}
+
+export async function flushAllFogCaches(db: Database): Promise<void> {
+  for (const timer of saveTimers.values()) clearTimeout(timer);
+  saveTimers.clear();
+  for (const [imageId, mask] of fogMaskCache) {
+    await saveFogMask(db, imageId, mask);
+  }
 }
 
 async function maskToBase64(mask: FogMask): Promise<string> {
@@ -114,7 +127,7 @@ export function handleWsUpgrade(
 
 // ---- WebSocket handlers ----
 
-export function createWsHandlers(db: Database) {
+export function createWsHandlers(db: Database, uploadsDir?: string) {
   return {
     async open(ws: ServerWebSocket<WsData>) {
       const { adventureId, role, playerName, playerColor, tokenId } = ws.data;
@@ -126,7 +139,7 @@ export function createWsHandlers(db: Database) {
       let fogMask: string | null = null;
       if (adventure.active_image_id) {
         try {
-          const mask = await getFogMaskForImage(db, adventure.active_image_id);
+          const mask = await getFogMaskForImage(db, adventure.active_image_id, uploadsDir);
           fogMask = await maskToBase64(mask);
         } catch {
           fogMask = null;
@@ -194,7 +207,7 @@ export function createWsHandlers(db: Database) {
             break;
           }
           const imageId = adv.active_image_id;
-          const mask = await getFogMaskForImage(db, imageId);
+          const mask = await getFogMaskForImage(db, imageId, uploadsDir);
           applyStroke(mask, msg.stroke);
           scheduleSave(db, imageId);
           ws.publish(topic, serializeMessage({ type: "fog:stroke", stroke: msg.stroke, imageId }));
@@ -212,7 +225,7 @@ export function createWsHandlers(db: Database) {
             break;
           }
           const imageId = adv.active_image_id;
-          const mask = await getFogMaskForImage(db, imageId);
+          const mask = await getFogMaskForImage(db, imageId, uploadsDir);
           applyStrokes(mask, msg.strokes);
           scheduleSave(db, imageId);
           ws.publish(topic, serializeMessage({ type: "fog:stroke:batch", strokes: msg.strokes, imageId }));
@@ -249,7 +262,7 @@ export function createWsHandlers(db: Database) {
           }
           let fogMask: string | null = null;
           try {
-            const mask = await getFogMaskForImage(db, msg.imageId);
+            const mask = await getFogMaskForImage(db, msg.imageId, uploadsDir);
             fogMask = await maskToBase64(mask);
           } catch {
             fogMask = null;
@@ -278,6 +291,16 @@ export function createWsHandlers(db: Database) {
     close(ws: ServerWebSocket<WsData>) {
       const info = unregisterConnection(ws);
       if (!info) return;
+
+      if (info.role === "gm") {
+        // Flush any pending fog saves immediately on GM disconnect
+        for (const [imageId, timer] of saveTimers) {
+          clearTimeout(timer);
+          saveTimers.delete(imageId);
+          const mask = fogMaskCache.get(imageId);
+          if (mask) saveFogMask(db, imageId, mask).catch(() => {});
+        }
+      }
 
       const topic = `adventure:${info.adventureId}`;
 

@@ -119,11 +119,13 @@ export function initCanvas(container: HTMLElement, options?: { mode?: 'gm' | 'pl
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
       const view = new DataView(bytes.buffer);
-      const w = view.getUint32(0, false);
-      const h = view.getUint32(4, false);
+      let w = view.getUint32(0, false);
+      let h = view.getUint32(4, false);
       if (w === 0 || h === 0) {
-        // Invalid mask dimensions — keep current fog (fully fogged)
-        return;
+        if (imgW === 0) return; // No image loaded yet
+        console.warn('Fog mask has 0x0 dimensions, falling back to loaded image dimensions', imgW, imgH);
+        w = imgW;
+        h = imgH;
       }
       const pixels = await decompress(bytes.slice(8));
       if (imgW !== w || imgH !== h) sizeAll(w, h);

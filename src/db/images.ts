@@ -41,6 +41,10 @@ export function updateFogMask(db: Database, imageId: string, mask: Buffer | null
   db.run(`UPDATE images SET fog_mask = ? WHERE id = ?`, [mask, imageId]);
 }
 
+export function updateImageDimensions(db: Database, id: string, width: number, height: number): void {
+  db.run(`UPDATE images SET width = ?, height = ? WHERE id = ?`, [width, height, id]);
+}
+
 export function deleteImage(db: Database, id: string): void {
   db.run(`DELETE FROM images WHERE id = ?`, [id]);
 }

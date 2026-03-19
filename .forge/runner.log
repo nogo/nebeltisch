@@ -430,3 +430,270 @@ model: sonnet
   ─────────────────────────────────────────────────────
   Finished: 2026-03-18 23:00:55  (0m 43s)
   Status:   ✓ OK
+  Commit:   ✓ 88f0469  wu-07: Add Docker and deployment config
+  Changes:   14 files changed, 138 insertions(+), 3 deletions(-)
+  Moved:    → .forge/done/wu-07.md
+  ─────────────────────────────────────────────────────
+
+  ⏳ Waiting for work units... (23:00:55)
+  ⏳ Waiting for work units... (23:01:00)
+  ⏳ Waiting for work units... (23:01:05)
+  ⏳ Waiting for work units... (23:01:10)
+  ⏳ Waiting for work units... (23:01:15)
+  ⏳ Waiting for work units... (23:01:20)
+  ⏳ Waiting for work units... (23:01:25)
+  ⏳ Waiting for work units... (23:01:30)
+  ⏳ Waiting for work units... (23:01:35)
+  ⏳ Waiting for work units... (23:01:40)
+  ⏳ Waiting for work units... (23:01:45)
+  ⏳ Waiting for work units... (23:01:50)
+  ⏳ Waiting for work units... (23:01:55)
+  ⏳ Waiting for work units... (23:02:00)
+  ⏳ Waiting for work units... (23:02:05)
+  ⏳ Waiting for work units... (23:02:10)
+  ⏳ Waiting for work units... (23:02:15)
+  ⏳ Waiting for work units... (23:02:20)
+  ⏳ Waiting for work units... (23:02:25)
+  ⏳ Waiting for work units... (23:02:30)
+  ⏳ Waiting for work units... (23:02:35)
+  ⏳ Waiting for work units... (23:02:40)
+  ⏳ Waiting for work units... (23:02:45)
+  ⏳ Waiting for work units... (23:02:50)
+  ⏳ Waiting for work units... (23:02:55)
+  ⏳ Waiting for work units... (23:03:00)
+  ⏳ Waiting for work units... (23:03:05)
+  ⏳ Waiting for work units... (23:03:10)
+  ⏳ Waiting for work units... (23:03:15)
+  ⏳ Waiting for work units... (23:03:20)
+  ⏳ Waiting for work units... (23:03:25)
+  ⏳ Waiting for work units... (23:03:30)
+  ⏳ Waiting for work units... (23:03:35)
+  ⏳ Waiting for work units... (23:03:40)
+  ⏳ Waiting for work units... (23:03:45)
+  ⏳ Waiting for work units... (23:03:50)
+  ⏳ Waiting for work units... (23:03:55)
+  ⏳ Waiting for work units... (23:04:00)
+  ⏳ Waiting for work units... (23:04:05)
+  ⏳ Waiting for work units... (23:04:10)
+  ⏳ Waiting for work units... (23:04:15)
+  ⏳ Waiting for work units... (23:04:20)
+  ⏳ Waiting for work units... (23:04:25)
+  ⏳ Waiting for work units... (23:04:30)
+  ⏳ Waiting for work units... (23:04:35)
+  ⏳ Waiting for work units... (23:04:40)
+  ⏳ Waiting for work units... (23:04:45)
+  ⏳ Waiting for work units... (23:04:50)
+  ⏳ Waiting for work units... (23:04:55)
+  ⏳ Waiting for work units... (23:05:00)
+  ⏳ Waiting for work units... (23:05:05)
+  ⏳ Waiting for work units... (23:05:10)
+  ⏳ Waiting for work units... (23:05:15)
+  ⏳ Waiting for work units... (23:05:20)
+  ⏳ Waiting for work units... (23:05:25)
+  ⏳ Waiting for work units... (23:05:30)
+  ⏳ Waiting for work units... (23:05:35)
+  ⏳ Waiting for work units... (23:05:40)
+  ⏳ Waiting for work units... (23:05:45)
+  ⏳ Waiting for work units... (23:05:50)
+  ⏳ Waiting for work units... (23:05:55)
+  ⏳ Waiting for work units... (23:06:00)
+  ⏳ Waiting for work units... (23:06:05)
+  ⏳ Waiting for work units... (23:06:10)
+  ⏳ Waiting for work units... (23:06:15)
+  ⏳ Waiting for work units... (23:06:20)
+  ⏳ Waiting for work units... (23:06:25)
+  ⏳ Waiting for work units... (23:06:30)
+  ⏳ Waiting for work units... (23:06:35)
+  ⏳ Waiting for work units... (23:06:40)
+  ⏳ Waiting for work units... (23:06:45)
+  ⏳ Waiting for work units... (23:06:50)
+  ⏳ Waiting for work units... (23:06:55)
+  ⏳ Waiting for work units... (23:07:00)
+  ⏳ Waiting for work units... (23:07:05)
+  ⏳ Waiting for work units... (23:07:10)
+  ⏳ Waiting for work units... (23:07:15)
+  ⏳ Waiting for work units... (23:07:20)
+  ⏳ Waiting for work units... (23:07:25)
+  ⏳ Waiting for work units... (23:07:30)
+  ⏳ Waiting for work units... (23:07:35)
+  ⏳ Waiting for work units... (23:07:40)
+  ⏳ Waiting for work units... (23:07:45)
+  ⏳ Waiting for work units... (23:07:50)
+  ⏳ Waiting for work units... (23:07:55)
+  ⏳ Waiting for work units... (23:08:00)
+  ⏳ Waiting for work units... (23:08:05)
+  ⏳ Waiting for work units... (23:08:10)
+  ⏳ Waiting for work units... (23:08:15)
+  ⏳ Waiting for work units... (23:08:20)
+  ⏳ Waiting for work units... (23:08:25)
+  ⏳ Waiting for work units... (23:08:30)
+  ⏳ Waiting for work units... (23:08:35)
+  ⏳ Waiting for work units... (23:08:40)
+  ⏳ Waiting for work units... (23:08:45)
+  ⏳ Waiting for work units... (23:08:50)
+  ⏳ Waiting for work units... (23:08:55)
+  ⏳ Waiting for work units... (23:09:00)
+  ⏳ Waiting for work units... (23:09:05)
+  ⏳ Waiting for work units... (23:09:10)
+  ⏳ Waiting for work units... (23:09:15)
+  ⏳ Waiting for work units... (23:09:20)
+  ⏳ Waiting for work units... (23:09:25)
+  ⏳ Waiting for work units... (23:09:30)
+  ⏳ Waiting for work units... (23:09:35)
+  ⏳ Waiting for work units... (23:09:40)
+  ⏳ Waiting for work units... (23:09:45)
+  ⏳ Waiting for work units... (23:09:50)
+  ⏳ Waiting for work units... (23:09:55)
+  ⏳ Waiting for work units... (23:10:00)
+  ⏳ Waiting for work units... (23:10:05)
+  ⏳ Waiting for work units... (23:10:10)
+  ⏳ Waiting for work units... (23:10:15)
+  ⏳ Waiting for work units... (23:10:20)
+  ⏳ Waiting for work units... (23:10:25)
+  ⏳ Waiting for work units... (23:10:30)
+  ⏳ Waiting for work units... (23:10:35)
+  ⏳ Waiting for work units... (23:10:40)
+  ⏳ Waiting for work units... (23:10:45)
+  ⏳ Waiting for work units... (23:10:50)
+  ⏳ Waiting for work units... (23:10:55)
+  ⏳ Waiting for work units... (23:11:00)
+  ⏳ Waiting for work units... (23:11:05)
+  ⏳ Waiting for work units... (23:11:10)
+  ⏳ Waiting for work units... (23:11:15)
+  ⏳ Waiting for work units... (23:11:20)
+  ⏳ Waiting for work units... (23:11:25)
+  ⏳ Waiting for work units... (23:11:30)
+  ⏳ Waiting for work units... (23:11:35)
+  ⏳ Waiting for work units... (23:11:40)
+  ⏳ Waiting for work units... (23:11:45)
+  ⏳ Waiting for work units... (23:11:50)
+  ⏳ Waiting for work units... (23:11:55)
+  ⏳ Waiting for work units... (23:12:00)
+  ⏳ Waiting for work units... (23:12:05)
+  ⏳ Waiting for work units... (23:12:10)
+  ⏳ Waiting for work units... (23:12:15)
+  ⏳ Waiting for work units... (23:12:20)
+  ⏳ Waiting for work units... (23:12:25)
+  ⏳ Waiting for work units... (23:12:30)
+  ⏳ Waiting for work units... (23:12:35)
+  ⏳ Waiting for work units... (23:12:40)
+  ⏳ Waiting for work units... (23:12:45)
+  ⏳ Waiting for work units... (23:12:50)
+  ⏳ Waiting for work units... (23:12:55)
+  ⏳ Waiting for work units... (23:13:00)
+  ⏳ Waiting for work units... (23:13:05)
+  ⏳ Waiting for work units... (23:13:11)
+  ⏳ Waiting for work units... (23:13:16)
+  ⏳ Waiting for work units... (23:13:21)
+  ⏳ Waiting for work units... (23:13:26)
+  ⏳ Waiting for work units... (23:13:31)
+  ⏳ Waiting for work units... (23:13:36)
+  ⏳ Waiting for work units... (23:13:41)
+  ⏳ Waiting for work units... (23:13:46)
+  ⏳ Waiting for work units... (23:13:51)
+  ⏳ Waiting for work units... (23:13:56)
+  ⏳ Waiting for work units... (23:14:01)
+  ⏳ Waiting for work units... (23:14:06)
+  ⏳ Waiting for work units... (23:14:11)
+  ⏳ Waiting for work units... (23:14:16)
+  ⏳ Waiting for work units... (23:14:21)
+  ⏳ Waiting for work units... (23:14:26)
+
+  ⏹ Ctrl-C received, finishing current work...
+forge runner
+project: /home/nogo/Development/projects/fogofwar
+queue:   /home/nogo/Development/projects/fogofwar/.forge/wu
+model:   sonnet
+poll:    5s
+date:    2026-03-19 21:31:48
+
+  Ctrl-C to stop gracefully
+  ⏳ Waiting for work units... (21:31:48)
+  ⏳ Waiting for work units... (21:31:53)
+  ⏳ Waiting for work units... (21:31:58)
+  ⏳ Waiting for work units... (21:32:03)
+  ⏳ Waiting for work units... (21:32:08)
+  ⏳ Waiting for work units... (21:32:13)
+  ⏳ Waiting for work units... (21:32:18)
+
+  ⏹ Ctrl-C received, finishing current work...
+forge runner
+project: /home/nogo/Development/projects/fogofwar
+queue:   /home/nogo/Development/projects/fogofwar/.forge/wu
+model:   sonnet
+poll:    5s
+date:    2026-03-19 21:45:44
+
+  Ctrl-C to stop gracefully
+
+wu-08: Fix fog mask persistence on reload
+model: sonnet
+
+  Prompt:  97 lines  (5932 bytes)
+  Log:     /home/nogo/Development/projects/fogofwar/.forge/wu/wu-08.log
+
+  Started: 2026-03-19 21:45:44
+
+  [21:45:49]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/ws/handler.ts"}
+  [21:45:49]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/routes.ts"}
+  [21:45:50]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/index.ts"}
+  [21:45:52]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/db/images.ts"}
+  [21:45:53]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/public/js/canvas.ts"}
+  [21:45:54]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/test/ws/handler.test.ts"}
+  [21:45:54]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/test/fog/serialize.test.t…
+  [21:45:58]  💬 Now let me read the remaining files I need.
+  [21:45:59]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/fog/serialize.ts"}
+  [21:45:59]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/fog/mask.ts"}
+  [21:45:59]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/test/helpers.ts"}
+  [21:48:31]  💬 Now I have a complete picture. Let me implement all the changes.
+  [21:48:31]  ⚙  ToolSearch  {"query":"select:TodoWrite","max_results":1}
+  [21:48:39]  ⚙  TodoWrite  {"todos":[{"content":"Add updateImageDimensions to src/db/images.ts","activeForm…
+  [21:48:44]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/d…
+  [21:48:48]  ⚙  TodoWrite  {"todos":[{"content":"Add updateImageDimensions to src/db/images.ts","activeForm…
+  [21:48:51]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/r…
+  [21:48:54]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/r…
+  [21:48:59]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/r…
+  [21:49:04]  ⚙  TodoWrite  {"todos":[{"content":"Add updateImageDimensions to src/db/images.ts","activeForm…
+  [21:49:06]  💬 Now update `src/ws/handler.ts` with all the changes:
+  [21:49:08]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/w…
+  [21:49:17]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/w…
+  [21:49:20]  💬 Now update `createWsHandlers` to accept `uploadsDir` and thread it through, and flush on GM disconnect:
+  [21:49:26]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/w…
+  [21:49:29]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/w…
+  [21:49:32]  ⚙  Grep  {"pattern":"getFogMaskForImage","file_path":"/home/nogo/Development/projects/fog…
+  [21:49:35]  ⚙  Grep  {"pattern":"getFogMaskForImage","path":"/home/nogo/Development/projects/fogofwar…
+  [21:49:37]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/ws/handler.ts","offse…
+  [21:49:41]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/w…
+  [21:49:45]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/w…
+  [21:49:48]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/w…
+  [21:49:50]  💬 Now update the close handler to flush GM's pending fog saves:
+  [21:49:54]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/w…
+  [21:50:00]  ⚙  TodoWrite  {"todos":[{"content":"Add updateImageDimensions to src/db/images.ts","activeForm…
+  [21:50:03]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/i…
+  [21:50:06]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/i…
+  [21:50:10]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/i…
+  [21:50:14]  ⚙  TodoWrite  {"todos":[{"content":"Add updateImageDimensions to src/db/images.ts","activeForm…
+  [21:50:23]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/publi…
+  [21:50:27]  ⚙  TodoWrite  {"todos":[{"content":"Add updateImageDimensions to src/db/images.ts","activeForm…
+  [21:50:32]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/test/…
+  [21:50:42]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/test/…
+  [21:50:50]  ⚙  TodoWrite  {"todos":[{"content":"Add updateImageDimensions to src/db/images.ts","activeForm…
+  [21:50:58]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/test/…
+  [21:51:03]  ⚙  TodoWrite  {"todos":[{"content":"Add updateImageDimensions to src/db/images.ts","activeForm…
+  [21:51:05]  ⚙  Bash  {"command":"bun run build 2>&1","timeout":60000}
+  [21:51:08]  ⚙  Bash  {"command":"cat package.json | grep -A10 '\"scripts\"'"}
+  [21:51:10]  ⚙  Bash  {"command":"bun run build:client 2>&1","timeout":60000}
+  [21:51:12]  ⚙  Bash  {"command":"bun test 2>&1","timeout":120000}
+  [21:51:15]  💬 All 77 tests pass. Let me mark everything complete.
+  [21:51:18]  ⚙  TodoWrite  {"todos":[{"content":"Add updateImageDimensions to src/db/images.ts","activeForm…
+  [21:51:30]  💬 All done. 77/77 tests pass. Here's what was changed:
+
+**`src/db/images.ts`** — added `updateImageDimensions()`
+
+**`src/r
+
+  [21:51:30]  ✅ Done — tokens: 44 in / 21387 out | cost: $1.2401493000000001
+
+  ─────────────────────────────────────────────────────
+  Finished: 2026-03-19 21:51:30  (5m 46s)
+  Status:   ✓ OK

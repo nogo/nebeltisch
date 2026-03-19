@@ -1,13 +1,13 @@
 import { mkdirSync } from "fs";
 import { initDatabase } from "./db/database";
 import { handleRequest } from "./routes";
-import { createWsHandlers, handleWsUpgrade } from "./ws/handler";
+import { createWsHandlers, handleWsUpgrade, flushAllFogCaches } from "./ws/handler";
 
 const uploadsDir = `${process.env.DATA_DIR || "./data"}/uploads/`;
 mkdirSync(uploadsDir, { recursive: true });
 
 const db = initDatabase();
-const wsHandlers = createWsHandlers(db);
+const wsHandlers = createWsHandlers(db, uploadsDir);
 
 const server = Bun.serve({
   port: process.env.PORT ? parseInt(process.env.PORT) : 3000,
@@ -22,3 +22,11 @@ const server = Bun.serve({
 });
 
 console.log(`Server running on http://localhost:${server.port}`);
+
+async function shutdown() {
+  await flushAllFogCaches(db);
+  process.exit(0);
+}
+
+process.on("SIGINT", shutdown);
+process.on("SIGTERM", shutdown);

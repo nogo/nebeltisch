@@ -3,6 +3,8 @@ import { startWsTestServer, type WsTestServer } from "../helpers";
 import { createAdventure } from "../../src/db/adventures";
 import { createImageRecord } from "../../src/db/images";
 import { getTokensByAdventure } from "../../src/db/tokens";
+import { flushAllFogCaches } from "../../src/ws/handler";
+import { loadFogMask } from "../../src/fog/serialize";
 
 // ---- WebSocket test helpers ----
 
@@ -407,6 +409,60 @@ describe("WebSocket handler", () => {
 
     // Should have existing tokens (Alice's token was just created, at minimum)
     expect(joined.tokens.length).toBeGreaterThan(0);
+  });
+
+  it("Fog mask survives flush", async () => {
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
+
+    const gm = track(
+      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+    );
+    await waitForMessage(gm, "joined");
+
+    gm.send(JSON.stringify({
+      type: "fog:stroke",
+      stroke: { x: 50, y: 50, radius: 20, mode: "reveal" },
+    }));
+    await new Promise((r) => setTimeout(r, 50));
+
+    await flushAllFogCaches(ts.db);
+
+    const loaded = await loadFogMask(ts.db, imageId);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.width).toBe(100);
+    expect(loaded!.height).toBe(100);
+  });
+
+  it("Fog mask persists across GM reconnection", async () => {
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
+
+    const gm = track(
+      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+    );
+    await waitForMessage(gm, "joined");
+
+    gm.send(JSON.stringify({
+      type: "fog:stroke",
+      stroke: { x: 50, y: 50, radius: 20, mode: "reveal" },
+    }));
+    await new Promise((r) => setTimeout(r, 50));
+
+    // Disconnect GM → triggers flush
+    await closeWs(gm);
+    // Wait for async flush to complete
+    await new Promise((r) => setTimeout(r, 100));
+
+    // Verify fog is in DB
+    const loaded = await loadFogMask(ts.db, imageId);
+    expect(loaded).not.toBeNull();
+
+    // GM reconnects and receives the persisted fog mask
+    const gm2 = track(
+      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+    );
+    const joined = await waitForMessage(gm2, "joined");
+    expect(joined.fogMask).not.toBeNull();
+    expect(typeof joined.fogMask).toBe("string");
   });
 
   it("Ping/pong works", async () => {
