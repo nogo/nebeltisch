@@ -1,6 +1,7 @@
 import { connectGM } from './websocket';
 import { initCanvas } from './canvas';
 import { initTokenLayer } from './tokens';
+import { initPingLayer } from './ping';
 import { createViewport } from './viewport';
 import type { FogStroke } from './canvas';
 import * as api from './api';
@@ -47,6 +48,19 @@ const canvasCtrl = initCanvas(canvasArea);
 // --- Viewport ---
 const viewport = createViewport();
 viewport.attach(canvasArea, canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize());
+
+// --- Ping layer ---
+const pingCtrl = initPingLayer(
+  canvasCtrl.getWrapper(),
+  () => canvasCtrl.getImageSize(),
+  () => viewport.scale
+);
+
+function animatePings() {
+  pingCtrl.tick();
+  requestAnimationFrame(animatePings);
+}
+requestAnimationFrame(animatePings);
 
 // --- Token layer (non-interactive for GM) ---
 const tokenCtrl = initTokenLayer(
@@ -133,8 +147,13 @@ ws.on('player:roster', (msg) => {
   renderPresence(playerRoster);
 });
 
+ws.on('ping:map', (msg) => {
+  pingCtrl.addPing(msg.x as number, msg.y as number, msg.color as string);
+});
+
 ws.on('map:switched', async (msg) => {
   activeImageId = msg.imageId as string;
+  pingCtrl.clear();
   resetUndoHistory();
   imageList = await api.listImages(adventureId, password);
   const img = imageList.find(i => i.id === activeImageId);
@@ -380,9 +399,23 @@ document.addEventListener('keydown', (ev) => {
 
 // --- Brush interaction ---
 let isDrawing = false;
+let isPinging = false;
 const pending: FogStroke[] = [];
 let lastFlush = 0;
 const FLUSH_INTERVAL = 1000 / 60;
+
+// Long-press detection (500ms total: 100ms grace already elapsed, 400ms more)
+const GM_PING_COLOR = '#4a4aff';
+const LONG_PRESS_DELAY = 400;
+const PING_RATE_LIMIT = 1000;
+let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+let longPressStartPos: { x: number; y: number } | null = null;
+let lastPingTime = 0;
+
+function cancelLongPress() {
+  if (longPressTimer !== null) { clearTimeout(longPressTimer); longPressTimer = null; }
+  longPressStartPos = null;
+}
 
 function makeStroke(clientX: number, clientY: number): FogStroke {
   const pos = viewport.screenToImage(clientX, clientY);
@@ -402,6 +435,22 @@ function flushPending() {
 
 viewport.onInteractStart((ev: PointerEvent) => {
   if (!activeImageId) return;
+
+  longPressStartPos = { x: ev.clientX, y: ev.clientY };
+  longPressTimer = setTimeout(() => {
+    longPressTimer = null;
+    const now = Date.now();
+    if (now - lastPingTime >= PING_RATE_LIMIT) {
+      lastPingTime = now;
+      isDrawing = false;
+      currentAction = [];
+      pending.length = 0;
+      isPinging = true;
+      const pos = viewport.screenToImage(longPressStartPos!.x, longPressStartPos!.y);
+      ws.send({ type: 'ping:map', x: pos.x, y: pos.y, color: GM_PING_COLOR });
+    }
+  }, LONG_PRESS_DELAY);
+
   isDrawing = true;
   currentAction = [];
   const stroke = makeStroke(ev.clientX, ev.clientY);
@@ -414,7 +463,14 @@ viewport.onInteractStart((ev: PointerEvent) => {
 viewport.onPointerMove((ev: PointerEvent) => {
   const pos = viewport.screenToImage(ev.clientX, ev.clientY);
   canvasCtrl.drawBrushPreview(pos.x, pos.y, brushRadius);
-  if (!isDrawing) return;
+
+  if (longPressTimer !== null && longPressStartPos !== null) {
+    const dx = ev.clientX - longPressStartPos.x;
+    const dy = ev.clientY - longPressStartPos.y;
+    if (dx * dx + dy * dy > 25) cancelLongPress();
+  }
+
+  if (!isDrawing || isPinging) return;
   const stroke = makeStroke(ev.clientX, ev.clientY);
   canvasCtrl.applyStroke(stroke);
   pending.push(stroke);
@@ -436,10 +492,14 @@ function finishAction() {
 }
 
 viewport.onInteractEnd(() => {
+  cancelLongPress();
+  isPinging = false;
   finishAction();
 });
 
 viewport.onPointerLeave(() => {
   canvasCtrl.clearBrushPreview();
+  cancelLongPress();
+  isPinging = false;
   finishAction();
 });

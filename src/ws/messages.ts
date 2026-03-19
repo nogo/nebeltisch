@@ -48,6 +48,13 @@ export interface PingMessage {
   type: "ping";
 }
 
+export interface PingMapMessage {
+  type: "ping:map";
+  x: number;
+  y: number;
+  color: string;
+}
+
 export type ClientMessage =
   | JoinMessage
   | FogStrokeMessage
@@ -56,7 +63,8 @@ export type ClientMessage =
   | TokenMoveMessage
   | MapSwitchMessage
   | PlayerRemoveMessage
-  | PingMessage;
+  | PingMessage
+  | PingMapMessage;
 
 // ---- Server → Client ----
 
@@ -143,6 +151,14 @@ export interface PongMessage {
   type: "pong";
 }
 
+export interface PingMapBroadcast {
+  type: "ping:map";
+  x: number;
+  y: number;
+  color: string;
+  name: string;
+}
+
 export type ServerMessage =
   | JoinedMessage
   | FogStrokeBroadcast
@@ -157,7 +173,8 @@ export type ServerMessage =
   | PlayerRosterMessage
   | PlayerRemovedMessage
   | ErrorMessage
-  | PongMessage;
+  | PongMessage
+  | PingMapBroadcast;
 
 export function parseMessage(raw: string): ClientMessage | null {
   try {

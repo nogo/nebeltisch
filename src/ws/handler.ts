@@ -397,6 +397,20 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
           break;
         }
 
+        case "ping:map": {
+          const name = conn.role === "gm" ? "GM" : (conn.playerName ?? "Player");
+          const pingBroadcast = serializeMessage({
+            type: "ping:map",
+            x: msg.x,
+            y: msg.y,
+            color: msg.color,
+            name,
+          });
+          ws.send(pingBroadcast);
+          ws.publish(topic, pingBroadcast);
+          break;
+        }
+
         default: {
           ws.send(serializeMessage({ type: "error", message: "Unknown message type" }));
         }

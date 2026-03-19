@@ -3,10 +3,11 @@ import {
   createViewport,
   getAdventure,
   initCanvas,
+  initPingLayer,
   initTokenLayer,
   listImages,
   uploadImage
-} from "./gm-cbsvw20h.js";
+} from "./gm-bxt9t766.js";
 
 // public/js/gm.ts
 var fragment = new URLSearchParams(location.hash.slice(1));
@@ -41,6 +42,12 @@ var canvasArea = document.getElementById("canvas-area");
 var canvasCtrl = initCanvas(canvasArea);
 var viewport = createViewport();
 viewport.attach(canvasArea, canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize());
+var pingCtrl = initPingLayer(canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize(), () => viewport.scale);
+function animatePings() {
+  pingCtrl.tick();
+  requestAnimationFrame(animatePings);
+}
+requestAnimationFrame(animatePings);
 var tokenCtrl = initTokenLayer(canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize(), (x, y) => viewport.screenToImage(x, y), { interactive: false });
 var ws = connectGM(adventureId, password);
 ws.on("connect", () => {
@@ -106,8 +113,12 @@ ws.on("player:roster", (msg) => {
   playerRoster = msg.players;
   renderPresence(playerRoster);
 });
+ws.on("ping:map", (msg) => {
+  pingCtrl.addPing(msg.x, msg.y, msg.color);
+});
 ws.on("map:switched", async (msg) => {
   activeImageId = msg.imageId;
+  pingCtrl.clear();
   resetUndoHistory();
   imageList = await listImages(adventureId, password);
   const img = imageList.find((i) => i.id === activeImageId);
@@ -315,9 +326,23 @@ document.addEventListener("keydown", (ev) => {
   }
 });
 var isDrawing = false;
+var isPinging = false;
 var pending = [];
 var lastFlush = 0;
 var FLUSH_INTERVAL = 1000 / 60;
+var GM_PING_COLOR = "#4a4aff";
+var LONG_PRESS_DELAY = 400;
+var PING_RATE_LIMIT = 1000;
+var longPressTimer = null;
+var longPressStartPos = null;
+var lastPingTime = 0;
+function cancelLongPress() {
+  if (longPressTimer !== null) {
+    clearTimeout(longPressTimer);
+    longPressTimer = null;
+  }
+  longPressStartPos = null;
+}
 function makeStroke(clientX, clientY) {
   const pos = viewport.screenToImage(clientX, clientY);
   return { x: pos.x, y: pos.y, radius: brushRadius, mode: brushMode };
@@ -336,6 +361,20 @@ function flushPending() {
 viewport.onInteractStart((ev) => {
   if (!activeImageId)
     return;
+  longPressStartPos = { x: ev.clientX, y: ev.clientY };
+  longPressTimer = setTimeout(() => {
+    longPressTimer = null;
+    const now = Date.now();
+    if (now - lastPingTime >= PING_RATE_LIMIT) {
+      lastPingTime = now;
+      isDrawing = false;
+      currentAction = [];
+      pending.length = 0;
+      isPinging = true;
+      const pos = viewport.screenToImage(longPressStartPos.x, longPressStartPos.y);
+      ws.send({ type: "ping:map", x: pos.x, y: pos.y, color: GM_PING_COLOR });
+    }
+  }, LONG_PRESS_DELAY);
   isDrawing = true;
   currentAction = [];
   const stroke = makeStroke(ev.clientX, ev.clientY);
@@ -348,7 +387,13 @@ viewport.onInteractStart((ev) => {
 viewport.onPointerMove((ev) => {
   const pos = viewport.screenToImage(ev.clientX, ev.clientY);
   canvasCtrl.drawBrushPreview(pos.x, pos.y, brushRadius);
-  if (!isDrawing)
+  if (longPressTimer !== null && longPressStartPos !== null) {
+    const dx = ev.clientX - longPressStartPos.x;
+    const dy = ev.clientY - longPressStartPos.y;
+    if (dx * dx + dy * dy > 25)
+      cancelLongPress();
+  }
+  if (!isDrawing || isPinging)
     return;
   const stroke = makeStroke(ev.clientX, ev.clientY);
   canvasCtrl.applyStroke(stroke);
@@ -372,9 +417,13 @@ function finishAction() {
   }
 }
 viewport.onInteractEnd(() => {
+  cancelLongPress();
+  isPinging = false;
   finishAction();
 });
 viewport.onPointerLeave(() => {
   canvasCtrl.clearBrushPreview();
+  cancelLongPress();
+  isPinging = false;
   finishAction();
 });

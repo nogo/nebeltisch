@@ -1,6 +1,7 @@
 import { connectPlayer } from './websocket';
 import { initCanvas } from './canvas';
 import { initTokenLayer } from './tokens';
+import { initPingLayer } from './ping';
 import { createViewport } from './viewport';
 import * as api from './api';
 import type { FogStroke } from './canvas';
@@ -42,6 +43,7 @@ canvasArea.style.visibility = 'hidden';
 // --- State ---
 let activeImageId: string | null = null;
 let ownTokenId: string | null = null;
+let ownTokenPos: { x: number; y: number } | null = null;
 let imageList: api.ImageRecord[] = [];
 
 // --- Canvas (opaque fog) ---
@@ -51,6 +53,19 @@ const canvasCtrl = initCanvas(canvasArea, { mode: 'player' });
 const viewport = createViewport();
 viewport.attach(canvasArea, canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize());
 
+// --- Ping layer ---
+const pingCtrl = initPingLayer(
+  canvasCtrl.getWrapper(),
+  () => canvasCtrl.getImageSize(),
+  () => viewport.scale
+);
+
+function animatePings() {
+  pingCtrl.tick();
+  requestAnimationFrame(animatePings);
+}
+requestAnimationFrame(animatePings);
+
 // --- Token layer ---
 const tokenCtrl = initTokenLayer(
   canvasCtrl.getWrapper(),
@@ -59,10 +74,59 @@ const tokenCtrl = initTokenLayer(
   { interactive: true }
 );
 
-// Wire token drag through viewport gesture system
-viewport.onInteractStart(ev => tokenCtrl.handlePointerDown(ev));
-viewport.onPointerMove(ev => tokenCtrl.handlePointerMove(ev));
-viewport.onInteractEnd(() => tokenCtrl.handlePointerUp());
+// Long-press detection for ping
+const LONG_PRESS_DELAY = 400;
+const PING_RATE_LIMIT = 1000;
+const TOKEN_RADIUS = 20;
+let longPressTimer: ReturnType<typeof setTimeout> | null = null;
+let longPressStartPos: { x: number; y: number } | null = null;
+let lastPingTime = 0;
+
+function cancelLongPress() {
+  if (longPressTimer !== null) { clearTimeout(longPressTimer); longPressTimer = null; }
+  longPressStartPos = null;
+}
+
+function isOnOwnToken(clientX: number, clientY: number): boolean {
+  if (!ownTokenId || !ownTokenPos) return false;
+  const pos = viewport.screenToImage(clientX, clientY);
+  const dx = pos.x - ownTokenPos.x;
+  const dy = pos.y - ownTokenPos.y;
+  return dx * dx + dy * dy <= TOKEN_RADIUS * TOKEN_RADIUS;
+}
+
+// Wire token drag and long-press through viewport gesture system
+viewport.onInteractStart(ev => {
+  tokenCtrl.handlePointerDown(ev);
+
+  if (!isOnOwnToken(ev.clientX, ev.clientY)) {
+    longPressStartPos = { x: ev.clientX, y: ev.clientY };
+    longPressTimer = setTimeout(() => {
+      longPressTimer = null;
+      const now = Date.now();
+      if (now - lastPingTime >= PING_RATE_LIMIT) {
+        lastPingTime = now;
+        const pos = viewport.screenToImage(longPressStartPos!.x, longPressStartPos!.y);
+        ws.send({ type: 'ping:map', x: pos.x, y: pos.y, color: playerColor });
+      }
+    }, LONG_PRESS_DELAY);
+  }
+});
+
+viewport.onPointerMove(ev => {
+  tokenCtrl.handlePointerMove(ev);
+
+  if (longPressTimer !== null && longPressStartPos !== null) {
+    const dx = ev.clientX - longPressStartPos.x;
+    const dy = ev.clientY - longPressStartPos.y;
+    if (dx * dx + dy * dy > 25) cancelLongPress();
+  }
+});
+
+viewport.onInteractEnd(() => {
+  cancelLongPress();
+  tokenCtrl.handlePointerUp();
+});
 
 // --- WebSocket ---
 const ws = connectPlayer(adventureId, playerLink, playerName, playerColor);
@@ -97,12 +161,14 @@ ws.on('joined', async (msg) => {
   const tokens = msg.tokens as Array<{ id: string; name: string; color: string; x: number; y: number }>;
   for (const token of tokens) {
     tokenCtrl.addToken(token);
+    if (token.id === ownTokenId) ownTokenPos = { x: token.x, y: token.y };
   }
 
   // Enable drag on own token
   if (ownTokenId) {
     const tid = ownTokenId;
     tokenCtrl.enableDrag(tid, (x, y) => {
+      ownTokenPos = { x, y };
       ws.send({ type: 'token:move', tokenId: tid, x, y });
     });
   }
@@ -131,7 +197,11 @@ ws.on('fog:reset', (msg) => {
 });
 
 ws.on('token:moved', (msg) => {
-  tokenCtrl.moveToken(msg.tokenId as string, msg.x as number, msg.y as number);
+  const tokenId = msg.tokenId as string;
+  const x = msg.x as number;
+  const y = msg.y as number;
+  if (tokenId === ownTokenId) ownTokenPos = { x, y };
+  tokenCtrl.moveToken(tokenId, x, y);
 });
 
 ws.on('token:added', (msg) => {
@@ -143,8 +213,13 @@ ws.on('token:removed', (msg) => {
   tokenCtrl.removeToken(msg.tokenId as string);
 });
 
+ws.on('ping:map', (msg) => {
+  pingCtrl.addPing(msg.x as number, msg.y as number, msg.color as string);
+});
+
 ws.on('map:switched', async (msg) => {
   activeImageId = msg.imageId as string;
+  pingCtrl.clear();
   try {
     imageList = await api.listImagesAsPlayer(adventureId, playerLink);
   } catch {}
