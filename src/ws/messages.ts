@@ -39,6 +39,11 @@ export interface PlayerRemoveMessage {
   tokenId: string;
 }
 
+export interface FogUndoMessage {
+  type: "fog:undo";
+  strokes: FogStroke[];
+}
+
 export interface PingMessage {
   type: "ping";
 }
@@ -47,6 +52,7 @@ export type ClientMessage =
   | JoinMessage
   | FogStrokeMessage
   | FogStrokeBatchMessage
+  | FogUndoMessage
   | TokenMoveMessage
   | MapSwitchMessage
   | PlayerRemoveMessage

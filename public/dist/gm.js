@@ -30,6 +30,8 @@ var brushSizeSlider = document.getElementById("brush-size");
 var brushSizeLabel = document.getElementById("brush-size-label");
 var modeRevealBtn = document.getElementById("mode-reveal");
 var modeFogBtn = document.getElementById("mode-fog");
+var undoBtn = document.getElementById("undo-btn");
+var redoBtn = document.getElementById("redo-btn");
 var mapPanelToggleBtn = document.getElementById("map-panel-toggle");
 var mapPanel = document.getElementById("map-panel");
 var gallery = document.getElementById("gallery");
@@ -106,6 +108,7 @@ ws.on("player:roster", (msg) => {
 });
 ws.on("map:switched", async (msg) => {
   activeImageId = msg.imageId;
+  resetUndoHistory();
   imageList = await listImages(adventureId, password);
   const img = imageList.find((i) => i.id === activeImageId);
   if (img) {
@@ -117,6 +120,11 @@ ws.on("map:switched", async (msg) => {
   }
   renderGallery();
   tokenCtrl.render();
+});
+ws.on("fog:reset", (msg) => {
+  if (msg.imageId === activeImageId && typeof msg.fogMask === "string") {
+    canvasCtrl.applyFogMask(msg.fogMask);
+  }
 });
 function renderPresence(roster) {
   const sorted = [...roster].sort((a, b) => {
@@ -254,6 +262,58 @@ function setMode(mode) {
 }
 modeRevealBtn.addEventListener("click", () => setMode("reveal"));
 modeFogBtn.addEventListener("click", () => setMode("fog"));
+var MAX_HISTORY = 50;
+var undoStack = [];
+var redoStack = [];
+var currentAction = [];
+function updateUndoRedoButtons() {
+  undoBtn.disabled = undoStack.length === 0;
+  redoBtn.disabled = redoStack.length === 0;
+}
+function sendUndo(strokes) {
+  ws.send({ type: "fog:undo", strokes });
+}
+function performUndo() {
+  if (undoStack.length === 0)
+    return;
+  const action = undoStack.pop();
+  redoStack.push(action);
+  sendUndo(undoStack.flat());
+  updateUndoRedoButtons();
+}
+function performRedo() {
+  if (redoStack.length === 0)
+    return;
+  const action = redoStack.pop();
+  undoStack.push(action);
+  sendUndo(undoStack.flat());
+  updateUndoRedoButtons();
+}
+function resetUndoHistory() {
+  undoStack = [];
+  redoStack = [];
+  currentAction = [];
+  updateUndoRedoButtons();
+}
+undoBtn.addEventListener("click", performUndo);
+redoBtn.addEventListener("click", performRedo);
+document.addEventListener("keydown", (ev) => {
+  const ctrl = ev.ctrlKey || ev.metaKey;
+  if (!ctrl)
+    return;
+  if (ev.key === "z" || ev.key === "Z") {
+    if (ev.shiftKey) {
+      ev.preventDefault();
+      performRedo();
+    } else {
+      ev.preventDefault();
+      performUndo();
+    }
+  } else if (ev.key === "y" || ev.key === "Y") {
+    ev.preventDefault();
+    performRedo();
+  }
+});
 var isDrawing = false;
 var pending = [];
 var lastFlush = 0;
@@ -277,9 +337,11 @@ viewport.onInteractStart((ev) => {
   if (!activeImageId)
     return;
   isDrawing = true;
+  currentAction = [];
   const stroke = makeStroke(ev.clientX, ev.clientY);
   canvasCtrl.applyStroke(stroke);
   pending.push(stroke);
+  currentAction.push(stroke);
   if (Date.now() - lastFlush >= FLUSH_INTERVAL)
     flushPending();
 });
@@ -291,19 +353,28 @@ viewport.onPointerMove((ev) => {
   const stroke = makeStroke(ev.clientX, ev.clientY);
   canvasCtrl.applyStroke(stroke);
   pending.push(stroke);
+  currentAction.push(stroke);
   if (Date.now() - lastFlush >= FLUSH_INTERVAL)
     flushPending();
 });
-viewport.onInteractEnd(() => {
+function finishAction() {
   if (!isDrawing)
     return;
   isDrawing = false;
   flushPending();
+  if (currentAction.length > 0) {
+    undoStack.push(currentAction);
+    if (undoStack.length > MAX_HISTORY)
+      undoStack.shift();
+    redoStack = [];
+    currentAction = [];
+    updateUndoRedoButtons();
+  }
+}
+viewport.onInteractEnd(() => {
+  finishAction();
 });
 viewport.onPointerLeave(() => {
   canvasCtrl.clearBrushPreview();
-  if (isDrawing) {
-    isDrawing = false;
-    flushPending();
-  }
+  finishAction();
 });

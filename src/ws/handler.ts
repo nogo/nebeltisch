@@ -361,6 +361,37 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
           break;
         }
 
+        case "fog:undo": {
+          if (conn.role !== "gm") {
+            ws.send(serializeMessage({ type: "error", message: "Only GM can undo fog strokes" }));
+            break;
+          }
+          const adv = getAdventure(db, adventureId);
+          if (!adv?.active_image_id) {
+            ws.send(serializeMessage({ type: "error", message: "No active image" }));
+            break;
+          }
+          const imageId = adv.active_image_id;
+          let image = getImage(db, imageId);
+          if (!image) {
+            ws.send(serializeMessage({ type: "error", message: "Image not found" }));
+            break;
+          }
+          if ((image.width === 0 || image.height === 0) && uploadsDir) {
+            repairImageDimensions(db, imageId, uploadsDir);
+            image = getImage(db, imageId) ?? image;
+          }
+          const freshMask = createMask(image.width, image.height);
+          applyStrokes(freshMask, msg.strokes);
+          fogMaskCache.set(imageId, freshMask);
+          scheduleSave(db, imageId);
+          const fogMaskBase64 = await maskToBase64(freshMask);
+          const resetMsg = serializeMessage({ type: "fog:reset", imageId, fogMask: fogMaskBase64 });
+          ws.send(resetMsg);
+          ws.publish(topic, resetMsg);
+          break;
+        }
+
         case "ping": {
           ws.send(serializeMessage({ type: "pong" }));
           break;

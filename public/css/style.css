@@ -295,7 +295,6 @@ body.home {
   border-radius: 12px;
 }
 #mode-toggle button {
-  width: 68px;
   height: 44px;
   background: transparent;
   border: none;
@@ -306,8 +305,18 @@ body.home {
   transition: background 150ms ease-out, color 150ms ease-out;
   touch-action: auto;
 }
+#mode-toggle #mode-reveal,
+#mode-toggle #mode-fog {
+  width: 68px;
+}
+#mode-toggle #undo-btn,
+#mode-toggle #redo-btn {
+  width: 44px;
+  font-size: 1.1rem;
+}
 #mode-toggle button.active { background: #4a4aff; color: #fff; }
-#mode-toggle button:not(.active):hover { background: rgba(255, 255, 255, 0.05); color: #ccc; }
+#mode-toggle button:not(.active):hover:not(:disabled) { background: rgba(255, 255, 255, 0.05); color: #ccc; }
+#mode-toggle button:disabled { opacity: 0.35; cursor: default; }
 
 /* ── Map panel toggle: right edge icon button ── */
 #map-panel-toggle {
