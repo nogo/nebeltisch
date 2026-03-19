@@ -34,6 +34,11 @@ export interface MapSwitchMessage {
   imageId: string;
 }
 
+export interface PlayerRemoveMessage {
+  type: "player:remove";
+  tokenId: string;
+}
+
 export interface PingMessage {
   type: "ping";
 }
@@ -44,6 +49,7 @@ export type ClientMessage =
   | FogStrokeBatchMessage
   | TokenMoveMessage
   | MapSwitchMessage
+  | PlayerRemoveMessage
   | PingMessage;
 
 // ---- Server → Client ----
@@ -108,6 +114,20 @@ export interface PlayerLeftMessage {
   playerName: string;
 }
 
+export interface PlayerRosterMessage {
+  type: "player:roster";
+  players: Array<{
+    tokenId: string;
+    name: string;
+    color: string;
+    online: boolean;
+  }>;
+}
+
+export interface PlayerRemovedMessage {
+  type: "player:removed";
+}
+
 export interface ErrorMessage {
   type: "error";
   message: string;
@@ -128,6 +148,8 @@ export type ServerMessage =
   | MapSwitchedMessage
   | PlayerJoinedMessage
   | PlayerLeftMessage
+  | PlayerRosterMessage
+  | PlayerRemovedMessage
   | ErrorMessage
   | PongMessage;
 

@@ -34,7 +34,7 @@ describe("tokens", () => {
     expect(token.color).toBe("#ff0000");
     expect(token.x).toBe(0);
     expect(token.y).toBe(0);
-    expect(token.player_session_id).toBeNull();
+    expect(token.player_link).toBeNull();
     expect(token.created_at).toBeString();
   });
 

@@ -20,6 +20,7 @@ var brushRadius = 50;
 var brushMode = "reveal";
 var activeImageId = null;
 var imageList = [];
+var playerRoster = [];
 var adventureNameEl = document.getElementById("adventure-name");
 var inviteLinkEl = document.getElementById("invite-link");
 var copyInviteBtn = document.getElementById("copy-invite");
@@ -95,6 +96,9 @@ ws.on("token:moved", (msg) => {
 });
 ws.on("token:removed", (msg) => {
   tokenCtrl.removeToken(msg.tokenId);
+});
+ws.on("player:roster", (msg) => {
+  playerRoster = msg.players;
 });
 ws.on("map:switched", async (msg) => {
   activeImageId = msg.imageId;

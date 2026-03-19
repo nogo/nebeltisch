@@ -39,7 +39,7 @@ export interface Token {
   color: string;
   x: number;
   y: number;
-  player_session_id: string | null;
+  player_link: string | null;
   created_at: string;
 }
 
@@ -49,4 +49,6 @@ export interface WsData {
   playerName?: string;
   playerColor?: string;
   tokenId?: string;
+  playerLink?: string;
+  tokenIsNew?: boolean;
 }

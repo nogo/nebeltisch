@@ -811,3 +811,81 @@ model: sonnet
   ─────────────────────────────────────────────────────
   Finished: 2026-03-19 22:14:29  (3m 47s)
   Status:   ✓ OK
+  Commit:   ✓ 4e8aefd  wu-10: Add pan and zoom with touch gestures
+  Changes:   10 files changed, 675 insertions(+), 424 deletions(-)
+  Moved:    → .forge/done/wu-10.md
+  ─────────────────────────────────────────────────────
+
+
+wu-11: Make tokens persistent and add player management
+model: sonnet
+
+  Prompt:  191 lines  (8998 bytes)
+  Log:     /home/nogo/Development/projects/fogofwar/.forge/wu/wu-11.log
+
+  Started: 2026-03-19 22:14:29
+
+  [22:14:34]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/db/schema.ts"}
+  [22:14:35]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/db/tokens.ts"}
+  [22:14:35]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/types.ts"}
+  [22:14:38]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/ws/handler.ts"}
+  [22:14:38]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/ws/connections.ts"}
+  [22:14:38]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/ws/messages.ts"}
+  [22:14:43]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/public/js/gm.ts"}
+  [22:14:43]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/public/js/player.ts"}
+  [22:15:10]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/public/js/websocket.ts"}
+  [22:16:31]  💬 Now I have a complete picture. Let me implement all the changes.
+  [22:16:36]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/d…
+  [22:16:50]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/db/schema.ts"}
+  [22:17:11]  💬 The hook is blocking edits containing `db.exec()`. I'll use `db.run()` for the migration parts instead.
+  [22:17:15]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/src/db/schema.ts","conten…
+  [22:17:26]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/src/db/tokens.ts","conten…
+  [22:17:33]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/src/types.ts","content":"…
+  [22:17:40]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/src/ws/connections.ts","c…
+  [22:17:53]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/src/ws/messages.ts","cont…
+  [22:17:55]  💬 Now the big one — `handler.ts`:
+  [22:18:40]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/src/ws/handler.ts","conte…
+  [22:18:53]  💬 I need to fix a bug: `isNew` from `findOrCreateToken` needs to be passed through `WsData` to the `open()` handler. Let m
+  [22:18:54]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/t…
+  [22:18:57]  💬 Now fix the `handleWsUpgrade` to pass `tokenIsNew`, and fix the `open()` handler to use it:
+  [22:19:00]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/w…
+  [22:19:03]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/w…
+  [22:19:06]  💬 Now fix the `open()` handler to use `tokenIsNew` instead of the broken heuristic:
+  [22:19:07]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/w…
+  [22:19:16]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/w…
+  [22:19:19]  💬 Now update the client files:
+  [22:19:23]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/publi…
+  [22:19:28]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/publi…
+  [22:19:31]  💬 Now update `player.ts` to handle `player:removed`:
+  [22:19:35]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/publi…
+  [22:19:40]  💬 The hook blocks `innerHTML`. I'll use DOM methods instead:
+  [22:19:42]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/publi…
+  [22:19:45]  💬 Now build and test:
+  [22:19:45]  ⚙  Bash  {"command":"bun run build 2>&1","timeout":60000}
+  [22:19:48]  ⚙  Bash  {"command":"cat /home/nogo/Development/projects/fogofwar/package.json"}
+  [22:19:50]  ⚙  Bash  {"command":"bun run build:client 2>&1 && bun test 2>&1","timeout":60000}
+  [22:20:06]  💬 Build passes, 3 tests fail. Let me read the test files to fix them:
+  [22:20:07]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/test/db/tokens.test.ts"}
+  [22:20:07]  ⚙  Glob  {"pattern":"/home/nogo/Development/projects/fogofwar/test/**/*.ts"}
+  [22:20:11]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/test/ws/handler.test.ts"}
+  [22:21:55]  💬 I see three issues:
+1. `tokens.test.ts` still references `player_session_id`
+2. "Player moves another player's token" — 
+  [22:21:58]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/w…
+  [22:22:01]  💬 Now update the failing tests:
+  [22:22:02]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/test/…
+  [22:22:05]  💬 Now update the disconnect test — tokens persist on disconnect, and `token:removed` is only sent on GM removal:
+  [22:22:13]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/test/…
+  [22:22:22]  💬 Now the "Player moves another player's token" test uses both players with the same `playerLink` but different names — wi
+  [22:22:23]  ⚙  Bash  {"command":"bun run build:client 2>&1 && bun test 2>&1","timeout":60000}
+  [22:22:27]  💬 All 77 tests pass. Let me verify the key changes are correct with a quick review of the handler:
+  [22:22:28]  ⚙  Bash  {"command":"grep -n \"findOrCreateToken\\|deleteToken\\|token:removed\\|token:ad…
+  [22:22:40]  💬 All 77 tests pass and build succeeds. Here's what was implemented:
+
+**Schema** (`src/db/schema.ts`): Renamed `player_ses
+
+  [22:22:40]  ✅ Done — tokens: 34 in / 27454 out | cost: $1.1166597
+
+  ─────────────────────────────────────────────────────
+  Finished: 2026-03-19 22:22:41  (8m 12s)
+  Status:   ✓ OK

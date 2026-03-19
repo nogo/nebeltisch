@@ -335,7 +335,7 @@ describe("WebSocket handler", () => {
     expect(playerSwitched.imageId).toBe(imageId);
   });
 
-  it("Player disconnects → other clients receive player:left and token:removed", async () => {
+  it("Player disconnects → other clients receive player:left, token persists in DB", async () => {
     const gm = track(
       await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
     );
@@ -357,19 +357,15 @@ describe("WebSocket handler", () => {
     await waitForMessage(gm, "player:joined");
 
     const leftPromise = waitForMessage(gm, "player:left");
-    const removedPromise = waitForMessage(gm, "token:removed");
 
     await closeWs(player);
 
     const left = await leftPromise;
     expect(left.playerName).toBe("Alice");
 
-    const removed = await removedPromise;
-    expect(removed.tokenId).toBe(tokenId);
-
-    // Token should be deleted from DB
+    // Token must persist — not deleted on disconnect
     const tokens = getTokensByAdventure(ts.db, adventureId);
-    expect(tokens.find((t) => t.id === tokenId)).toBeUndefined();
+    expect(tokens.find((t) => t.id === tokenId)).toBeDefined();
   });
 
   it("Late joiner receives current fog state and existing tokens", async () => {

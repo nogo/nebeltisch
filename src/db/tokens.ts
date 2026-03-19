@@ -13,6 +13,45 @@ export function createToken(
   return getToken(db, id)!;
 }
 
+export function findOrCreateToken(
+  db: Database,
+  { adventureId, playerLink, name, color }: {
+    adventureId: string;
+    playerLink: string;
+    name: string;
+    color: string;
+  }
+): { token: Token; isNew: boolean } {
+  const existing = db.query<Token, [string, string]>(
+    `SELECT * FROM tokens WHERE adventure_id = ? AND player_link = ?`
+  ).get(adventureId, playerLink);
+
+  if (existing) {
+    // Update name/color in case they changed between sessions
+    db.run(`UPDATE tokens SET name = ?, color = ? WHERE id = ?`, [name, color, existing.id]);
+    return { token: getToken(db, existing.id)!, isNew: false };
+  }
+
+  const id = crypto.randomUUID();
+  try {
+    db.run(
+      `INSERT INTO tokens (id, adventure_id, name, color, player_link) VALUES (?, ?, ?, ?, ?)`,
+      [id, adventureId, name, color, playerLink]
+    );
+    return { token: getToken(db, id)!, isNew: true };
+  } catch {
+    // Race condition: another concurrent insert won — retry the SELECT
+    const raceToken = db.query<Token, [string, string]>(
+      `SELECT * FROM tokens WHERE adventure_id = ? AND player_link = ?`
+    ).get(adventureId, playerLink);
+    if (raceToken) {
+      db.run(`UPDATE tokens SET name = ?, color = ? WHERE id = ?`, [name, color, raceToken.id]);
+      return { token: getToken(db, raceToken.id)!, isNew: false };
+    }
+    throw new Error("Failed to find or create token");
+  }
+}
+
 function getToken(db: Database, id: string): Token | null {
   return db.query<Token, string>(
     `SELECT * FROM tokens WHERE id = ?`

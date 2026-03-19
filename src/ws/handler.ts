@@ -1,16 +1,19 @@
 import type { Database } from "bun:sqlite";
 import type { Server, ServerWebSocket } from "bun";
-import type { WsData, FogMask } from "../types";
+import type { WsData, FogMask, Token } from "../types";
 import { getAdventure, getAdventureByPlayerLink, setActiveImage } from "../db/adventures";
 import { getImage } from "../db/images";
 import { repairImageDimensions } from "../routes";
-import { createToken, getTokensByAdventure, updateTokenPosition, deleteToken } from "../db/tokens";
+import { findOrCreateToken, createToken, getTokensByAdventure, updateTokenPosition, deleteToken } from "../db/tokens";
 import { createMask, applyStroke, applyStrokes } from "../fog/mask";
 import { serializeMask, saveFogMask, loadFogMask } from "../fog/serialize";
 import {
   registerConnection,
   unregisterConnection,
   getConnection,
+  getConnectionsForAdventure,
+  getWsForToken,
+  getGmWsForAdventure,
 } from "./connections";
 import { parseMessage, serializeMessage } from "./messages";
 
@@ -61,6 +64,33 @@ async function maskToBase64(mask: FogMask): Promise<string> {
   return buf.toString("base64");
 }
 
+// ---- Roster helpers ----
+
+function buildRoster(
+  db: Database,
+  adventureId: string
+): Array<{ tokenId: string; name: string; color: string; online: boolean }> {
+  const tokens = getTokensByAdventure(db, adventureId);
+  const conns = getConnectionsForAdventure(adventureId);
+  const onlineTokenIds = new Set(conns.map((c) => c.tokenId).filter(Boolean));
+  return tokens
+    .filter((t) => t.player_link !== null)
+    .map((t) => ({
+      tokenId: t.id,
+      name: t.name,
+      color: t.color,
+      online: onlineTokenIds.has(t.id),
+    }));
+}
+
+function sendRosterToGm(db: Database, adventureId: string): void {
+  const gmWs = getGmWsForAdventure(adventureId);
+  if (!gmWs) return;
+  gmWs.send(
+    serializeMessage({ type: "player:roster", players: buildRoster(db, adventureId) })
+  );
+}
+
 // ---- WebSocket upgrade (called from fetch handler) ----
 
 export function handleWsUpgrade(
@@ -89,6 +119,8 @@ export function handleWsUpgrade(
   }
 
   let tokenId: string | undefined;
+  let resolvedPlayerLink: string | undefined;
+  let tokenIsNew: boolean | undefined;
 
   if (role === "gm") {
     if (!password || password !== adventure.gm_password) {
@@ -105,8 +137,18 @@ export function handleWsUpgrade(
     if (!playerName || !playerColor) {
       return new Response("playerName and playerColor are required", { status: 400 });
     }
-    const token = createToken(db, { adventureId, name: playerName, color: playerColor });
+    // Identity key: adventure invite link + player name.
+    // Same bookmark URL (same name) → same token. Different name → different token.
+    const playerIdentity = `${playerLink}|${playerName}`;
+    const { token, isNew } = findOrCreateToken(db, {
+      adventureId,
+      playerLink: playerIdentity,
+      name: playerName,
+      color: playerColor,
+    });
     tokenId = token.id;
+    resolvedPlayerLink = playerLink;
+    tokenIsNew = isNew;
   }
 
   const wsData: WsData = {
@@ -115,6 +157,8 @@ export function handleWsUpgrade(
     playerName: playerName ?? undefined,
     playerColor: playerColor ?? undefined,
     tokenId,
+    playerLink: resolvedPlayerLink,
+    tokenIsNew,
   };
 
   const upgraded = server.upgrade(req, { data: wsData });
@@ -130,8 +174,8 @@ export function handleWsUpgrade(
 export function createWsHandlers(db: Database, uploadsDir?: string) {
   return {
     async open(ws: ServerWebSocket<WsData>) {
-      const { adventureId, role, playerName, playerColor, tokenId } = ws.data;
-      registerConnection(ws, { adventureId, role, playerName, playerColor, tokenId });
+      const { adventureId, role, playerName, playerColor, tokenId, playerLink, tokenIsNew } = ws.data;
+      registerConnection(ws, { adventureId, role, playerName, playerColor, tokenId, playerLink });
 
       const adventure = getAdventure(db, adventureId)!;
       const tokens = getTokensByAdventure(db, adventureId);
@@ -160,20 +204,33 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
         })
       );
 
+      if (role === "gm") {
+        // Send roster immediately so GM sees current player status
+        ws.send(
+          serializeMessage({ type: "player:roster", players: buildRoster(db, adventureId) })
+        );
+      }
+
       if (role === "player" && playerName && playerColor) {
         ws.publish(
           `adventure:${adventureId}`,
           serializeMessage({ type: "player:joined", playerName, playerColor })
         );
-        if (tokenId) {
-          const token = tokens.find((t) => t.id === tokenId);
-          if (token) {
+
+        if (tokenId && tokenIsNew) {
+          // Newly created token — tell other clients to add it
+          const newToken = tokens.find((t) => t.id === tokenId);
+          if (newToken) {
             ws.publish(
               `adventure:${adventureId}`,
-              serializeMessage({ type: "token:added", token })
+              serializeMessage({ type: "token:added", token: newToken })
             );
           }
         }
+        // If reconnecting (tokenIsNew === false), token is already in other clients' state
+
+        // Update GM roster to show this player as online
+        sendRosterToGm(db, adventureId);
       }
     },
 
@@ -277,6 +334,33 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
           break;
         }
 
+        case "player:remove": {
+          if (conn.role !== "gm") {
+            ws.send(serializeMessage({ type: "error", message: "Only GM can remove players" }));
+            break;
+          }
+          const tokens = getTokensByAdventure(db, adventureId);
+          const target = tokens.find((t) => t.id === msg.tokenId);
+          if (!target) {
+            ws.send(serializeMessage({ type: "error", message: "Token not found" }));
+            break;
+          }
+
+          // Notify the player they've been removed (if connected), then close their WS
+          const playerWs = getWsForToken(adventureId, msg.tokenId);
+          if (playerWs) {
+            playerWs.send(serializeMessage({ type: "player:removed" }));
+            playerWs.close(4000, "removed");
+          }
+
+          deleteToken(db, msg.tokenId);
+          ws.publish(topic, serializeMessage({ type: "token:removed", tokenId: msg.tokenId }));
+
+          // Send updated roster after deletion
+          sendRosterToGm(db, adventureId);
+          break;
+        }
+
         case "ping": {
           ws.send(serializeMessage({ type: "pong" }));
           break;
@@ -304,13 +388,14 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
 
       const topic = `adventure:${info.adventureId}`;
 
-      if (info.role === "player" && info.tokenId) {
-        deleteToken(db, info.tokenId);
-        ws.publish(topic, serializeMessage({ type: "token:removed", tokenId: info.tokenId }));
-      }
-
+      // Token persists on disconnect — do NOT delete it
       if (info.playerName) {
         ws.publish(topic, serializeMessage({ type: "player:left", playerName: info.playerName }));
+      }
+
+      if (info.role === "player") {
+        // Update GM roster to show this player as offline
+        sendRosterToGm(db, info.adventureId);
       }
     },
   };

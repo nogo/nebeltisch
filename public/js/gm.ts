@@ -20,6 +20,7 @@ let brushRadius = 50;
 let brushMode: 'reveal' | 'fog' = 'reveal';
 let activeImageId: string | null = null;
 let imageList: api.ImageRecord[] = [];
+let playerRoster: Array<{ tokenId: string; name: string; color: string; online: boolean }> = [];
 
 // --- DOM ---
 const adventureNameEl = document.getElementById('adventure-name')!;
@@ -115,6 +116,10 @@ ws.on('token:moved', (msg) => {
 
 ws.on('token:removed', (msg) => {
   tokenCtrl.removeToken(msg.tokenId as string);
+});
+
+ws.on('player:roster', (msg) => {
+  playerRoster = msg.players as typeof playerRoster;
 });
 
 ws.on('map:switched', async (msg) => {

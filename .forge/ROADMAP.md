@@ -27,12 +27,14 @@ A collaborative tabletop tool for remote pen & paper RPGs. GM creates an adventu
 - [x] wu-05: GM frontend with canvas fog
 - [x] wu-06: Player frontend and token system
 - [x] wu-07: Docker and deployment
-- [ ] wu-08: Fix fog mask persistence on reload
-- [ ] wu-09: Add pan and zoom with touch gestures
-- [ ] wu-10: Redesign GM and Player UI with floating controls
-- [ ] wu-11: Redesign home page with matching visual language
-- [ ] wu-12: Add undo and redo for fog strokes
-- [ ] wu-13: Add player ping marker
+- [x] wu-08: Fix fog mask persistence on reload
+- [x] wu-09: (reserved)
+- [ ] wu-10: Add pan and zoom with touch gestures
+- [ ] wu-11: Make tokens persistent and add player management
+- [ ] wu-12: Redesign GM and Player UI with floating controls
+- [ ] wu-13: Redesign home page with matching visual language
+- [ ] wu-14: Add undo and redo for fog strokes
+- [ ] wu-15: Add player ping marker
 
 ## Future Improvements
 - **GM fog opacity slider** — adjustable transparency (0–100%) on the fog layer, GM-only. Lets the GM peek through fog to plan reveals. Players always see fully opaque fog. Pure client-side, no server changes needed.

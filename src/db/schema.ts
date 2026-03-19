@@ -33,8 +33,22 @@ export function createSchema(db: Database): void {
       color TEXT NOT NULL,
       x REAL NOT NULL DEFAULT 0,
       y REAL NOT NULL DEFAULT 0,
-      player_session_id TEXT NULL,
+      player_link TEXT NULL,
       created_at TEXT NOT NULL DEFAULT (datetime('now'))
     );
+  `);
+
+  // Migration: rename player_session_id -> player_link for existing databases
+  try {
+    db.run(`ALTER TABLE tokens RENAME COLUMN player_session_id TO player_link`);
+  } catch {
+    // Column already renamed or doesn't exist — ignore
+  }
+
+  // Unique index prevents duplicate tokens per player per adventure
+  db.run(`
+    CREATE UNIQUE INDEX IF NOT EXISTS tokens_adventure_player_link
+      ON tokens(adventure_id, player_link)
+      WHERE player_link IS NOT NULL
   `);
 }

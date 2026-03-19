@@ -126,6 +126,18 @@ ws.on("player:joined", (msg) => {
 ws.on("player:left", (msg) => {
   showToast(`${msg.playerName} left`);
 });
+ws.on("player:removed", () => {
+  ws.close();
+  document.body.textContent = "";
+  const p = document.createElement("p");
+  p.style.cssText = "padding:2rem";
+  p.textContent = "You have been removed from this session. ";
+  const a = document.createElement("a");
+  a.href = "/";
+  a.textContent = "Return home";
+  p.appendChild(a);
+  document.body.appendChild(p);
+});
 function showToast(text) {
   const toast = document.createElement("div");
   toast.className = "toast";
