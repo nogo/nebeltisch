@@ -3,6 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#0d0d1a">
   <title>Fog of War</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
@@ -13,8 +14,8 @@
     <section class="card">
       <h2>Create Adventure</h2>
       <form id="create-form">
-        <label>Adventure name<input type="text" id="adv-name" required placeholder="The Lost Mines"></label>
-        <label>GM password<input type="password" id="adv-password" required placeholder="secret"></label>
+        <label>Adventure name<input type="text" id="adv-name" required placeholder="The Lost Mines" autocomplete="off"></label>
+        <label>GM password<input type="password" id="adv-password" required placeholder="secret" autocomplete="new-password"></label>
         <button type="submit">Create</button>
         <p id="create-error" class="error"></p>
       </form>
@@ -23,8 +24,8 @@
     <section class="card">
       <h2>Join Adventure</h2>
       <form id="join-form">
-        <label>Invite code<input type="text" id="join-link" required placeholder="abc123"></label>
-        <label>Your name<input type="text" id="join-name" required placeholder="Aria"></label>
+        <label>Invite code<input type="text" id="join-link" required placeholder="abc123" autocomplete="off"></label>
+        <label>Your name<input type="text" id="join-name" required placeholder="Aria" autocomplete="nickname"></label>
         <label>Color<input type="color" id="join-color" value="#e74c3c"></label>
         <button type="submit">Join</button>
         <p id="join-error" class="error"></p>

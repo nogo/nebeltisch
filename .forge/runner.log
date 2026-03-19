@@ -937,3 +937,39 @@ model: sonnet
   ─────────────────────────────────────────────────────
   Finished: 2026-03-19 22:29:18  (6m 37s)
   Status:   ✓ OK
+  Commit:   ✓ 7b49c1f  wu-12: Redesign GM and Player UI with floating controls
+  Changes:   15 files changed, 700 insertions(+), 152 deletions(-)
+  Moved:    → .forge/done/wu-12.md
+  ─────────────────────────────────────────────────────
+
+
+wu-13: Redesign home page with matching visual language
+model: sonnet
+
+  Prompt:  98 lines  (5224 bytes)
+  Log:     /home/nogo/Development/projects/fogofwar/.forge/wu/wu-13.log
+
+  Started: 2026-03-19 22:29:18
+
+  [22:29:27]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/public/index.html"}
+  [22:29:27]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/public/css/style.css"}
+  [22:29:31]  💬 Now I have a clear picture. I'll update both files.
+  [22:29:33]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/publi…
+  [22:29:44]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/publi…
+  [22:29:54]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/publi…
+  [22:30:00]  💬 Now update the CSS home page section:
+  [22:30:15]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/publi…
+  [22:30:20]  ⚙  Bash  {"command":"bun run build 2>&1","description":"Run build to verify no errors"}
+  [22:30:26]  ⚙  Bash  {"command":"cat /home/nogo/Development/projects/fogofwar/package.json","descript…
+  [22:30:32]  ⚙  Bash  {"command":"bun run build:client 2>&1","description":"Run the actual build scrip…
+  [22:30:44]  💬 Build passes. Changes made:
+
+**`public/index.html`:**
+- Added `<meta name="theme-color" content="#0d0d1a">`
+- Added `aut
+
+  [22:30:44]  ✅ Done — tokens: 11 in / 3024 out | cost: $0.18022349999999998
+
+  ─────────────────────────────────────────────────────
+  Finished: 2026-03-19 22:30:44  (1m 26s)
+  Status:   ✓ OK

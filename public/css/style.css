@@ -16,39 +16,86 @@ body.home {
   overflow: auto;
 }
 .home-main { width: 100%; max-width: 480px; padding: 2rem; }
-.home-main h1 { font-size: 2rem; margin-bottom: 1.5rem; text-align: center; }
+.home-main h1 {
+  font-size: 2rem;
+  margin-bottom: 1.5rem;
+  text-align: center;
+  letter-spacing: 0.04em;
+  color: #fff;
+}
 .card {
-  background: #1a1a2e;
-  border: 1px solid #2a2a4a;
-  border-radius: 8px;
+  background: rgba(26, 26, 46, 0.6);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(42, 42, 74, 0.5);
+  border-radius: 12px;
   padding: 1.5rem;
   margin-bottom: 1rem;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
 }
-.card h2 { margin-bottom: 1rem; font-size: 1.1rem; }
+@supports not (backdrop-filter: blur(8px)) {
+  .card { background: #1a1a2e; }
+}
+.card h2 {
+  margin-bottom: 1rem;
+  font-size: 1.15rem;
+  letter-spacing: 0.03em;
+  color: #fff;
+}
 .card label { display: flex; flex-direction: column; gap: 4px; margin-bottom: 0.75rem; font-size: 0.85rem; color: #aaa; }
 .card input[type=text],
-.card input[type=password],
-.card input[type=color] {
-  padding: 0.4rem 0.6rem;
-  background: #0d0d1a;
-  border: 1px solid #333;
-  border-radius: 4px;
+.card input[type=password] {
+  padding: 0 0.75rem;
+  min-height: 44px;
+  background: rgba(13, 13, 26, 0.8);
+  border: 1px solid rgba(42, 42, 74, 0.6);
+  border-radius: 8px;
   color: #e0e0e0;
   font-size: 1rem;
+  outline: none;
+  transition: border-color 200ms ease-out, box-shadow 200ms ease-out;
 }
-.card input[type=color] { height: 2rem; cursor: pointer; }
+.card input[type=text]:focus,
+.card input[type=password]:focus {
+  border-color: #4a4aff;
+  box-shadow: 0 0 0 2px rgba(74, 74, 255, 0.3);
+}
+.card input[type=color] {
+  min-height: 44px;
+  width: 100%;
+  padding: 4px;
+  background: rgba(13, 13, 26, 0.8);
+  border: 1px solid rgba(42, 42, 74, 0.6);
+  border-radius: 8px;
+  cursor: pointer;
+}
 .card button {
   width: 100%;
-  padding: 0.5rem;
+  min-height: 44px;
+  padding: 0 1rem;
   background: #4a4aff;
   color: #fff;
   border: none;
-  border-radius: 4px;
+  border-radius: 8px;
   cursor: pointer;
   font-size: 1rem;
+  font-weight: 600;
+  transition: background-color 200ms ease-out, transform 200ms ease-out;
 }
 .card button:hover { background: #3333cc; }
-.error { color: #e74c3c; margin-top: 0.5rem; font-size: 0.85rem; }
+.card button:active { transform: scale(0.98); }
+.error {
+  color: #e74c3c;
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  border-left: 2px solid #e74c3c;
+  padding-left: 0.5rem;
+}
+.error:empty { display: none; }
+@media (max-width: 400px) {
+  .home-main { padding: 1rem; }
+  .card { padding: 1rem; }
+}
 
 /* ── Canvas area (GM and Player) ── */
 #canvas-area {
