@@ -24,7 +24,6 @@ if (!adventureId || !playerLink) {
   document.body.appendChild(p);
   throw new Error("Missing params");
 }
-var adventureNameEl = document.getElementById("adventure-name");
 var playerInfoEl = document.getElementById("player-info");
 var canvasArea = document.getElementById("canvas-area");
 var dot = document.createElement("span");
@@ -46,7 +45,6 @@ viewport.onInteractEnd(() => tokenCtrl.handlePointerUp());
 var ws = connectPlayer(adventureId, playerLink, playerName, playerColor);
 ws.on("joined", async (msg) => {
   const adv = msg.adventure;
-  adventureNameEl.textContent = adv.name;
   document.title = `${adv.name} — Player`;
   activeImageId = adv.activeImageId;
   ownTokenId = typeof msg.yourTokenId === "string" ? msg.yourTokenId : null;
@@ -128,15 +126,16 @@ ws.on("player:left", (msg) => {
 });
 ws.on("player:removed", () => {
   ws.close();
-  document.body.textContent = "";
-  const p = document.createElement("p");
-  p.style.cssText = "padding:2rem";
-  p.textContent = "You have been removed from this session. ";
-  const a = document.createElement("a");
-  a.href = "/";
-  a.textContent = "Return home";
-  p.appendChild(a);
-  document.body.appendChild(p);
+  const overlay = document.createElement("div");
+  overlay.className = "removal-overlay";
+  const msg = document.createElement("p");
+  msg.textContent = "You have been removed from this session.";
+  const link = document.createElement("a");
+  link.href = "/";
+  link.textContent = "Return home";
+  overlay.appendChild(msg);
+  overlay.appendChild(link);
+  document.body.appendChild(overlay);
 });
 function showToast(text) {
   const toast = document.createElement("div");

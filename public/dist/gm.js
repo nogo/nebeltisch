@@ -21,13 +21,17 @@ var brushMode = "reveal";
 var activeImageId = null;
 var imageList = [];
 var playerRoster = [];
+var inviteUrl = "";
+var presencePopover = null;
 var adventureNameEl = document.getElementById("adventure-name");
-var inviteLinkEl = document.getElementById("invite-link");
-var copyInviteBtn = document.getElementById("copy-invite");
+var connectionStatusEl = document.getElementById("connection-status");
+var playerPresenceEl = document.getElementById("player-presence");
 var brushSizeSlider = document.getElementById("brush-size");
 var brushSizeLabel = document.getElementById("brush-size-label");
 var modeRevealBtn = document.getElementById("mode-reveal");
 var modeFogBtn = document.getElementById("mode-fog");
+var mapPanelToggleBtn = document.getElementById("map-panel-toggle");
+var mapPanel = document.getElementById("map-panel");
 var gallery = document.getElementById("gallery");
 var uploadInput = document.getElementById("upload-input");
 var statusBar = document.getElementById("status-bar");
@@ -38,10 +42,12 @@ viewport.attach(canvasArea, canvasCtrl.getWrapper(), () => canvasCtrl.getImageSi
 var tokenCtrl = initTokenLayer(canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize(), (x, y) => viewport.screenToImage(x, y), { interactive: false });
 var ws = connectGM(adventureId, password);
 ws.on("connect", () => {
+  connectionStatusEl.className = "status-dot connected";
   statusBar.textContent = "";
 });
 ws.on("disconnect", () => {
-  statusBar.textContent = "Reconnecting…";
+  connectionStatusEl.className = "status-dot disconnected";
+  statusBar.textContent = "";
 });
 ws.on("error", (msg) => {
   console.error("WS error", msg);
@@ -51,11 +57,7 @@ ws.on("joined", async (msg) => {
   adventureNameEl.textContent = adv.name;
   try {
     const advData = await getAdventure(adventureId, password);
-    const inviteUrl = `${location.origin}/player#link=${encodeURIComponent(advData.player_link)}`;
-    inviteLinkEl.textContent = inviteUrl;
-    copyInviteBtn.onclick = () => {
-      navigator.clipboard.writeText(inviteUrl).catch(() => {});
-    };
+    inviteUrl = `${location.origin}/player#link=${encodeURIComponent(advData.player_link)}`;
   } catch {}
   activeImageId = adv.activeImageId;
   imageList = await listImages(adventureId, password);
@@ -74,6 +76,7 @@ ws.on("joined", async (msg) => {
   for (const token of tokens) {
     tokenCtrl.addToken(token);
   }
+  renderPresence(playerRoster);
 });
 ws.on("fog:stroke", (msg) => {
   if (msg.imageId === activeImageId) {
@@ -99,6 +102,7 @@ ws.on("token:removed", (msg) => {
 });
 ws.on("player:roster", (msg) => {
   playerRoster = msg.players;
+  renderPresence(playerRoster);
 });
 ws.on("map:switched", async (msg) => {
   activeImageId = msg.imageId;
@@ -114,8 +118,104 @@ ws.on("map:switched", async (msg) => {
   renderGallery();
   tokenCtrl.render();
 });
+function renderPresence(roster) {
+  const sorted = [...roster].sort((a, b) => {
+    if (a.online === b.online)
+      return 0;
+    return a.online ? -1 : 1;
+  });
+  playerPresenceEl.replaceChildren();
+  const MAX_VISIBLE = 4;
+  const visible = sorted.length > MAX_VISIBLE ? sorted.slice(0, 3) : sorted;
+  const overflowCount = sorted.length > MAX_VISIBLE ? sorted.length - 3 : 0;
+  for (const player of visible) {
+    const avatar = document.createElement("div");
+    avatar.className = `presence-avatar ${player.online ? "online" : "offline"}`;
+    avatar.style.background = player.color;
+    avatar.textContent = player.name.charAt(0).toUpperCase();
+    avatar.title = player.name;
+    avatar.addEventListener("click", (e) => {
+      e.stopPropagation();
+      togglePresencePopover(sorted);
+    });
+    playerPresenceEl.appendChild(avatar);
+  }
+  if (overflowCount > 0) {
+    const overflowEl = document.createElement("div");
+    overflowEl.className = "presence-avatar presence-overflow";
+    overflowEl.textContent = `+${overflowCount}`;
+    overflowEl.addEventListener("click", (e) => {
+      e.stopPropagation();
+      togglePresencePopover(sorted);
+    });
+    playerPresenceEl.appendChild(overflowEl);
+  }
+}
+function togglePresencePopover(roster) {
+  if (presencePopover) {
+    presencePopover.remove();
+    presencePopover = null;
+    return;
+  }
+  presencePopover = document.createElement("div");
+  presencePopover.className = "presence-popover";
+  for (const player of roster) {
+    const row = document.createElement("div");
+    row.className = "popover-player";
+    const dot = document.createElement("span");
+    dot.className = "popover-player-dot";
+    dot.style.background = player.color;
+    const name = document.createElement("span");
+    name.className = "popover-player-name";
+    name.textContent = player.name;
+    const status = document.createElement("span");
+    status.className = "popover-player-status";
+    status.textContent = player.online ? "online" : "offline";
+    const actions = document.createElement("div");
+    actions.className = "popover-player-actions";
+    const copyBtn = document.createElement("button");
+    copyBtn.className = "popover-btn";
+    copyBtn.textContent = "Copy link";
+    copyBtn.addEventListener("click", () => {
+      navigator.clipboard.writeText(inviteUrl).catch(() => {});
+    });
+    const removeBtn = document.createElement("button");
+    removeBtn.className = "popover-btn danger";
+    removeBtn.textContent = "✕";
+    removeBtn.title = "Remove player";
+    removeBtn.addEventListener("click", () => {
+      ws.send({ type: "player:remove", tokenId: player.tokenId });
+      presencePopover?.remove();
+      presencePopover = null;
+    });
+    actions.appendChild(copyBtn);
+    actions.appendChild(removeBtn);
+    row.appendChild(dot);
+    row.appendChild(name);
+    row.appendChild(status);
+    row.appendChild(actions);
+    presencePopover.appendChild(row);
+  }
+  document.body.appendChild(presencePopover);
+  setTimeout(() => {
+    document.addEventListener("click", closePresencePopover, { once: true });
+  }, 0);
+}
+function closePresencePopover() {
+  presencePopover?.remove();
+  presencePopover = null;
+}
+mapPanelToggleBtn.addEventListener("click", () => {
+  const isOpen = mapPanel.hasAttribute("hidden");
+  if (isOpen) {
+    mapPanel.removeAttribute("hidden");
+  } else {
+    mapPanel.setAttribute("hidden", "");
+  }
+  mapPanelToggleBtn.classList.toggle("active", isOpen);
+});
 function renderGallery() {
-  gallery.innerHTML = "";
+  gallery.replaceChildren();
   for (const img of imageList) {
     const item = document.createElement("div");
     item.className = "gallery-item" + (img.id === activeImageId ? " active" : "");
@@ -145,7 +245,7 @@ uploadInput.addEventListener("change", async () => {
 });
 brushSizeSlider.addEventListener("input", () => {
   brushRadius = parseInt(brushSizeSlider.value, 10);
-  brushSizeLabel.textContent = `${brushRadius}px`;
+  brushSizeLabel.textContent = `${brushRadius}`;
 });
 function setMode(mode) {
   brushMode = mode;

@@ -7,40 +7,46 @@
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body class="gm">
-  <header id="topbar">
-    <span id="adventure-name">Loading…</span>
-    <div class="invite-row">
-      <span id="invite-link" class="invite-link-text"></span>
-      <button id="copy-invite">Copy link</button>
-    </div>
-  </header>
-
-  <aside id="sidebar-left">
-    <div class="control-group">
-      <label>Brush size: <strong id="brush-size-label">50px</strong></label>
-      <input type="range" id="brush-size" min="10" max="200" value="50">
-    </div>
-    <div class="control-group">
-      <label>Mode</label>
-      <div class="mode-buttons">
-        <button id="mode-reveal" class="active">Reveal</button>
-        <button id="mode-fog">Re-fog</button>
-      </div>
-    </div>
-    <div id="status-bar"></div>
-  </aside>
-
   <main id="canvas-area"></main>
 
-  <aside id="sidebar-right">
+  <!-- Topbar: floating, top edge -->
+  <header id="topbar" class="floating-control">
+    <span id="adventure-name">Loading…</span>
+    <div id="player-presence"></div>
+    <span id="connection-status" class="status-dot"></span>
+  </header>
+
+  <!-- Brush size: vertical slider, left edge -->
+  <div id="brush-slider" class="floating-control">
+    <input type="range" id="brush-size" min="10" max="200" value="50" orient="vertical">
+    <span id="brush-size-label">50</span>
+  </div>
+
+  <!-- Mode toggle: bottom-left pill -->
+  <div id="mode-toggle" class="floating-control">
+    <button id="mode-reveal" class="active">Reveal</button>
+    <button id="mode-fog">Re-fog</button>
+  </div>
+
+  <!-- Map panel toggle: right edge icon button -->
+  <button id="map-panel-toggle" class="floating-control" aria-label="Maps">
+    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
+      <circle cx="8.5" cy="8.5" r="1.5"/>
+      <polyline points="21 15 16 10 5 21"/>
+    </svg>
+  </button>
+
+  <!-- Map panel: right-side slide-in sheet -->
+  <aside id="map-panel" class="floating-panel" hidden>
     <div id="gallery"></div>
-    <div class="upload-row">
-      <label class="upload-btn">
-        Upload map
-        <input type="file" id="upload-input" accept="image/*" hidden>
-      </label>
-    </div>
+    <label class="upload-btn">
+      Upload map
+      <input type="file" id="upload-input" accept="image/*" hidden>
+    </label>
   </aside>
+
+  <div id="status-bar" class="floating-control"></div>
 
   <script type="module" src="/dist/gm.js"></script>
 </body>

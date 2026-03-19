@@ -889,3 +889,51 @@ model: sonnet
   ─────────────────────────────────────────────────────
   Finished: 2026-03-19 22:22:41  (8m 12s)
   Status:   ✓ OK
+  Commit:   ✓ 585426e  wu-11: Make tokens persistent and add player management
+  Changes:   20 files changed, 490 insertions(+), 44 deletions(-)
+  Moved:    → .forge/done/wu-11.md
+  ─────────────────────────────────────────────────────
+
+
+wu-12: Redesign GM and Player UI with floating controls
+model: sonnet
+
+  Prompt:  230 lines  (12304 bytes)
+  Log:     /home/nogo/Development/projects/fogofwar/.forge/wu/wu-12.log
+
+  Started: 2026-03-19 22:22:41
+
+  [22:22:47]  ⚙  Agent  {"description":"Explore current codebase state","subagent_type":"Explore","promp…
+  [22:22:48]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/public/gm.html"}
+  [22:22:48]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/public/player.html"}
+  [22:22:48]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/public/css/style.css"}
+  [22:22:48]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/public/js/gm.ts"}
+  [22:22:49]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/public/js/player.ts"}
+  [22:22:49]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/DESIGN.md"}
+  [22:22:59]  💬 The agent gave me summaries instead of full content. Let me read the files directly.
+  [22:22:59]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/public/gm.html"}
+  [22:23:00]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/public/player.html"}
+  [22:23:00]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/public/css/style.css"}
+  [22:23:03]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/public/js/gm.ts"}
+  [22:23:03]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/public/js/player.ts"}
+  [22:26:14]  💬 Now I have a complete picture. Let me implement all 5 files.
+  [22:26:22]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/public/gm.html","content"…
+  [22:26:24]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/public/player.html","cont…
+  [22:27:04]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/public/css/style.css","co…
+  [22:27:07]  💬 Now update gm.ts and player.ts:
+  [22:27:50]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/public/js/gm.ts","content…
+  [22:28:06]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/public/js/player.ts","con…
+  [22:28:16]  💬 The hook blocked `innerHTML = ''` in gm.ts. I'll rewrite using `replaceChildren()` instead:
+  [22:28:55]  ⚙  Write  {"file_path":"/home/nogo/Development/projects/fogofwar/public/js/gm.ts","content…
+  [22:28:57]  ⚙  Bash  {"command":"bun run build 2>&1","description":"Build to verify no TypeScript err…
+  [22:29:00]  ⚙  Bash  {"command":"cat /home/nogo/Development/projects/fogofwar/package.json","descript…
+  [22:29:02]  ⚙  Bash  {"command":"bun run build:client 2>&1","description":"Build client TypeScript"}
+  [22:29:18]  💬 Build passes. Done. Here's what changed:
+
+**gm.html** — 3-column grid replaced with fullscreen `#canvas-area` + 5 floati
+
+  [22:29:18]  ✅ Done — tokens: 12 in / 28391 out | cost: $0.7857734
+
+  ─────────────────────────────────────────────────────
+  Finished: 2026-03-19 22:29:18  (6m 37s)
+  Status:   ✓ OK
