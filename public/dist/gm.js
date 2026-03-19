@@ -1,11 +1,12 @@
 import {
   connectGM,
+  createViewport,
   getAdventure,
   initCanvas,
   initTokenLayer,
   listImages,
   uploadImage
-} from "./gm-m6pcjxyv.js";
+} from "./gm-cbsvw20h.js";
 
 // public/js/gm.ts
 var fragment = new URLSearchParams(location.hash.slice(1));
@@ -31,7 +32,9 @@ var uploadInput = document.getElementById("upload-input");
 var statusBar = document.getElementById("status-bar");
 var canvasArea = document.getElementById("canvas-area");
 var canvasCtrl = initCanvas(canvasArea);
-var tokenCtrl = initTokenLayer(canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize(), { interactive: false });
+var viewport = createViewport();
+viewport.attach(canvasArea, canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize());
+var tokenCtrl = initTokenLayer(canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize(), (x, y) => viewport.screenToImage(x, y), { interactive: false });
 var ws = connectGM(adventureId, password);
 ws.on("connect", () => {
   statusBar.textContent = "";
@@ -60,6 +63,7 @@ ws.on("joined", async (msg) => {
     const img = imageList.find((i) => i.id === activeImageId);
     if (img) {
       await canvasCtrl.loadImage(`/uploads/${img.filename}`);
+      viewport.resetView();
       if (typeof msg.fogMask === "string") {
         await canvasCtrl.applyFogMask(msg.fogMask);
       }
@@ -98,6 +102,7 @@ ws.on("map:switched", async (msg) => {
   const img = imageList.find((i) => i.id === activeImageId);
   if (img) {
     await canvasCtrl.loadImage(`/uploads/${img.filename}`);
+    viewport.resetView();
     if (typeof msg.fogMask === "string") {
       await canvasCtrl.applyFogMask(msg.fogMask);
     }
@@ -145,13 +150,12 @@ function setMode(mode) {
 }
 modeRevealBtn.addEventListener("click", () => setMode("reveal"));
 modeFogBtn.addEventListener("click", () => setMode("fog"));
-var eventTarget = canvasCtrl.getEventTarget();
 var isDrawing = false;
 var pending = [];
 var lastFlush = 0;
 var FLUSH_INTERVAL = 1000 / 60;
 function makeStroke(clientX, clientY) {
-  const pos = canvasCtrl.screenToImage(clientX, clientY);
+  const pos = viewport.screenToImage(clientX, clientY);
   return { x: pos.x, y: pos.y, radius: brushRadius, mode: brushMode };
 }
 function flushPending() {
@@ -165,19 +169,18 @@ function flushPending() {
   pending.length = 0;
   lastFlush = Date.now();
 }
-eventTarget.addEventListener("pointerdown", (ev) => {
+viewport.onInteractStart((ev) => {
   if (!activeImageId)
     return;
   isDrawing = true;
-  eventTarget.setPointerCapture(ev.pointerId);
   const stroke = makeStroke(ev.clientX, ev.clientY);
   canvasCtrl.applyStroke(stroke);
   pending.push(stroke);
   if (Date.now() - lastFlush >= FLUSH_INTERVAL)
     flushPending();
 });
-eventTarget.addEventListener("pointermove", (ev) => {
-  const pos = canvasCtrl.screenToImage(ev.clientX, ev.clientY);
+viewport.onPointerMove((ev) => {
+  const pos = viewport.screenToImage(ev.clientX, ev.clientY);
   canvasCtrl.drawBrushPreview(pos.x, pos.y, brushRadius);
   if (!isDrawing)
     return;
@@ -187,13 +190,13 @@ eventTarget.addEventListener("pointermove", (ev) => {
   if (Date.now() - lastFlush >= FLUSH_INTERVAL)
     flushPending();
 });
-eventTarget.addEventListener("pointerup", () => {
+viewport.onInteractEnd(() => {
   if (!isDrawing)
     return;
   isDrawing = false;
   flushPending();
 });
-eventTarget.addEventListener("pointerleave", () => {
+viewport.onPointerLeave(() => {
   canvasCtrl.clearBrushPreview();
   if (isDrawing) {
     isDrawing = false;

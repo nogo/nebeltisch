@@ -1,6 +1,7 @@
 import { connectGM } from './websocket';
 import { initCanvas } from './canvas';
 import { initTokenLayer } from './tokens';
+import { createViewport } from './viewport';
 import type { FogStroke } from './canvas';
 import * as api from './api';
 
@@ -36,10 +37,15 @@ const canvasArea = document.getElementById('canvas-area')!;
 // --- Canvas ---
 const canvasCtrl = initCanvas(canvasArea);
 
+// --- Viewport ---
+const viewport = createViewport();
+viewport.attach(canvasArea, canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize());
+
 // --- Token layer (non-interactive for GM) ---
 const tokenCtrl = initTokenLayer(
   canvasCtrl.getWrapper(),
   () => canvasCtrl.getImageSize(),
+  (x, y) => viewport.screenToImage(x, y),
   { interactive: false }
 );
 
@@ -71,6 +77,7 @@ ws.on('joined', async (msg) => {
     const img = imageList.find(i => i.id === activeImageId);
     if (img) {
       await canvasCtrl.loadImage(`/uploads/${img.filename}`);
+      viewport.resetView();
       if (typeof msg.fogMask === 'string') {
         await canvasCtrl.applyFogMask(msg.fogMask);
       }
@@ -116,6 +123,7 @@ ws.on('map:switched', async (msg) => {
   const img = imageList.find(i => i.id === activeImageId);
   if (img) {
     await canvasCtrl.loadImage(`/uploads/${img.filename}`);
+    viewport.resetView();
     if (typeof msg.fogMask === 'string') {
       await canvasCtrl.applyFogMask(msg.fogMask);
     }
@@ -174,14 +182,13 @@ modeRevealBtn.addEventListener('click', () => setMode('reveal'));
 modeFogBtn.addEventListener('click', () => setMode('fog'));
 
 // --- Brush interaction ---
-const eventTarget = canvasCtrl.getEventTarget();
 let isDrawing = false;
 const pending: FogStroke[] = [];
 let lastFlush = 0;
 const FLUSH_INTERVAL = 1000 / 60;
 
 function makeStroke(clientX: number, clientY: number): FogStroke {
-  const pos = canvasCtrl.screenToImage(clientX, clientY);
+  const pos = viewport.screenToImage(clientX, clientY);
   return { x: pos.x, y: pos.y, radius: brushRadius, mode: brushMode };
 }
 
@@ -196,18 +203,17 @@ function flushPending() {
   lastFlush = Date.now();
 }
 
-eventTarget.addEventListener('pointerdown', (ev: PointerEvent) => {
+viewport.onInteractStart((ev: PointerEvent) => {
   if (!activeImageId) return;
   isDrawing = true;
-  eventTarget.setPointerCapture(ev.pointerId);
   const stroke = makeStroke(ev.clientX, ev.clientY);
   canvasCtrl.applyStroke(stroke);
   pending.push(stroke);
   if (Date.now() - lastFlush >= FLUSH_INTERVAL) flushPending();
 });
 
-eventTarget.addEventListener('pointermove', (ev: PointerEvent) => {
-  const pos = canvasCtrl.screenToImage(ev.clientX, ev.clientY);
+viewport.onPointerMove((ev: PointerEvent) => {
+  const pos = viewport.screenToImage(ev.clientX, ev.clientY);
   canvasCtrl.drawBrushPreview(pos.x, pos.y, brushRadius);
   if (!isDrawing) return;
   const stroke = makeStroke(ev.clientX, ev.clientY);
@@ -216,13 +222,13 @@ eventTarget.addEventListener('pointermove', (ev: PointerEvent) => {
   if (Date.now() - lastFlush >= FLUSH_INTERVAL) flushPending();
 });
 
-eventTarget.addEventListener('pointerup', () => {
+viewport.onInteractEnd(() => {
   if (!isDrawing) return;
   isDrawing = false;
   flushPending();
 });
 
-eventTarget.addEventListener('pointerleave', () => {
+viewport.onPointerLeave(() => {
   canvasCtrl.clearBrushPreview();
   if (isDrawing) {
     isDrawing = false;

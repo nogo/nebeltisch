@@ -1,6 +1,7 @@
 import { connectPlayer } from './websocket';
 import { initCanvas } from './canvas';
 import { initTokenLayer } from './tokens';
+import { createViewport } from './viewport';
 import * as api from './api';
 import type { FogStroke } from './canvas';
 
@@ -47,12 +48,22 @@ let imageList: api.ImageRecord[] = [];
 // --- Canvas (opaque fog) ---
 const canvasCtrl = initCanvas(canvasArea, { mode: 'player' });
 
+// --- Viewport ---
+const viewport = createViewport();
+viewport.attach(canvasArea, canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize());
+
 // --- Token layer ---
 const tokenCtrl = initTokenLayer(
   canvasCtrl.getWrapper(),
   () => canvasCtrl.getImageSize(),
+  (x, y) => viewport.screenToImage(x, y),
   { interactive: true }
 );
+
+// Wire token drag through viewport gesture system
+viewport.onInteractStart(ev => tokenCtrl.handlePointerDown(ev));
+viewport.onPointerMove(ev => tokenCtrl.handlePointerMove(ev));
+viewport.onInteractEnd(() => tokenCtrl.handlePointerUp());
 
 // --- WebSocket ---
 const ws = connectPlayer(adventureId, playerLink, playerName, playerColor);
@@ -74,6 +85,7 @@ ws.on('joined', async (msg) => {
     const img = imageList.find(i => i.id === activeImageId);
     if (img) {
       await canvasCtrl.loadImage(`/uploads/${img.filename}`);
+      viewport.resetView();
       if (typeof msg.fogMask === 'string') {
         await canvasCtrl.applyFogMask(msg.fogMask);
       }
@@ -141,6 +153,7 @@ ws.on('map:switched', async (msg) => {
   const img = imageList.find(i => i.id === activeImageId);
   if (img) {
     await canvasCtrl.loadImage(`/uploads/${img.filename}`);
+    viewport.resetView();
     if (typeof msg.fogMask === 'string') {
       await canvasCtrl.applyFogMask(msg.fogMask);
     }

@@ -11,7 +11,6 @@ export interface CanvasController {
   applyStroke(stroke: FogStroke): void;
   drawBrushPreview(imgX: number, imgY: number, radius: number): void;
   clearBrushPreview(): void;
-  screenToImage(clientX: number, clientY: number): { x: number; y: number };
   getEventTarget(): HTMLCanvasElement;
   getWrapper(): HTMLElement;
   getImageSize(): { w: number; h: number };
@@ -83,11 +82,9 @@ export function initCanvas(container: HTMLElement, options?: { mode?: 'gm' | 'pl
       c.width = w;
       c.height = h;
     }
-    const cw = container.clientWidth || 800;
-    const ch = container.clientHeight || 600;
-    const scale = Math.min(cw / w, ch / h);
-    wrapper.style.width = `${Math.round(w * scale)}px`;
-    wrapper.style.height = `${Math.round(h * scale)}px`;
+    // Set wrapper to image dimensions; viewport CSS transform handles visual scaling.
+    wrapper.style.width = `${w}px`;
+    wrapper.style.height = `${h}px`;
   }
 
   function fillFog() {
@@ -170,14 +167,6 @@ export function initCanvas(container: HTMLElement, options?: { mode?: 'gm' | 'pl
 
     clearBrushPreview() {
       if (imgW > 0) previewCtx.clearRect(0, 0, imgW, imgH);
-    },
-
-    screenToImage(clientX: number, clientY: number) {
-      const rect = fogCanvas.getBoundingClientRect();
-      return {
-        x: (clientX - rect.left) * (imgW / (rect.width || 1)),
-        y: (clientY - rect.top) * (imgH / (rect.height || 1)),
-      };
     },
 
     getEventTarget() { return fogCanvas; },

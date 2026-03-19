@@ -1,9 +1,10 @@
 import {
   connectPlayer,
+  createViewport,
   initCanvas,
   initTokenLayer,
   listImagesAsPlayer
-} from "./gm-m6pcjxyv.js";
+} from "./gm-cbsvw20h.js";
 
 // public/js/player.ts
 var fragment = new URLSearchParams(location.hash.slice(1));
@@ -36,7 +37,12 @@ var activeImageId = null;
 var ownTokenId = null;
 var imageList = [];
 var canvasCtrl = initCanvas(canvasArea, { mode: "player" });
-var tokenCtrl = initTokenLayer(canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize(), { interactive: true });
+var viewport = createViewport();
+viewport.attach(canvasArea, canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize());
+var tokenCtrl = initTokenLayer(canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize(), (x, y) => viewport.screenToImage(x, y), { interactive: true });
+viewport.onInteractStart((ev) => tokenCtrl.handlePointerDown(ev));
+viewport.onPointerMove((ev) => tokenCtrl.handlePointerMove(ev));
+viewport.onInteractEnd(() => tokenCtrl.handlePointerUp());
 var ws = connectPlayer(adventureId, playerLink, playerName, playerColor);
 ws.on("joined", async (msg) => {
   const adv = msg.adventure;
@@ -53,6 +59,7 @@ ws.on("joined", async (msg) => {
     const img = imageList.find((i) => i.id === activeImageId);
     if (img) {
       await canvasCtrl.loadImage(`/uploads/${img.filename}`);
+      viewport.resetView();
       if (typeof msg.fogMask === "string") {
         await canvasCtrl.applyFogMask(msg.fogMask);
       }
@@ -106,6 +113,7 @@ ws.on("map:switched", async (msg) => {
   const img = imageList.find((i) => i.id === activeImageId);
   if (img) {
     await canvasCtrl.loadImage(`/uploads/${img.filename}`);
+    viewport.resetView();
     if (typeof msg.fogMask === "string") {
       await canvasCtrl.applyFogMask(msg.fogMask);
     }

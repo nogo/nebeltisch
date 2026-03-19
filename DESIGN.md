@@ -50,14 +50,14 @@ Controls collapse to minimal state. The map strip shows prev/next arrows for qui
 
 ```
 ┌──────────────────────────────────────────────┐
-│ [Adventure Name]                       [·]   │  ← topbar, always visible
+│ [Adventure Name]    [●●●● +2]          [·]   │  ← topbar: name + avatar stack + status
 │                                              │
 │ ┃                                            │
 │ ┃            F U L L   C A N V A S           │
 │ ┃                                            │  ← brush size: vertical slider, left edge
 │ ┃                                     [IMG]  │  ← map panel icon, right edge
 │                                              │
-│ [Reveal | Fog]                               │  ← mode toggle pill, bottom-left
+│ [↩ ↪ Reveal | Fog]                          │  ← undo/redo + mode toggle, bottom-left
 └──────────────────────────────────────────────┘
 ```
 
@@ -74,12 +74,23 @@ Controls collapse to minimal state. The map strip shows prev/next arrows for qui
 
 > Future idea: if the icon itself could show a tiny stack of map thumbnails (like layered cards), that would be a distinct visual feature worth exploring later.
 
+### Player Presence (GM topbar)
+
+Miro-style avatar stack in the GM topbar, right-aligned:
+- Overlapping colored circles (player's chosen color + first initial letter).
+- Green ring = online. No ring = offline (token persists, player disconnected).
+- Overflow counter (`+N`) when more than ~4 players.
+- Click a circle → popover with: player name, "Copy player link", "Remove player".
+- "Remove player" deletes the token and the player's session. Player would need a new invite to rejoin.
+
+Tokens are persistent — they belong to the adventure, not the WebSocket session. Disconnecting does not delete the token. Only the GM can remove a player.
+
 ### Controls
 
 - **Mode toggle** — bottom-left floating pill. Two segments: Reveal / Fog. Always visible. 44pt minimum tap target.
 - **Brush size** — vertical slider hugging the left edge, Procreate-style. Drag up = bigger, down = smaller. Shows radius preview on canvas while adjusting.
 - **Brush preview** — color-coded circle under cursor/finger. Green tint = reveal, red tint = fog. Strongest mode indicator.
-- **Topbar** — adventure name + connection status dot. Always visible but minimal.
+- **Topbar** — adventure name + player presence strip + connection status dot. Always visible but minimal.
 
 ### Collapse Behavior
 
@@ -109,9 +120,18 @@ Controls are collapsible, never auto-hiding. Each control group has an explicit 
 
 ---
 
-## Session Identity
+## Session & Token Identity
 
-No player accounts. The share link is the session key. A player can open the same session on multiple devices simultaneously. This avoids registration complexity while keeping the join flow frictionless. Identity = link + chosen name. Conflicts (same name from two devices) are acceptable for PoC.
+No player accounts. The share link is the session key. A player can open the same session on multiple devices simultaneously.
+
+**Tokens are persistent.** Created when a player first joins, stored in the DB, and survive disconnects. When the same player link reconnects, the existing token is reused — no duplicate. The GM can remove a player (and their token) explicitly.
+
+**Reconnection flow:**
+1. Player opens link → WS connects with `playerLink`.
+2. Server checks: does a token exist for this `(adventure_id, player_link)`?
+3. Yes → reuse token, mark as online. No → create token.
+4. Player disconnects → token stays, marked as offline.
+5. GM clicks "Remove player" → token deleted, player would need new invite.
 
 ---
 
@@ -133,16 +153,18 @@ No player accounts. The share link is the session key. A player can open the sam
 ## What This Is NOT
 
 - Not a phone-first app. Phone players get a functional but not optimized view.
-- Not a redesign of the data model. Same WebSocket events, same fog mask, same token system.
-- Not adding new features. This is a UI/UX pass over existing functionality.
+- Not adding features beyond what's in the PoC scope.
 - Controls don't float over the canvas center. Edges and corners only.
 - No auto-hide. Collapse is explicit, user-initiated.
 
 ---
 
+## Resolved Decisions
+
+- **Undo/redo** — two icon buttons next to the mode toggle (bottom-left cluster). Always visible when fog tool is active.
+- **Player ping** — long-press gesture on canvas. No dedicated button.
+- **Invite link** — accessible via player avatar popover ("Copy player link") in GM topbar.
+
 ## Open Questions
 
-- **Undo/redo** — two icon buttons next to the mode toggle (bottom-left cluster). Small, always visible when fog tool is active.
-- **Player ping** — tap-and-hold on canvas to ping? Or a dedicated button? Leaning toward gesture.
-- **Invite link** — currently in topbar. Move to a share icon? Or long-press on adventure name?
 - **Map stack icon** — could the collapsed map panel icon show a tiny visual stack of the actual map thumbnails? Worth exploring as a polish item.
