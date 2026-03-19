@@ -17,6 +17,7 @@ export interface Adventure {
   gm_password: string;
   player_link: string;
   active_image_id: string | null;
+  token_size: number;
   created_at: string;
 }
 

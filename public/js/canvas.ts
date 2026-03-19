@@ -9,7 +9,7 @@ export interface CanvasController {
   loadImage(url: string): Promise<void>;
   applyFogMask(base64: string): Promise<void>;
   applyStroke(stroke: FogStroke): void;
-  drawBrushPreview(imgX: number, imgY: number, radius: number): void;
+  drawBrushPreview(imgX: number, imgY: number, radius: number, viewportScale?: number): void;
   clearBrushPreview(): void;
   getEventTarget(): HTMLCanvasElement;
   getWrapper(): HTMLElement;
@@ -24,15 +24,15 @@ async function decompress(data: Uint8Array): Promise<Uint8Array> {
       const ds = new DecompressionStream(fmt);
       const writer = ds.writable.getWriter();
       const reader = ds.readable.getReader();
-      // Clone data to avoid detached buffer on retry
-      writer.write(data.slice());
-      writer.close();
+      // Write and close — catch write-side errors to avoid unhandled rejections
+      const writePromise = writer.write(data.slice()).then(() => writer.close()).catch(() => {});
       const chunks: Uint8Array[] = [];
       for (;;) {
         const { done, value } = await reader.read();
         if (done) break;
         chunks.push(value);
       }
+      await writePromise;
       const total = chunks.reduce((n, c) => n + c.length, 0);
       const out = new Uint8Array(total);
       let off = 0;
@@ -46,8 +46,7 @@ async function decompress(data: Uint8Array): Promise<Uint8Array> {
 }
 
 export function initCanvas(container: HTMLElement, options?: { mode?: 'gm' | 'player' }): CanvasController {
-  const fogAlpha = options?.mode === 'player' ? 1.0 : 0.85;
-  const fogFill = `rgba(0,0,0,${fogAlpha})`;
+  const isGM = options?.mode !== 'player';
   const wrapper = document.createElement('div');
   wrapper.style.cssText = 'position:relative;flex-shrink:0;';
   container.appendChild(wrapper);
@@ -64,7 +63,13 @@ export function initCanvas(container: HTMLElement, options?: { mode?: 'gm' | 'pl
   const previewCanvas = makeCanvas();
   previewCanvas.style.pointerEvents = 'none';
 
-  if (options?.mode === 'player') {
+  // GM sees fog as semi-transparent; player sees fully opaque.
+  // Use CSS opacity so the canvas internally stores full alpha (no stacking issues on re-fog).
+  if (isGM) {
+    fogCanvas.style.opacity = '0.85';
+  }
+
+  if (!isGM) {
     fogCanvas.style.pointerEvents = 'none';
   }
 
@@ -90,7 +95,7 @@ export function initCanvas(container: HTMLElement, options?: { mode?: 'gm' | 'pl
   function fillFog() {
     fogCtx.save();
     fogCtx.globalCompositeOperation = 'source-over';
-    fogCtx.fillStyle = fogFill;
+    fogCtx.fillStyle = 'rgba(0,0,0,1)';
     fogCtx.fillRect(0, 0, imgW, imgH);
     fogCtx.restore();
   }
@@ -132,7 +137,7 @@ export function initCanvas(container: HTMLElement, options?: { mode?: 'gm' | 'pl
         id.data[i * 4 + 0] = 0;
         id.data[i * 4 + 1] = 0;
         id.data[i * 4 + 2] = 0;
-        id.data[i * 4 + 3] = Math.round(v * fogAlpha);
+        id.data[i * 4 + 3] = v; // Store full alpha; CSS opacity handles GM transparency
       }
       fogCtx.putImageData(id, 0, 0);
     },
@@ -144,21 +149,22 @@ export function initCanvas(container: HTMLElement, options?: { mode?: 'gm' | 'pl
       fogCtx.arc(stroke.x, stroke.y, stroke.radius, 0, Math.PI * 2);
       if (stroke.mode === 'reveal') {
         fogCtx.globalCompositeOperation = 'destination-out';
-        fogCtx.fillStyle = 'rgba(0,0,0,1)';
       } else {
         fogCtx.globalCompositeOperation = 'source-over';
-        fogCtx.fillStyle = fogFill;
       }
+      fogCtx.fillStyle = 'rgba(0,0,0,1)';
       fogCtx.fill();
       fogCtx.restore();
     },
 
-    drawBrushPreview(imgX: number, imgY: number, radius: number) {
+    drawBrushPreview(imgX: number, imgY: number, radius: number, viewportScale?: number) {
       if (imgW === 0) return;
       previewCtx.clearRect(0, 0, imgW, imgH);
       previewCtx.save();
       previewCtx.strokeStyle = 'rgba(255,255,255,0.7)';
-      previewCtx.lineWidth = Math.max(1, 2 * (imgW / (wrapper.clientWidth || imgW)));
+      // Draw at 2px screen width regardless of zoom level
+      const invScale = viewportScale && viewportScale > 0 ? 1 / viewportScale : 1;
+      previewCtx.lineWidth = Math.max(1, 2 * invScale);
       previewCtx.beginPath();
       previewCtx.arc(imgX, imgY, radius, 0, Math.PI * 2);
       previewCtx.stroke();

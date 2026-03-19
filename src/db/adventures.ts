@@ -34,6 +34,10 @@ export function setActiveImage(db: Database, adventureId: string, imageId: strin
   db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
 }
 
+export function setTokenSize(db: Database, adventureId: string, size: number): void {
+  db.run(`UPDATE adventures SET token_size = ? WHERE id = ?`, [size, adventureId]);
+}
+
 export function deleteAdventure(db: Database, id: string): void {
   db.run(`DELETE FROM adventures WHERE id = ?`, [id]);
 }

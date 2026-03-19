@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { Server, ServerWebSocket } from "bun";
 import type { WsData, FogMask, Token } from "../types";
-import { getAdventure, getAdventureByPlayerLink, setActiveImage } from "../db/adventures";
+import { getAdventure, getAdventureByPlayerLink, setActiveImage, setTokenSize } from "../db/adventures";
 import { getImage } from "../db/images";
 import { repairImageDimensions } from "../routes";
 import { findOrCreateToken, createToken, getTokensByAdventure, updateTokenPosition, deleteToken } from "../db/tokens";
@@ -34,6 +34,9 @@ async function getFogMaskForImage(db: Database, imageId: string, uploadsDir?: st
   if ((image.width === 0 || image.height === 0) && uploadsDir) {
     repairImageDimensions(db, imageId, uploadsDir);
     image = getImage(db, imageId) ?? image;
+  }
+  if (image.width === 0 || image.height === 0) {
+    throw new Error(`Image ${imageId} has unknown dimensions; skipping fog mask`);
   }
   const mask = createMask(image.width, image.height);
   fogMaskCache.set(imageId, mask);
@@ -197,6 +200,7 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
             id: adventure.id,
             name: adventure.name,
             activeImageId: adventure.active_image_id,
+            tokenSize: adventure.token_size,
           },
           tokens,
           fogMask,
@@ -290,7 +294,7 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
         }
 
         case "token:move": {
-          if (!conn.tokenId || conn.tokenId !== msg.tokenId) {
+          if (conn.role !== "gm" && (!conn.tokenId || conn.tokenId !== msg.tokenId)) {
             ws.send(serializeMessage({ type: "error", message: "You do not own this token" }));
             break;
           }
@@ -303,6 +307,19 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
           });
           ws.send(moved);
           ws.publish(topic, moved);
+          break;
+        }
+
+        case "settings:update": {
+          if (conn.role !== "gm") {
+            ws.send(serializeMessage({ type: "error", message: "Only GM can change settings" }));
+            break;
+          }
+          const newSize = Math.min(100, Math.max(5, Math.round(Number(msg.tokenSize) || 20)));
+          setTokenSize(db, adventureId, newSize);
+          const settingsMsg = serializeMessage({ type: "settings:updated", tokenSize: newSize });
+          ws.send(settingsMsg);
+          ws.publish(topic, settingsMsg);
           break;
         }
 

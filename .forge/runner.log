@@ -1105,3 +1105,55 @@ model: sonnet
   ─────────────────────────────────────────────────────
   Finished: 2026-03-19 22:41:09  (5m 43s)
   Status:   ✓ OK
+  Commit:   ✓ 4361226  wu-15: Add player ping marker
+  Changes:   15 files changed, 589 insertions(+), 15 deletions(-)
+  Moved:    → .forge/done/wu-15.md
+  ─────────────────────────────────────────────────────
+
+  ⏳ Waiting for work units... (22:41:09)
+  ⏳ Waiting for work units... (22:41:14)
+  ⏳ Waiting for work units... (22:41:19)
+  ⏳ Waiting for work units... (22:41:24)
+  ⏳ Waiting for work units... (22:41:29)
+  ⏳ Waiting for work units... (22:41:34)
+  ⏳ Waiting for work units... (22:41:39)
+  ⏳ Waiting for work units... (22:41:44)
+
+  ⏹ Ctrl-C received, finishing current work...
+forge runner
+project: /home/nogo/Development/projects/fogofwar
+queue:   /home/nogo/Development/projects/fogofwar/.forge/wu
+model:   sonnet
+poll:    5s
+date:    2026-03-20 00:03:52
+
+  Ctrl-C to stop gracefully
+
+wu-16: Fix fog layer for WebP and unsupported image formats
+model: sonnet
+
+  Prompt:  67 lines  (3940 bytes)
+  Log:     /home/nogo/Development/projects/fogofwar/.forge/wu/wu-16.log
+
+  Started: 2026-03-20 00:03:52
+
+  [00:03:56]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/routes.ts","offset":1…
+  [00:03:57]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/ws/handler.ts","offse…
+  [00:04:06]  ⚙  Grep  {"pattern":"getFogMaskForImage","path":"/home/nogo/Development/projects/fogofwar…
+  [00:04:09]  ⚙  Read  {"file_path":"/home/nogo/Development/projects/fogofwar/src/ws/handler.ts","offse…
+  [00:04:23]  💬 Now I have all the context. I'll implement WebP parsing and the 0x0 fallback.
+  [00:04:32]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/r…
+  [00:04:36]  💬 Now handle the 0x0 fallback in `getFogMaskForImage` — throw instead of creating a broken 0x0 mask:
+  [00:04:38]  ⚙  Edit  {"replace_all":false,"file_path":"/home/nogo/Development/projects/fogofwar/src/w…
+  [00:04:41]  ⚙  Bash  {"command":"bun run build 2>&1 | tail -20","description":"Build to verify no err…
+  [00:04:44]  ⚙  Bash  {"command":"cat /home/nogo/Development/projects/fogofwar/package.json | grep -A5…
+  [00:04:46]  ⚙  Bash  {"command":"bun run build:client 2>&1 | tail -20 && bun test 2>&1 | tail -20","d…
+  [00:04:57]  💬 All 77 tests pass. Here's what changed:
+
+**`src/routes.ts` — `parseImageDimensions`:** Added WebP parsing for all three 
+
+  [00:04:57]  ✅ Done — tokens: 11 in / 3252 out | cost: $0.19161419999999998
+
+  ─────────────────────────────────────────────────────
+  Finished: 2026-03-20 00:04:57  (1m 5s)
+  Status:   ✓ OK

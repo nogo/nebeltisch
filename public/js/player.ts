@@ -41,6 +41,7 @@ playerInfoEl.appendChild(document.createTextNode(playerName));
 canvasArea.style.visibility = 'hidden';
 
 // --- State ---
+let tokenRadius = 20;
 let activeImageId: string | null = null;
 let ownTokenId: string | null = null;
 let ownTokenPos: { x: number; y: number } | null = null;
@@ -71,13 +72,12 @@ const tokenCtrl = initTokenLayer(
   canvasCtrl.getWrapper(),
   () => canvasCtrl.getImageSize(),
   (x, y) => viewport.screenToImage(x, y),
-  { interactive: true }
+  { interactive: true, getRadius: () => tokenRadius }
 );
 
 // Long-press detection for ping
 const LONG_PRESS_DELAY = 400;
 const PING_RATE_LIMIT = 1000;
-const TOKEN_RADIUS = 20;
 let longPressTimer: ReturnType<typeof setTimeout> | null = null;
 let longPressStartPos: { x: number; y: number } | null = null;
 let lastPingTime = 0;
@@ -92,7 +92,7 @@ function isOnOwnToken(clientX: number, clientY: number): boolean {
   const pos = viewport.screenToImage(clientX, clientY);
   const dx = pos.x - ownTokenPos.x;
   const dy = pos.y - ownTokenPos.y;
-  return dx * dx + dy * dy <= TOKEN_RADIUS * TOKEN_RADIUS;
+  return dx * dx + dy * dy <= tokenRadius * tokenRadius;
 }
 
 // Wire token drag and long-press through viewport gesture system
@@ -132,9 +132,10 @@ viewport.onInteractEnd(() => {
 const ws = connectPlayer(adventureId, playerLink, playerName, playerColor);
 
 ws.on('joined', async (msg) => {
-  const adv = msg.adventure as { id: string; name: string; activeImageId: string | null };
+  const adv = msg.adventure as { id: string; name: string; activeImageId: string | null; tokenSize: number };
   document.title = `${adv.name} — Player`;
   activeImageId = adv.activeImageId;
+  tokenRadius = adv.tokenSize ?? 20;
   ownTokenId = typeof msg.yourTokenId === 'string' ? msg.yourTokenId : null;
 
   try {
@@ -215,6 +216,11 @@ ws.on('token:removed', (msg) => {
 
 ws.on('ping:map', (msg) => {
   pingCtrl.addPing(msg.x as number, msg.y as number, msg.color as string);
+});
+
+ws.on('settings:updated', (msg) => {
+  tokenRadius = msg.tokenSize as number;
+  tokenCtrl.render();
 });
 
 ws.on('map:switched', async (msg) => {

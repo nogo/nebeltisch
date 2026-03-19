@@ -123,14 +123,18 @@ export function createViewport(): Viewport {
     pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
 
     if (pointers.size === 1) {
-      if (ev.button === 1) {
-        // Middle mouse — pan immediately
+      if (ev.button === 1 || ev.button === 2) {
+        // Middle or right mouse — pan immediately
         panActive = true;
         prevMidX = ev.clientX;
         prevMidY = ev.clientY;
         try { _container?.setPointerCapture(ev.pointerId); } catch {}
+      } else if (ev.pointerType === 'mouse') {
+        // Mouse — commit immediately (no pinch-zoom ambiguity)
+        gracePendingEv = ev;
+        commitInteract();
       } else {
-        // Start grace period
+        // Touch — start grace period to distinguish from pinch-zoom
         gracePendingEv = ev;
         graceTimer = setTimeout(() => {
           graceTimer = null;
@@ -149,7 +153,13 @@ export function createViewport(): Viewport {
   }
 
   function onMove(ev: PointerEvent) {
-    if (!pointers.has(ev.pointerId)) return;
+    if (!pointers.has(ev.pointerId)) {
+      // Hover (no button pressed) — forward for brush preview
+      if (pointers.size === 0) {
+        for (const cb of moveCbs) cb(ev);
+      }
+      return;
+    }
     ev.preventDefault();
     ev.stopPropagation();
     pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
@@ -211,6 +221,9 @@ export function createViewport(): Viewport {
   }
 
   function onLeave(ev: PointerEvent) {
+    // Ignore pointerleave on descendant elements — these fire as boundary
+    // events when setPointerCapture redirects the pointer to the container.
+    if (ev.target !== _container) return;
     ev.stopPropagation();
     const wasInteracting = interacting;
     pointers.delete(ev.pointerId);
@@ -249,6 +262,9 @@ export function createViewport(): Viewport {
       container.addEventListener('pointerup', onUp, { capture: true });
       container.addEventListener('pointercancel', onUp, { capture: true });
       container.addEventListener('pointerleave', onLeave, { capture: true });
+
+      // Suppress context menu so right-click drag works for panning
+      container.addEventListener('contextmenu', (ev) => ev.preventDefault());
 
       container.addEventListener('wheel', (ev: WheelEvent) => {
         ev.preventDefault();

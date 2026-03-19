@@ -7,7 +7,7 @@ import {
   initTokenLayer,
   listImages,
   uploadImage
-} from "./gm-bxt9t766.js";
+} from "./gm-k76gdcdt.js";
 
 // public/js/gm.ts
 var fragment = new URLSearchParams(location.hash.slice(1));
@@ -19,6 +19,7 @@ if (!adventureId || !password) {
 }
 var brushRadius = 50;
 var brushMode = "reveal";
+var tokenRadius = 20;
 var activeImageId = null;
 var imageList = [];
 var playerRoster = [];
@@ -39,6 +40,7 @@ var gallery = document.getElementById("gallery");
 var uploadInput = document.getElementById("upload-input");
 var statusBar = document.getElementById("status-bar");
 var canvasArea = document.getElementById("canvas-area");
+var modeToggle = document.getElementById("mode-toggle");
 var canvasCtrl = initCanvas(canvasArea);
 var viewport = createViewport();
 viewport.attach(canvasArea, canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize());
@@ -48,7 +50,10 @@ function animatePings() {
   requestAnimationFrame(animatePings);
 }
 requestAnimationFrame(animatePings);
-var tokenCtrl = initTokenLayer(canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize(), (x, y) => viewport.screenToImage(x, y), { interactive: false });
+var tokenCtrl = initTokenLayer(canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize(), (x, y) => viewport.screenToImage(x, y), { interactive: true, getRadius: () => tokenRadius });
+tokenCtrl.enableDragAll((tokenId, x, y) => {
+  ws.send({ type: "token:move", tokenId, x, y });
+});
 var ws = connectGM(adventureId, password);
 ws.on("connect", () => {
   connectionStatusEl.className = "status-dot connected";
@@ -64,6 +69,8 @@ ws.on("error", (msg) => {
 ws.on("joined", async (msg) => {
   const adv = msg.adventure;
   adventureNameEl.textContent = adv.name;
+  tokenRadius = adv.tokenSize ?? 20;
+  updateTokenSizeLabel();
   try {
     const advData = await getAdventure(adventureId, password);
     inviteUrl = `${location.origin}/player#link=${encodeURIComponent(advData.player_link)}`;
@@ -115,6 +122,11 @@ ws.on("player:roster", (msg) => {
 });
 ws.on("ping:map", (msg) => {
   pingCtrl.addPing(msg.x, msg.y, msg.color);
+});
+ws.on("settings:updated", (msg) => {
+  tokenRadius = msg.tokenSize;
+  tokenCtrl.render();
+  updateTokenSizeLabel();
 });
 ws.on("map:switched", async (msg) => {
   activeImageId = msg.imageId;
@@ -273,6 +285,36 @@ function setMode(mode) {
 }
 modeRevealBtn.addEventListener("click", () => setMode("reveal"));
 modeFogBtn.addEventListener("click", () => setMode("fog"));
+var tokenSizeBtn = document.createElement("button");
+tokenSizeBtn.id = "token-size-btn";
+tokenSizeBtn.textContent = `● ${tokenRadius}`;
+tokenSizeBtn.title = "Token size";
+modeToggle.appendChild(tokenSizeBtn);
+var tokenSizePopup = document.createElement("div");
+tokenSizePopup.id = "token-size-popup";
+tokenSizePopup.className = "floating-control";
+tokenSizePopup.hidden = true;
+var tokenSizeSlider = document.createElement("input");
+tokenSizeSlider.type = "range";
+tokenSizeSlider.min = "5";
+tokenSizeSlider.max = "100";
+tokenSizeSlider.value = String(tokenRadius);
+tokenSizePopup.appendChild(tokenSizeSlider);
+document.body.appendChild(tokenSizePopup);
+function updateTokenSizeLabel() {
+  tokenSizeBtn.textContent = `● ${tokenRadius}`;
+  tokenSizeSlider.value = String(tokenRadius);
+}
+tokenSizeBtn.addEventListener("click", () => {
+  tokenSizePopup.hidden = !tokenSizePopup.hidden;
+  tokenSizeBtn.classList.toggle("active", !tokenSizePopup.hidden);
+});
+tokenSizeSlider.addEventListener("input", () => {
+  tokenRadius = parseInt(tokenSizeSlider.value, 10);
+  tokenCtrl.render();
+  updateTokenSizeLabel();
+  ws.send({ type: "settings:update", tokenSize: tokenRadius });
+});
 var MAX_HISTORY = 50;
 var undoStack = [];
 var redoStack = [];
@@ -358,9 +400,16 @@ function flushPending() {
   pending.length = 0;
   lastFlush = Date.now();
 }
+var isDraggingToken = false;
 viewport.onInteractStart((ev) => {
   if (!activeImageId)
     return;
+  tokenCtrl.handlePointerDown(ev);
+  if (tokenCtrl.isDragging()) {
+    isDraggingToken = true;
+    return;
+  }
+  isDraggingToken = false;
   longPressStartPos = { x: ev.clientX, y: ev.clientY };
   longPressTimer = setTimeout(() => {
     longPressTimer = null;
@@ -385,8 +434,12 @@ viewport.onInteractStart((ev) => {
     flushPending();
 });
 viewport.onPointerMove((ev) => {
+  if (isDraggingToken) {
+    tokenCtrl.handlePointerMove(ev);
+    return;
+  }
   const pos = viewport.screenToImage(ev.clientX, ev.clientY);
-  canvasCtrl.drawBrushPreview(pos.x, pos.y, brushRadius);
+  canvasCtrl.drawBrushPreview(pos.x, pos.y, brushRadius, viewport.scale);
   if (longPressTimer !== null && longPressStartPos !== null) {
     const dx = ev.clientX - longPressStartPos.x;
     const dy = ev.clientY - longPressStartPos.y;
@@ -403,6 +456,11 @@ viewport.onPointerMove((ev) => {
     flushPending();
 });
 function finishAction() {
+  if (isDraggingToken) {
+    tokenCtrl.handlePointerUp();
+    isDraggingToken = false;
+    return;
+  }
   if (!isDrawing)
     return;
   isDrawing = false;

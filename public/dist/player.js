@@ -5,7 +5,7 @@ import {
   initPingLayer,
   initTokenLayer,
   listImagesAsPlayer
-} from "./gm-bxt9t766.js";
+} from "./gm-k76gdcdt.js";
 
 // public/js/player.ts
 var fragment = new URLSearchParams(location.hash.slice(1));
@@ -33,6 +33,7 @@ dot.style.background = playerColor;
 playerInfoEl.appendChild(dot);
 playerInfoEl.appendChild(document.createTextNode(playerName));
 canvasArea.style.visibility = "hidden";
+var tokenRadius = 20;
 var activeImageId = null;
 var ownTokenId = null;
 var ownTokenPos = null;
@@ -46,10 +47,9 @@ function animatePings() {
   requestAnimationFrame(animatePings);
 }
 requestAnimationFrame(animatePings);
-var tokenCtrl = initTokenLayer(canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize(), (x, y) => viewport.screenToImage(x, y), { interactive: true });
+var tokenCtrl = initTokenLayer(canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize(), (x, y) => viewport.screenToImage(x, y), { interactive: true, getRadius: () => tokenRadius });
 var LONG_PRESS_DELAY = 400;
 var PING_RATE_LIMIT = 1000;
-var TOKEN_RADIUS = 20;
 var longPressTimer = null;
 var longPressStartPos = null;
 var lastPingTime = 0;
@@ -66,7 +66,7 @@ function isOnOwnToken(clientX, clientY) {
   const pos = viewport.screenToImage(clientX, clientY);
   const dx = pos.x - ownTokenPos.x;
   const dy = pos.y - ownTokenPos.y;
-  return dx * dx + dy * dy <= TOKEN_RADIUS * TOKEN_RADIUS;
+  return dx * dx + dy * dy <= tokenRadius * tokenRadius;
 }
 viewport.onInteractStart((ev) => {
   tokenCtrl.handlePointerDown(ev);
@@ -101,6 +101,7 @@ ws.on("joined", async (msg) => {
   const adv = msg.adventure;
   document.title = `${adv.name} — Player`;
   activeImageId = adv.activeImageId;
+  tokenRadius = adv.tokenSize ?? 20;
   ownTokenId = typeof msg.yourTokenId === "string" ? msg.yourTokenId : null;
   try {
     imageList = await listImagesAsPlayer(adventureId, playerLink);
@@ -167,6 +168,10 @@ ws.on("token:removed", (msg) => {
 });
 ws.on("ping:map", (msg) => {
   pingCtrl.addPing(msg.x, msg.y, msg.color);
+});
+ws.on("settings:updated", (msg) => {
+  tokenRadius = msg.tokenSize;
+  tokenCtrl.render();
 });
 ws.on("map:switched", async (msg) => {
   activeImageId = msg.imageId;

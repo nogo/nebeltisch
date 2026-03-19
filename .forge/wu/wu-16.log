@@ -1,0 +1,8 @@
+All 77 tests pass. Here's what changed:
+
+**`src/routes.ts` — `parseImageDimensions`:** Added WebP parsing for all three variants:
+- **VP8X** (extended, most common): reads `width-1` and `height-1` as 24-bit LE at bytes 24-26 / 27-29, adds 1
+- **VP8** (lossy): checks for start code `0x9D 0x01 0x2A` at byte 23, reads width/height as 14-bit LE values
+- **VP8L** (lossless): checks for signature `0x2F` at byte 20, decodes two 14-bit values packed into 4 bytes
+
+**`src/ws/handler.ts` — `getFogMaskForImage`:** Added a guard — if dimensions are still 0×0 after repair, throws an error instead of creating a 0×0 mask. All callers already have `try/catch` that sets `fogMask = null`, so the client's `fillFog()` from `loadImage` stays intact.

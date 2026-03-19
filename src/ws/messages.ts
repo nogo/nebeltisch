@@ -44,6 +44,11 @@ export interface FogUndoMessage {
   strokes: FogStroke[];
 }
 
+export interface SettingsUpdateMessage {
+  type: "settings:update";
+  tokenSize: number;
+}
+
 export interface PingMessage {
   type: "ping";
 }
@@ -64,13 +69,14 @@ export type ClientMessage =
   | MapSwitchMessage
   | PlayerRemoveMessage
   | PingMessage
-  | PingMapMessage;
+  | PingMapMessage
+  | SettingsUpdateMessage;
 
 // ---- Server → Client ----
 
 export interface JoinedMessage {
   type: "joined";
-  adventure: { id: string; name: string; activeImageId: string | null };
+  adventure: { id: string; name: string; activeImageId: string | null; tokenSize: number };
   tokens: Token[];
   fogMask: string | null;
   yourTokenId?: string;
@@ -151,6 +157,11 @@ export interface PongMessage {
   type: "pong";
 }
 
+export interface SettingsUpdatedMessage {
+  type: "settings:updated";
+  tokenSize: number;
+}
+
 export interface PingMapBroadcast {
   type: "ping:map";
   x: number;
@@ -174,7 +185,8 @@ export type ServerMessage =
   | PlayerRemovedMessage
   | ErrorMessage
   | PongMessage
-  | PingMapBroadcast;
+  | PingMapBroadcast
+  | SettingsUpdatedMessage;
 
 export function parseMessage(raw: string): ClientMessage | null {
   try {

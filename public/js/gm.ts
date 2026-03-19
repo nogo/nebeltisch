@@ -19,6 +19,7 @@ if (!adventureId || !password) {
 // --- State ---
 let brushRadius = 50;
 let brushMode: 'reveal' | 'fog' = 'reveal';
+let tokenRadius = 20;
 let activeImageId: string | null = null;
 let imageList: api.ImageRecord[] = [];
 let playerRoster: Array<{ tokenId: string; name: string; color: string; online: boolean }> = [];
@@ -41,6 +42,7 @@ const gallery = document.getElementById('gallery')!;
 const uploadInput = document.getElementById('upload-input') as HTMLInputElement;
 const statusBar = document.getElementById('status-bar')!;
 const canvasArea = document.getElementById('canvas-area')!;
+const modeToggle = document.getElementById('mode-toggle')!;
 
 // --- Canvas ---
 const canvasCtrl = initCanvas(canvasArea);
@@ -62,13 +64,16 @@ function animatePings() {
 }
 requestAnimationFrame(animatePings);
 
-// --- Token layer (non-interactive for GM) ---
+// --- Token layer (GM can move any token) ---
 const tokenCtrl = initTokenLayer(
   canvasCtrl.getWrapper(),
   () => canvasCtrl.getImageSize(),
   (x, y) => viewport.screenToImage(x, y),
-  { interactive: false }
+  { interactive: true, getRadius: () => tokenRadius }
 );
+tokenCtrl.enableDragAll((tokenId, x, y) => {
+  ws.send({ type: 'token:move', tokenId, x, y });
+});
 
 // --- WebSocket ---
 const ws = connectGM(adventureId, password);
@@ -84,8 +89,10 @@ ws.on('disconnect', () => {
 ws.on('error', (msg) => { console.error('WS error', msg); });
 
 ws.on('joined', async (msg) => {
-  const adv = msg.adventure as { id: string; name: string; activeImageId: string | null };
+  const adv = msg.adventure as { id: string; name: string; activeImageId: string | null; tokenSize: number };
   adventureNameEl.textContent = adv.name;
+  tokenRadius = adv.tokenSize ?? 20;
+  updateTokenSizeLabel();
 
   try {
     const advData = await api.getAdventure(adventureId, password);
@@ -149,6 +156,12 @@ ws.on('player:roster', (msg) => {
 
 ws.on('ping:map', (msg) => {
   pingCtrl.addPing(msg.x as number, msg.y as number, msg.color as string);
+});
+
+ws.on('settings:updated', (msg) => {
+  tokenRadius = msg.tokenSize as number;
+  tokenCtrl.render();
+  updateTokenSizeLabel();
 });
 
 ws.on('map:switched', async (msg) => {
@@ -339,6 +352,43 @@ function setMode(mode: 'reveal' | 'fog') {
 modeRevealBtn.addEventListener('click', () => setMode('reveal'));
 modeFogBtn.addEventListener('click', () => setMode('fog'));
 
+// --- Token size control ---
+const tokenSizeBtn = document.createElement('button');
+tokenSizeBtn.id = 'token-size-btn';
+tokenSizeBtn.textContent = `\u25CF ${tokenRadius}`;
+tokenSizeBtn.title = 'Token size';
+modeToggle.appendChild(tokenSizeBtn);
+
+const tokenSizePopup = document.createElement('div');
+tokenSizePopup.id = 'token-size-popup';
+tokenSizePopup.className = 'floating-control';
+tokenSizePopup.hidden = true;
+
+const tokenSizeSlider = document.createElement('input');
+tokenSizeSlider.type = 'range';
+tokenSizeSlider.min = '5';
+tokenSizeSlider.max = '100';
+tokenSizeSlider.value = String(tokenRadius);
+tokenSizePopup.appendChild(tokenSizeSlider);
+document.body.appendChild(tokenSizePopup);
+
+function updateTokenSizeLabel() {
+  tokenSizeBtn.textContent = `\u25CF ${tokenRadius}`;
+  tokenSizeSlider.value = String(tokenRadius);
+}
+
+tokenSizeBtn.addEventListener('click', () => {
+  tokenSizePopup.hidden = !tokenSizePopup.hidden;
+  tokenSizeBtn.classList.toggle('active', !tokenSizePopup.hidden);
+});
+
+tokenSizeSlider.addEventListener('input', () => {
+  tokenRadius = parseInt(tokenSizeSlider.value, 10);
+  tokenCtrl.render();
+  updateTokenSizeLabel();
+  ws.send({ type: 'settings:update', tokenSize: tokenRadius });
+});
+
 // --- Undo/redo history ---
 const MAX_HISTORY = 50;
 let undoStack: FogStroke[][] = [];
@@ -433,8 +483,18 @@ function flushPending() {
   lastFlush = Date.now();
 }
 
+let isDraggingToken = false;
+
 viewport.onInteractStart((ev: PointerEvent) => {
   if (!activeImageId) return;
+
+  // Check if clicking on a token — drag instead of paint
+  tokenCtrl.handlePointerDown(ev);
+  if (tokenCtrl.isDragging()) {
+    isDraggingToken = true;
+    return;
+  }
+  isDraggingToken = false;
 
   longPressStartPos = { x: ev.clientX, y: ev.clientY };
   longPressTimer = setTimeout(() => {
@@ -461,8 +521,13 @@ viewport.onInteractStart((ev: PointerEvent) => {
 });
 
 viewport.onPointerMove((ev: PointerEvent) => {
+  if (isDraggingToken) {
+    tokenCtrl.handlePointerMove(ev);
+    return;
+  }
+
   const pos = viewport.screenToImage(ev.clientX, ev.clientY);
-  canvasCtrl.drawBrushPreview(pos.x, pos.y, brushRadius);
+  canvasCtrl.drawBrushPreview(pos.x, pos.y, brushRadius, viewport.scale);
 
   if (longPressTimer !== null && longPressStartPos !== null) {
     const dx = ev.clientX - longPressStartPos.x;
@@ -479,6 +544,11 @@ viewport.onPointerMove((ev: PointerEvent) => {
 });
 
 function finishAction() {
+  if (isDraggingToken) {
+    tokenCtrl.handlePointerUp();
+    isDraggingToken = false;
+    return;
+  }
   if (!isDrawing) return;
   isDrawing = false;
   flushPending();

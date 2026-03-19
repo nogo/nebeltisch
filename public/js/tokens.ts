@@ -11,21 +11,24 @@ export interface TokenController {
   removeToken(tokenId: string): void;
   moveToken(tokenId: string, x: number, y: number): void;
   enableDrag(tokenId: string, onMove: (x: number, y: number) => void): void;
+  enableDragAll(onMove: (tokenId: string, x: number, y: number) => void): void;
+  isDragging(): boolean;
   render(): void;
   handlePointerDown(ev: PointerEvent): void;
   handlePointerMove(ev: PointerEvent): void;
   handlePointerUp(): void;
 }
 
-const RADIUS = 20; // image-space pixels
+const DEFAULT_RADIUS = 20;
 const FONT_SIZE = 12;
 
 export function initTokenLayer(
   wrapper: HTMLElement,
   getImageSize: () => { w: number; h: number },
   screenToImage: (clientX: number, clientY: number) => { x: number; y: number },
-  options?: { interactive?: boolean }
+  options?: { interactive?: boolean; getRadius?: () => number }
 ): TokenController {
+  const getRadius = options?.getRadius ?? (() => DEFAULT_RADIUS);
   const canvas = document.createElement('canvas');
   canvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
   if (options?.interactive === false) {
@@ -37,6 +40,8 @@ export function initTokenLayer(
   const tokens = new Map<string, TokenData>();
   let ownTokenId: string | null = null;
   let onMoveCallback: ((x: number, y: number) => void) | null = null;
+  let dragAllMode = false;
+  let onMoveAnyCallback: ((tokenId: string, x: number, y: number) => void) | null = null;
 
   function render() {
     const { w, h } = getImageSize();
@@ -50,7 +55,7 @@ export function initTokenLayer(
     for (const token of tokens.values()) {
       ctx.save();
       ctx.beginPath();
-      ctx.arc(token.x, token.y, RADIUS, 0, Math.PI * 2);
+      ctx.arc(token.x, token.y, getRadius(), 0, Math.PI * 2);
       ctx.fillStyle = token.color;
       ctx.fill();
       if (token.id === ownTokenId) {
@@ -64,7 +69,7 @@ export function initTokenLayer(
       ctx.font = `bold ${FONT_SIZE}px system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      const labelY = token.y + RADIUS + 3;
+      const labelY = token.y + getRadius() + 3;
       ctx.strokeStyle = 'rgba(0,0,0,0.8)';
       ctx.lineWidth = 3;
       ctx.lineJoin = 'round';
@@ -77,6 +82,7 @@ export function initTokenLayer(
 
   // Drag state
   let dragging = false;
+  let dragTokenId: string | null = null;
   let lastMoveTime = 0;
   const MOVE_INTERVAL = 1000 / 30;
 
@@ -97,43 +103,73 @@ export function initTokenLayer(
       ownTokenId = tokenId;
       onMoveCallback = onMove;
     },
+    enableDragAll(onMove: (tokenId: string, x: number, y: number) => void) {
+      dragAllMode = true;
+      onMoveAnyCallback = onMove;
+    },
+    isDragging() { return dragging; },
     render,
 
     handlePointerDown(ev: PointerEvent) {
+      const pos = screenToImage(ev.clientX, ev.clientY);
+
+      if (dragAllMode) {
+        // GM mode: find any token under cursor
+        for (const token of tokens.values()) {
+          const dx = pos.x - token.x;
+          const dy = pos.y - token.y;
+          if (Math.sqrt(dx * dx + dy * dy) < getRadius()) {
+            dragging = true;
+            dragTokenId = token.id;
+            return;
+          }
+        }
+      }
+
+      // Player mode: only own token
       if (!ownTokenId) return;
       const own = tokens.get(ownTokenId);
       if (!own) return;
-      const pos = screenToImage(ev.clientX, ev.clientY);
       const dx = pos.x - own.x;
       const dy = pos.y - own.y;
-      if (Math.sqrt(dx * dx + dy * dy) < RADIUS) {
+      if (Math.sqrt(dx * dx + dy * dy) < getRadius()) {
         dragging = true;
+        dragTokenId = ownTokenId;
       }
     },
 
     handlePointerMove(ev: PointerEvent) {
-      if (!dragging || !ownTokenId) return;
+      if (!dragging || !dragTokenId) return;
       const pos = screenToImage(ev.clientX, ev.clientY);
-      const token = tokens.get(ownTokenId);
+      const token = tokens.get(dragTokenId);
       if (!token) return;
       token.x = pos.x;
       token.y = pos.y;
       render();
       const now = Date.now();
-      if (onMoveCallback && now - lastMoveTime >= MOVE_INTERVAL) {
-        onMoveCallback(pos.x, pos.y);
+      if (now - lastMoveTime >= MOVE_INTERVAL) {
+        if (dragAllMode && onMoveAnyCallback) {
+          onMoveAnyCallback(dragTokenId, pos.x, pos.y);
+        } else if (onMoveCallback) {
+          onMoveCallback(pos.x, pos.y);
+        }
         lastMoveTime = now;
       }
     },
 
     handlePointerUp() {
-      if (!dragging || !ownTokenId) return;
-      const token = tokens.get(ownTokenId);
+      if (!dragging || !dragTokenId) return;
+      const token = tokens.get(dragTokenId);
       dragging = false;
       render();
-      if (onMoveCallback && token) {
-        onMoveCallback(token.x, token.y);
+      if (token) {
+        if (dragAllMode && onMoveAnyCallback) {
+          onMoveAnyCallback(dragTokenId, token.x, token.y);
+        } else if (onMoveCallback) {
+          onMoveCallback(token.x, token.y);
+        }
       }
+      dragTokenId = null;
     },
   };
 }

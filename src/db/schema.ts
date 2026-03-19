@@ -38,6 +38,13 @@ export function createSchema(db: Database): void {
     );
   `);
 
+  // Migration: add token_size to adventures
+  try {
+    db.run(`ALTER TABLE adventures ADD COLUMN token_size INTEGER NOT NULL DEFAULT 20`);
+  } catch {
+    // Column already exists — ignore
+  }
+
   // Migration: rename player_session_id -> player_link for existing databases
   try {
     db.run(`ALTER TABLE tokens RENAME COLUMN player_session_id TO player_link`);
