@@ -8,6 +8,25 @@ body {
   overflow: hidden;
 }
 
+/* ── Fog ambient background ── */
+body.home::before, .join-view::before {
+  content: '';
+  position: fixed;
+  inset: -20%;
+  background:
+    radial-gradient(ellipse at 20% 50%, rgba(74, 74, 255, 0.08) 0%, transparent 60%),
+    radial-gradient(ellipse at 80% 20%, rgba(100, 60, 180, 0.06) 0%, transparent 50%),
+    radial-gradient(ellipse at 50% 80%, rgba(74, 74, 255, 0.05) 0%, transparent 55%);
+  animation: fog-drift 20s ease-in-out infinite alternate;
+  pointer-events: none;
+  z-index: 0;
+}
+@keyframes fog-drift {
+  0%   { transform: translate(0, 0) scale(1); }
+  50%  { transform: translate(3%, -2%) scale(1.05); }
+  100% { transform: translate(-2%, 3%) scale(1.02); }
+}
+
 /* ── Home page ── */
 body.home {
   display: flex;
@@ -15,23 +34,36 @@ body.home {
   justify-content: center;
   overflow: auto;
 }
-.home-main { width: 100%; max-width: 480px; padding: 2rem; }
-.home-main h1 {
-  font-size: 2rem;
-  margin-bottom: 1.5rem;
+.home-main { width: 100%; max-width: 480px; padding: 2rem; position: relative; z-index: 1; }
+.home-main h1, .join-view h1 {
+  font-size: 2.2rem;
+  margin-bottom: 0.5rem;
   text-align: center;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.05em;
   color: #fff;
+  text-shadow: 0 0 40px rgba(74, 74, 255, 0.2);
+}
+.tagline {
+  text-align: center;
+  color: #777;
+  font-size: 0.9rem;
+  letter-spacing: 0.03em;
+  margin-bottom: 1.5rem;
 }
 .card {
   background: rgba(26, 26, 46, 0.6);
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
-  border: 1px solid rgba(42, 42, 74, 0.5);
+  border: 1px solid rgba(74, 74, 255, 0.12);
   border-radius: 12px;
   padding: 1.5rem;
   margin-bottom: 1rem;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3), 0 0 60px rgba(74, 74, 255, 0.04);
+  animation: fade-up 0.4s ease-out both;
+}
+@keyframes fade-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: translateY(0); }
 }
 @supports not (backdrop-filter: blur(8px)) {
   .card { background: #1a1a2e; }
@@ -80,9 +112,9 @@ body.home {
   cursor: pointer;
   font-size: 1rem;
   font-weight: 600;
-  transition: background-color 200ms ease-out, transform 200ms ease-out;
+  transition: background-color 200ms ease-out, transform 200ms ease-out, box-shadow 200ms ease-out;
 }
-.card button:hover { background: #3333cc; }
+.card button:hover { background: #3333cc; box-shadow: 0 0 20px rgba(74, 74, 255, 0.3); }
 .card button:active { transform: scale(0.98); }
 .error {
   color: #e74c3c;
@@ -111,13 +143,8 @@ body.home {
   width: 100%;
   max-width: 480px;
   padding: 2rem;
-}
-.join-view h1 {
-  font-size: 2rem;
-  margin-bottom: 1.5rem;
-  text-align: center;
-  letter-spacing: 0.04em;
-  color: #fff;
+  position: relative;
+  z-index: 1;
 }
 @media (max-width: 400px) {
   .join-view .join-inner { padding: 1rem; }

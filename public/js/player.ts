@@ -48,6 +48,11 @@ async function showJoinForm(link: string) {
   const inner = document.createElement('div');
   inner.className = 'join-inner';
 
+  const invited = document.createElement('p');
+  invited.className = 'tagline';
+  invited.textContent = "You've been invited to";
+  inner.appendChild(invited);
+
   const h1 = document.createElement('h1');
   h1.textContent = advName;
   inner.appendChild(h1);
