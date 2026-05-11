@@ -96,7 +96,7 @@ ws.on('joined', async (msg) => {
 
   try {
     const advData = await api.getAdventure(adventureId, password);
-    inviteUrl = `${location.origin}/player#link=${encodeURIComponent(advData.player_link)}`;
+    inviteUrl = `${location.origin}/join/${encodeURIComponent(advData.player_link)}`;
   } catch {}
 
   activeImageId = adv.activeImageId;

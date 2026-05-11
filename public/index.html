@@ -4,12 +4,12 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="theme-color" content="#0d0d1a">
-  <title>Fog of War</title>
+  <title>Nebeltisch</title>
   <link rel="stylesheet" href="/css/style.css">
 </head>
 <body class="home">
   <main class="home-main">
-    <h1>Fog of War</h1>
+    <h1>Nebeltisch</h1>
 
     <section class="card">
       <h2>Create Adventure</h2>
@@ -21,16 +21,6 @@
       </form>
     </section>
 
-    <section class="card">
-      <h2>Join Adventure</h2>
-      <form id="join-form">
-        <label>Invite code<input type="text" id="join-link" required placeholder="abc123" autocomplete="off"></label>
-        <label>Your name<input type="text" id="join-name" required placeholder="Aria" autocomplete="nickname"></label>
-        <label>Color<input type="color" id="join-color" value="#e74c3c"></label>
-        <button type="submit">Join</button>
-        <p id="join-error" class="error"></p>
-      </form>
-    </section>
   </main>
 
   <script>
@@ -58,25 +48,6 @@
       }
     });
 
-    document.getElementById('join-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const link = document.getElementById('join-link').value.trim();
-      const name = document.getElementById('join-name').value.trim();
-      const color = document.getElementById('join-color').value;
-      const errEl = document.getElementById('join-error');
-      errEl.textContent = '';
-      try {
-        const res = await fetch(`/api/adventures/join/${encodeURIComponent(link)}`);
-        if (!res.ok) {
-          errEl.textContent = 'Invalid invite code.';
-          return;
-        }
-        const adv = await res.json();
-        location.href = `/player#adventureId=${encodeURIComponent(adv.id)}&link=${encodeURIComponent(link)}&name=${encodeURIComponent(name)}&color=${encodeURIComponent(color)}`;
-      } catch {
-        errEl.textContent = 'Could not connect to server.';
-      }
-    });
   </script>
 </body>
 </html>

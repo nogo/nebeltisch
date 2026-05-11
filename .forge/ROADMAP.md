@@ -1,4 +1,4 @@
-# Fog of War — Roadmap
+# Nebeltisch — Roadmap
 
 ## What
 A collaborative tabletop tool for remote pen & paper RPGs. GM creates an adventure, uploads map images (each with its own fog layer), reveals/re-fogs areas with a round brush, and controls which map players see. Players join via share link, pick name + color, and move their own token on the active map.
@@ -39,7 +39,7 @@ A collaborative tabletop tool for remote pen & paper RPGs. GM creates an adventu
 ## Future Improvements
 - **GM fog opacity slider** — adjustable transparency (0–100%) on the fog layer, GM-only. Lets the GM peek through fog to plan reveals. Players always see fully opaque fog. Pure client-side, no server changes needed.
 - **GM map tokens** — GM can place tokens (monsters, NPCs, treasure, traps) on the map below the fog layer. Hidden until fog is revealed. Rendered between map and fog canvas.
-- **Rename project** — pick final name (Nebeltisch is a candidate).
+- ~~**Rename project**~~ — done. Project is now Nebeltisch.
 
 ## Maybe (post-PoC)
 - Fog shapes — rectangle and polygon reveal for entire rooms

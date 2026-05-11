@@ -1,4 +1,4 @@
-# Fog of War — Design Intent
+# Nebeltisch — Design Intent
 
 > The map IS the interface. Everything else gets out of the way.
 

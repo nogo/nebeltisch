@@ -73,7 +73,7 @@ ws.on("joined", async (msg) => {
   updateTokenSizeLabel();
   try {
     const advData = await getAdventure(adventureId, password);
-    inviteUrl = `${location.origin}/player#link=${encodeURIComponent(advData.player_link)}`;
+    inviteUrl = `${location.origin}/join/${encodeURIComponent(advData.player_link)}`;
   } catch {}
   activeImageId = adv.activeImageId;
   imageList = await listImages(adventureId, password);

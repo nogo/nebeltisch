@@ -115,6 +115,15 @@ export function handleRequest(
     }
   }
 
+  if (req.method === "GET" && segments[0] === "join" && segments.length === 2) {
+    try {
+      const html = readFileSync(join(publicDir, "player.html"), "utf-8");
+      return new Response(html, { headers: { "Content-Type": "text/html" } });
+    } catch {
+      return new Response("Not Found", { status: 404 });
+    }
+  }
+
   if (req.method === "GET" && (pathname.startsWith("/dist/") || pathname.startsWith("/css/"))) {
     const filePath = join(publicDir, pathname);
     const file = Bun.file(filePath);
