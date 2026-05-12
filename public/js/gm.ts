@@ -12,9 +12,20 @@ const adventureId = fragment.get('id') ?? '';
 const password = fragment.get('password') ?? '';
 
 if (!adventureId || !password) {
-  document.body.innerHTML = '<p style="padding:2rem">Missing adventure ID or password. <a href="/">Return home</a></p>';
+  const p = document.createElement('p');
+  p.style.cssText = 'padding:2rem';
+  p.textContent = 'Missing adventure ID or password. ';
+  const a = document.createElement('a');
+  a.href = '/';
+  a.textContent = 'Return home';
+  p.appendChild(a);
+  document.body.textContent = '';
+  document.body.appendChild(p);
   throw new Error('Missing params');
 }
+
+// Strip password from visible URL
+history.replaceState(null, '', location.pathname);
 
 // --- State ---
 let brushRadius = 50;
@@ -24,25 +35,47 @@ let activeImageId: string | null = null;
 let imageList: api.ImageRecord[] = [];
 let playerRoster: Array<{ tokenId: string; name: string; color: string; online: boolean }> = [];
 let inviteUrl = '';
-let presencePopover: HTMLElement | null = null;
 
 // --- DOM ---
 const adventureNameEl = document.getElementById('adventure-name')!;
 const connectionStatusEl = document.getElementById('connection-status')!;
 const playerPresenceEl = document.getElementById('player-presence')!;
-const brushSizeSlider = document.getElementById('brush-size') as HTMLInputElement;
-const brushSizeLabel = document.getElementById('brush-size-label')!;
-const modeRevealBtn = document.getElementById('mode-reveal')!;
-const modeFogBtn = document.getElementById('mode-fog')!;
+const canvasArea = document.getElementById('canvas-area')!;
+
+// Toolbox
+const toolbox = document.getElementById('toolbox')!;
+const tbHistory = document.getElementById('tb-history')!;
 const undoBtn = document.getElementById('undo-btn') as HTMLButtonElement;
 const redoBtn = document.getElementById('redo-btn') as HTMLButtonElement;
-const mapPanelToggleBtn = document.getElementById('map-panel-toggle')!;
-const mapPanel = document.getElementById('map-panel')!;
+const modeRevealBtn = document.getElementById('mode-reveal')!;
+const modeFogBtn = document.getElementById('mode-fog')!;
+const brushBtn = document.getElementById('brush-btn')!;
+const brushSizeLabel = document.getElementById('brush-size-label')!;
+const tokenBtn = document.getElementById('token-btn')!;
+const tokenSizeLabel = document.getElementById('token-size-label')!;
+const playersBt = document.getElementById('players-btn')!;
+const playerCount = document.getElementById('player-count')!;
+const mapsBtn = document.getElementById('maps-btn')!;
+
+// Popups
+const brushPopup = document.getElementById('brush-popup')!;
+const brushSizeSlider = document.getElementById('brush-size') as HTMLInputElement;
+const tokenPopup = document.getElementById('token-popup')!;
+const tokenSizeSlider = document.getElementById('token-size') as HTMLInputElement;
+
+// Sheets
+const sheetBackdrop = document.getElementById('sheet-backdrop')!;
+const playersSheet = document.getElementById('players-sheet')!;
+const playersList = document.getElementById('players-list')!;
+const copyInviteBtn = document.getElementById('copy-invite-btn')!;
+const mapsSheet = document.getElementById('maps-sheet')!;
 const gallery = document.getElementById('gallery')!;
 const uploadInput = document.getElementById('upload-input') as HTMLInputElement;
-const statusBar = document.getElementById('status-bar')!;
-const canvasArea = document.getElementById('canvas-area')!;
-const modeToggle = document.getElementById('mode-toggle')!;
+
+// Share + empty state
+const shareBtn = document.getElementById('share-btn')!;
+const emptyState = document.getElementById('empty-state')!;
+const emptyUploadBtn = document.getElementById('empty-upload-btn')!;
 
 // --- Canvas ---
 const canvasCtrl = initCanvas(canvasArea);
@@ -64,7 +97,7 @@ function animatePings() {
 }
 requestAnimationFrame(animatePings);
 
-// --- Token layer (GM can move any token) ---
+// --- Token layer ---
 const tokenCtrl = initTokenLayer(
   canvasCtrl.getWrapper(),
   () => canvasCtrl.getImageSize(),
@@ -78,14 +111,8 @@ tokenCtrl.enableDragAll((tokenId, x, y) => {
 // --- WebSocket ---
 const ws = connectGM(adventureId, password);
 
-ws.on('connect', () => {
-  connectionStatusEl.className = 'status-dot connected';
-  statusBar.textContent = '';
-});
-ws.on('disconnect', () => {
-  connectionStatusEl.className = 'status-dot disconnected';
-  statusBar.textContent = '';
-});
+ws.on('connect', () => { connectionStatusEl.className = 'status-dot connected'; });
+ws.on('disconnect', () => { connectionStatusEl.className = 'status-dot disconnected'; });
 ws.on('error', (msg) => { console.error('WS error', msg); });
 
 ws.on('joined', async (msg) => {
@@ -102,52 +129,42 @@ ws.on('joined', async (msg) => {
   activeImageId = adv.activeImageId;
   imageList = await api.listImages(adventureId, password);
   renderGallery();
+  updateEmptyState();
 
   if (activeImageId) {
     const img = imageList.find(i => i.id === activeImageId);
     if (img) {
       await canvasCtrl.loadImage(`/uploads/${img.filename}`);
       viewport.resetView();
-      if (typeof msg.fogMask === 'string') {
-        await canvasCtrl.applyFogMask(msg.fogMask);
-      }
+      if (typeof msg.fogMask === 'string') await canvasCtrl.applyFogMask(msg.fogMask);
     }
   }
 
   const tokens = msg.tokens as Array<{ id: string; name: string; color: string; x: number; y: number }>;
-  for (const token of tokens) {
-    tokenCtrl.addToken(token);
-  }
+  for (const token of tokens) tokenCtrl.addToken(token);
 
   renderPresence(playerRoster);
 });
 
 ws.on('fog:stroke', (msg) => {
-  if (msg.imageId === activeImageId) {
-    canvasCtrl.applyStroke(msg.stroke as FogStroke);
-  }
+  if (msg.imageId === activeImageId) canvasCtrl.applyStroke(msg.stroke as FogStroke);
 });
 
 ws.on('fog:stroke:batch', (msg) => {
   if (msg.imageId === activeImageId) {
-    for (const stroke of msg.strokes as FogStroke[]) {
-      canvasCtrl.applyStroke(stroke);
-    }
+    for (const stroke of msg.strokes as FogStroke[]) canvasCtrl.applyStroke(stroke);
   }
 });
 
 ws.on('token:added', (msg) => {
-  const token = msg.token as { id: string; name: string; color: string; x: number; y: number };
-  tokenCtrl.addToken(token);
+  tokenCtrl.addToken(msg.token as { id: string; name: string; color: string; x: number; y: number });
 });
 
 ws.on('token:moved', (msg) => {
   tokenCtrl.moveToken(msg.tokenId as string, msg.x as number, msg.y as number);
 });
 
-ws.on('token:removed', (msg) => {
-  tokenCtrl.removeToken(msg.tokenId as string);
-});
+ws.on('token:removed', (msg) => { tokenCtrl.removeToken(msg.tokenId as string); });
 
 ws.on('player:roster', (msg) => {
   playerRoster = msg.players as typeof playerRoster;
@@ -173,11 +190,10 @@ ws.on('map:switched', async (msg) => {
   if (img) {
     await canvasCtrl.loadImage(`/uploads/${img.filename}`);
     viewport.resetView();
-    if (typeof msg.fogMask === 'string') {
-      await canvasCtrl.applyFogMask(msg.fogMask);
-    }
+    if (typeof msg.fogMask === 'string') await canvasCtrl.applyFogMask(msg.fogMask);
   }
   renderGallery();
+  updateEmptyState();
   tokenCtrl.render();
 });
 
@@ -187,15 +203,33 @@ ws.on('fog:reset', (msg) => {
   }
 });
 
+// --- Empty state ---
+function updateEmptyState() {
+  emptyState.hidden = imageList.length > 0;
+}
+
+emptyUploadBtn.addEventListener('click', () => openSheet(mapsSheet));
+
+// --- Share ---
+shareBtn.addEventListener('click', () => {
+  if (!inviteUrl) return;
+  navigator.clipboard.writeText(inviteUrl).catch(() => {});
+  shareBtn.classList.add('active');
+  setTimeout(() => shareBtn.classList.remove('active'), 1200);
+});
+
+copyInviteBtn.addEventListener('click', () => {
+  if (!inviteUrl) return;
+  navigator.clipboard.writeText(inviteUrl).catch(() => {});
+  copyInviteBtn.textContent = 'Copied!';
+  setTimeout(() => { copyInviteBtn.textContent = 'Copy invite link'; }, 1500);
+});
+
 // --- Player presence ---
 function renderPresence(roster: Array<{ tokenId: string; name: string; color: string; online: boolean }>) {
-  const sorted = [...roster].sort((a, b) => {
-    if (a.online === b.online) return 0;
-    return a.online ? -1 : 1;
-  });
+  const sorted = [...roster].sort((a, b) => (a.online === b.online ? 0 : a.online ? -1 : 1));
 
   playerPresenceEl.replaceChildren();
-
   const MAX_VISIBLE = 4;
   const visible = sorted.length > MAX_VISIBLE ? sorted.slice(0, 3) : sorted;
   const overflowCount = sorted.length > MAX_VISIBLE ? sorted.length - 3 : 0;
@@ -206,102 +240,80 @@ function renderPresence(roster: Array<{ tokenId: string; name: string; color: st
     avatar.style.background = player.color;
     avatar.textContent = player.name.charAt(0).toUpperCase();
     avatar.title = player.name;
-    avatar.addEventListener('click', (e) => {
-      e.stopPropagation();
-      togglePresencePopover(sorted);
-    });
     playerPresenceEl.appendChild(avatar);
   }
 
   if (overflowCount > 0) {
-    const overflowEl = document.createElement('div');
-    overflowEl.className = 'presence-avatar presence-overflow';
-    overflowEl.textContent = `+${overflowCount}`;
-    overflowEl.addEventListener('click', (e) => {
-      e.stopPropagation();
-      togglePresencePopover(sorted);
-    });
-    playerPresenceEl.appendChild(overflowEl);
+    const overflow = document.createElement('div');
+    overflow.className = 'presence-avatar presence-overflow';
+    overflow.textContent = `+${overflowCount}`;
+    playerPresenceEl.appendChild(overflow);
   }
+
+  const online = roster.filter(p => p.online).length;
+  playerCount.textContent = roster.length > 0 ? String(online) : '';
+
+  renderPlayersList(sorted);
 }
 
-function togglePresencePopover(roster: Array<{ tokenId: string; name: string; color: string; online: boolean }>) {
-  if (presencePopover) {
-    presencePopover.remove();
-    presencePopover = null;
-    return;
-  }
-
-  presencePopover = document.createElement('div');
-  presencePopover.className = 'presence-popover';
-
+function renderPlayersList(roster: Array<{ tokenId: string; name: string; color: string; online: boolean }>) {
+  playersList.replaceChildren();
   for (const player of roster) {
     const row = document.createElement('div');
-    row.className = 'popover-player';
+    row.className = 'player-row';
 
     const dot = document.createElement('span');
-    dot.className = 'popover-player-dot';
+    dot.className = 'player-row-dot';
     dot.style.background = player.color;
 
     const name = document.createElement('span');
-    name.className = 'popover-player-name';
+    name.className = 'player-row-name';
     name.textContent = player.name;
 
     const status = document.createElement('span');
-    status.className = 'popover-player-status';
+    status.className = `player-row-status${player.online ? ' online' : ''}`;
     status.textContent = player.online ? 'online' : 'offline';
 
-    const actions = document.createElement('div');
-    actions.className = 'popover-player-actions';
-
-    const copyBtn = document.createElement('button');
-    copyBtn.className = 'popover-btn';
-    copyBtn.textContent = 'Copy link';
-    copyBtn.addEventListener('click', () => {
-      navigator.clipboard.writeText(inviteUrl).catch(() => {});
-    });
-
     const removeBtn = document.createElement('button');
-    removeBtn.className = 'popover-btn danger';
-    removeBtn.textContent = '\u2715';
-    removeBtn.title = 'Remove player';
+    removeBtn.className = 'player-row-remove';
+    removeBtn.textContent = 'Remove';
     removeBtn.addEventListener('click', () => {
       ws.send({ type: 'player:remove', tokenId: player.tokenId });
-      presencePopover?.remove();
-      presencePopover = null;
     });
 
-    actions.appendChild(copyBtn);
-    actions.appendChild(removeBtn);
     row.appendChild(dot);
     row.appendChild(name);
     row.appendChild(status);
-    row.appendChild(actions);
-    presencePopover.appendChild(row);
+    row.appendChild(removeBtn);
+    playersList.appendChild(row);
   }
-
-  document.body.appendChild(presencePopover);
-
-  setTimeout(() => {
-    document.addEventListener('click', closePresencePopover, { once: true });
-  }, 0);
 }
 
-function closePresencePopover() {
-  presencePopover?.remove();
-  presencePopover = null;
+// --- Sheet management ---
+function openSheet(sheet: HTMLElement) {
+  closeAllPopups();
+  sheetBackdrop.removeAttribute('hidden');
+  sheet.removeAttribute('hidden');
 }
 
-// --- Map panel toggle ---
-mapPanelToggleBtn.addEventListener('click', () => {
-  const isOpen = mapPanel.hasAttribute('hidden');
-  if (isOpen) {
-    mapPanel.removeAttribute('hidden');
-  } else {
-    mapPanel.setAttribute('hidden', '');
+function closeSheet(sheet: HTMLElement) {
+  sheet.setAttribute('hidden', '');
+  if (playersSheet.hasAttribute('hidden') && mapsSheet.hasAttribute('hidden')) {
+    sheetBackdrop.setAttribute('hidden', '');
   }
-  mapPanelToggleBtn.classList.toggle('active', isOpen);
+}
+
+sheetBackdrop.addEventListener('click', () => {
+  closeSheet(playersSheet);
+  closeSheet(mapsSheet);
+  sheetBackdrop.setAttribute('hidden', '');
 });
+
+document.getElementById('players-close')!.addEventListener('click', () => closeSheet(playersSheet));
+document.getElementById('maps-close')!.addEventListener('click', () => closeSheet(mapsSheet));
+
+playersBt.addEventListener('click', () => openSheet(playersSheet));
+mapsBtn.addEventListener('click', () => openSheet(mapsSheet));
 
 // --- Gallery ---
 function renderGallery() {
@@ -318,6 +330,7 @@ function renderGallery() {
 
     item.addEventListener('click', () => {
       ws.send({ type: 'map:switch', imageId: img.id });
+      closeSheet(mapsSheet);
     });
     gallery.appendChild(item);
   }
@@ -331,18 +344,14 @@ uploadInput.addEventListener('change', async () => {
     await api.uploadImage(adventureId, password, file);
     imageList = await api.listImages(adventureId, password);
     renderGallery();
+    updateEmptyState();
   } catch (e) {
     console.error('Upload failed', e);
   }
   uploadInput.value = '';
 });
 
-// --- Brush controls ---
-brushSizeSlider.addEventListener('input', () => {
-  brushRadius = parseInt(brushSizeSlider.value, 10);
-  brushSizeLabel.textContent = `${brushRadius}`;
-});
-
+// --- Mode ---
 function setMode(mode: 'reveal' | 'fog') {
   brushMode = mode;
   modeRevealBtn.classList.toggle('active', mode === 'reveal');
@@ -352,35 +361,32 @@ function setMode(mode: 'reveal' | 'fog') {
 modeRevealBtn.addEventListener('click', () => setMode('reveal'));
 modeFogBtn.addEventListener('click', () => setMode('fog'));
 
-// --- Token size control ---
-const tokenSizeBtn = document.createElement('button');
-tokenSizeBtn.id = 'token-size-btn';
-tokenSizeBtn.textContent = `\u25CF ${tokenRadius}`;
-tokenSizeBtn.title = 'Token size';
-modeToggle.appendChild(tokenSizeBtn);
-
-const tokenSizePopup = document.createElement('div');
-tokenSizePopup.id = 'token-size-popup';
-tokenSizePopup.className = 'floating-control';
-tokenSizePopup.hidden = true;
-
-const tokenSizeSlider = document.createElement('input');
-tokenSizeSlider.type = 'range';
-tokenSizeSlider.min = '5';
-tokenSizeSlider.max = '100';
-tokenSizeSlider.value = String(tokenRadius);
-tokenSizePopup.appendChild(tokenSizeSlider);
-document.body.appendChild(tokenSizePopup);
-
-function updateTokenSizeLabel() {
-  tokenSizeBtn.textContent = `\u25CF ${tokenRadius}`;
-  tokenSizeSlider.value = String(tokenRadius);
+// --- Brush size ---
+function updateBrushLabel() {
+  brushSizeLabel.textContent = String(brushRadius);
+  brushSizeSlider.value = String(brushRadius);
 }
 
-tokenSizeBtn.addEventListener('click', () => {
-  tokenSizePopup.hidden = !tokenSizePopup.hidden;
-  tokenSizeBtn.classList.toggle('active', !tokenSizePopup.hidden);
+brushSizeSlider.addEventListener('input', () => {
+  brushRadius = parseInt(brushSizeSlider.value, 10);
+  brushSizeLabel.textContent = String(brushRadius);
 });
+
+// Shift+scroll to resize brush (capture phase before viewport zoom handler)
+canvasArea.addEventListener('wheel', (ev) => {
+  if (!ev.shiftKey) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  const delta = ev.deltaY > 0 ? -5 : 5;
+  brushRadius = Math.max(10, Math.min(200, brushRadius + delta));
+  updateBrushLabel();
+}, { passive: false, capture: true });
+
+// --- Token size ---
+function updateTokenSizeLabel() {
+  tokenSizeLabel.textContent = String(tokenRadius);
+  tokenSizeSlider.value = String(tokenRadius);
+}
 
 tokenSizeSlider.addEventListener('input', () => {
   tokenRadius = parseInt(tokenSizeSlider.value, 10);
@@ -389,7 +395,38 @@ tokenSizeSlider.addEventListener('input', () => {
   ws.send({ type: 'settings:update', tokenSize: tokenRadius });
 });
 
-// --- Undo/redo history ---
+// --- Popup management ---
+function closeAllPopups() {
+  brushPopup.setAttribute('hidden', '');
+  brushBtn.classList.remove('active');
+  tokenPopup.setAttribute('hidden', '');
+  tokenBtn.classList.remove('active');
+}
+
+function togglePopup(popup: HTMLElement, anchorBtn: HTMLElement) {
+  const isOpen = !popup.hasAttribute('hidden');
+  closeAllPopups();
+  if (isOpen) return;
+
+  const rect = anchorBtn.getBoundingClientRect();
+  const popupWidth = 200;
+  let left = rect.left + rect.width / 2 - popupWidth / 2;
+  left = Math.max(8, Math.min(left, window.innerWidth - popupWidth - 8));
+  popup.style.left = `${left}px`;
+  popup.style.bottom = `${window.innerHeight - rect.top + 8}px`;
+
+  popup.removeAttribute('hidden');
+  anchorBtn.classList.add('active');
+}
+
+brushBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePopup(brushPopup, brushBtn); });
+tokenBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePopup(tokenPopup, tokenBtn); });
+
+document.addEventListener('click', () => closeAllPopups());
+brushPopup.addEventListener('click', (e) => e.stopPropagation());
+tokenPopup.addEventListener('click', (e) => e.stopPropagation());
+
+// --- Undo/redo ---
 const MAX_HISTORY = 50;
 let undoStack: FogStroke[][] = [];
 let redoStack: FogStroke[][] = [];
@@ -398,24 +435,21 @@ let currentAction: FogStroke[] = [];
 function updateUndoRedoButtons() {
   undoBtn.disabled = undoStack.length === 0;
   redoBtn.disabled = redoStack.length === 0;
+  tbHistory.hidden = undoStack.length === 0 && redoStack.length === 0;
 }
 
-function sendUndo(strokes: FogStroke[]) {
-  ws.send({ type: 'fog:undo', strokes });
-}
+function sendUndo(strokes: FogStroke[]) { ws.send({ type: 'fog:undo', strokes }); }
 
 function performUndo() {
-  if (undoStack.length === 0) return;
-  const action = undoStack.pop()!;
-  redoStack.push(action);
+  if (!undoStack.length) return;
+  redoStack.push(undoStack.pop()!);
   sendUndo(undoStack.flat());
   updateUndoRedoButtons();
 }
 
 function performRedo() {
-  if (redoStack.length === 0) return;
-  const action = redoStack.pop()!;
-  undoStack.push(action);
+  if (!redoStack.length) return;
+  undoStack.push(redoStack.pop()!);
   sendUndo(undoStack.flat());
   updateUndoRedoButtons();
 }
@@ -434,27 +468,22 @@ document.addEventListener('keydown', (ev) => {
   const ctrl = ev.ctrlKey || ev.metaKey;
   if (!ctrl) return;
   if (ev.key === 'z' || ev.key === 'Z') {
-    if (ev.shiftKey) {
-      ev.preventDefault();
-      performRedo();
-    } else {
-      ev.preventDefault();
-      performUndo();
-    }
+    ev.preventDefault();
+    ev.shiftKey ? performRedo() : performUndo();
   } else if (ev.key === 'y' || ev.key === 'Y') {
     ev.preventDefault();
     performRedo();
   }
 });
 
-// --- Brush interaction ---
+// --- Brush painting ---
 let isDrawing = false;
 let isPinging = false;
+let isDraggingToken = false;
 const pending: FogStroke[] = [];
 let lastFlush = 0;
 const FLUSH_INTERVAL = 1000 / 60;
 
-// Long-press detection (500ms total: 100ms grace already elapsed, 400ms more)
 const GM_PING_COLOR = '#4a4aff';
 const LONG_PRESS_DELAY = 400;
 const PING_RATE_LIMIT = 1000;
@@ -473,7 +502,7 @@ function makeStroke(clientX: number, clientY: number): FogStroke {
 }
 
 function flushPending() {
-  if (pending.length === 0) return;
+  if (!pending.length) return;
   if (pending.length === 1) {
     ws.send({ type: 'fog:stroke', stroke: pending[0] });
   } else {
@@ -483,18 +512,15 @@ function flushPending() {
   lastFlush = Date.now();
 }
 
-let isDraggingToken = false;
-
 viewport.onInteractStart((ev: PointerEvent) => {
   if (!activeImageId) return;
+  closeAllPopups();
 
-  // Check if clicking on a token — drag instead of paint
   tokenCtrl.handlePointerDown(ev);
-  if (tokenCtrl.isDragging()) {
-    isDraggingToken = true;
-    return;
-  }
+  if (tokenCtrl.isDragging()) { isDraggingToken = true; return; }
   isDraggingToken = false;
+
+  toolbox.classList.add('painting');
 
   longPressStartPos = { x: ev.clientX, y: ev.clientY };
   longPressTimer = setTimeout(() => {
@@ -521,10 +547,7 @@ viewport.onInteractStart((ev: PointerEvent) => {
 });
 
 viewport.onPointerMove((ev: PointerEvent) => {
-  if (isDraggingToken) {
-    tokenCtrl.handlePointerMove(ev);
-    return;
-  }
+  if (isDraggingToken) { tokenCtrl.handlePointerMove(ev); return; }
 
   const pos = viewport.screenToImage(ev.clientX, ev.clientY);
   canvasCtrl.drawBrushPreview(pos.x, pos.y, brushRadius, viewport.scale);
@@ -544,11 +567,8 @@ viewport.onPointerMove((ev: PointerEvent) => {
 });
 
 function finishAction() {
-  if (isDraggingToken) {
-    tokenCtrl.handlePointerUp();
-    isDraggingToken = false;
-    return;
-  }
+  toolbox.classList.remove('painting');
+  if (isDraggingToken) { tokenCtrl.handlePointerUp(); isDraggingToken = false; return; }
   if (!isDrawing) return;
   isDrawing = false;
   flushPending();
@@ -561,12 +581,7 @@ function finishAction() {
   }
 }
 
-viewport.onInteractEnd(() => {
-  cancelLongPress();
-  isPinging = false;
-  finishAction();
-});
-
+viewport.onInteractEnd(() => { cancelLongPress(); isPinging = false; finishAction(); });
 viewport.onPointerLeave(() => {
   canvasCtrl.clearBrushPreview();
   cancelLongPress();

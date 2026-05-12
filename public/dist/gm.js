@@ -14,9 +14,18 @@ var fragment = new URLSearchParams(location.hash.slice(1));
 var adventureId = fragment.get("id") ?? "";
 var password = fragment.get("password") ?? "";
 if (!adventureId || !password) {
-  document.body.innerHTML = '<p style="padding:2rem">Missing adventure ID or password. <a href="/">Return home</a></p>';
+  const p = document.createElement("p");
+  p.style.cssText = "padding:2rem";
+  p.textContent = "Missing adventure ID or password. ";
+  const a = document.createElement("a");
+  a.href = "/";
+  a.textContent = "Return home";
+  p.appendChild(a);
+  document.body.textContent = "";
+  document.body.appendChild(p);
   throw new Error("Missing params");
 }
+history.replaceState(null, "", location.pathname);
 var brushRadius = 50;
 var brushMode = "reveal";
 var tokenRadius = 20;
@@ -24,23 +33,37 @@ var activeImageId = null;
 var imageList = [];
 var playerRoster = [];
 var inviteUrl = "";
-var presencePopover = null;
 var adventureNameEl = document.getElementById("adventure-name");
 var connectionStatusEl = document.getElementById("connection-status");
 var playerPresenceEl = document.getElementById("player-presence");
-var brushSizeSlider = document.getElementById("brush-size");
-var brushSizeLabel = document.getElementById("brush-size-label");
-var modeRevealBtn = document.getElementById("mode-reveal");
-var modeFogBtn = document.getElementById("mode-fog");
+var canvasArea = document.getElementById("canvas-area");
+var toolbox = document.getElementById("toolbox");
+var tbHistory = document.getElementById("tb-history");
 var undoBtn = document.getElementById("undo-btn");
 var redoBtn = document.getElementById("redo-btn");
-var mapPanelToggleBtn = document.getElementById("map-panel-toggle");
-var mapPanel = document.getElementById("map-panel");
+var modeRevealBtn = document.getElementById("mode-reveal");
+var modeFogBtn = document.getElementById("mode-fog");
+var brushBtn = document.getElementById("brush-btn");
+var brushSizeLabel = document.getElementById("brush-size-label");
+var tokenBtn = document.getElementById("token-btn");
+var tokenSizeLabel = document.getElementById("token-size-label");
+var playersBt = document.getElementById("players-btn");
+var playerCount = document.getElementById("player-count");
+var mapsBtn = document.getElementById("maps-btn");
+var brushPopup = document.getElementById("brush-popup");
+var brushSizeSlider = document.getElementById("brush-size");
+var tokenPopup = document.getElementById("token-popup");
+var tokenSizeSlider = document.getElementById("token-size");
+var sheetBackdrop = document.getElementById("sheet-backdrop");
+var playersSheet = document.getElementById("players-sheet");
+var playersList = document.getElementById("players-list");
+var copyInviteBtn = document.getElementById("copy-invite-btn");
+var mapsSheet = document.getElementById("maps-sheet");
 var gallery = document.getElementById("gallery");
 var uploadInput = document.getElementById("upload-input");
-var statusBar = document.getElementById("status-bar");
-var canvasArea = document.getElementById("canvas-area");
-var modeToggle = document.getElementById("mode-toggle");
+var shareBtn = document.getElementById("share-btn");
+var emptyState = document.getElementById("empty-state");
+var emptyUploadBtn = document.getElementById("empty-upload-btn");
 var canvasCtrl = initCanvas(canvasArea);
 var viewport = createViewport();
 viewport.attach(canvasArea, canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize());
@@ -57,11 +80,9 @@ tokenCtrl.enableDragAll((tokenId, x, y) => {
 var ws = connectGM(adventureId, password);
 ws.on("connect", () => {
   connectionStatusEl.className = "status-dot connected";
-  statusBar.textContent = "";
 });
 ws.on("disconnect", () => {
   connectionStatusEl.className = "status-dot disconnected";
-  statusBar.textContent = "";
 });
 ws.on("error", (msg) => {
   console.error("WS error", msg);
@@ -78,37 +99,33 @@ ws.on("joined", async (msg) => {
   activeImageId = adv.activeImageId;
   imageList = await listImages(adventureId, password);
   renderGallery();
+  updateEmptyState();
   if (activeImageId) {
     const img = imageList.find((i) => i.id === activeImageId);
     if (img) {
       await canvasCtrl.loadImage(`/uploads/${img.filename}`);
       viewport.resetView();
-      if (typeof msg.fogMask === "string") {
+      if (typeof msg.fogMask === "string")
         await canvasCtrl.applyFogMask(msg.fogMask);
-      }
     }
   }
   const tokens = msg.tokens;
-  for (const token of tokens) {
+  for (const token of tokens)
     tokenCtrl.addToken(token);
-  }
   renderPresence(playerRoster);
 });
 ws.on("fog:stroke", (msg) => {
-  if (msg.imageId === activeImageId) {
+  if (msg.imageId === activeImageId)
     canvasCtrl.applyStroke(msg.stroke);
-  }
 });
 ws.on("fog:stroke:batch", (msg) => {
   if (msg.imageId === activeImageId) {
-    for (const stroke of msg.strokes) {
+    for (const stroke of msg.strokes)
       canvasCtrl.applyStroke(stroke);
-    }
   }
 });
 ws.on("token:added", (msg) => {
-  const token = msg.token;
-  tokenCtrl.addToken(token);
+  tokenCtrl.addToken(msg.token);
 });
 ws.on("token:moved", (msg) => {
   tokenCtrl.moveToken(msg.tokenId, msg.x, msg.y);
@@ -137,11 +154,11 @@ ws.on("map:switched", async (msg) => {
   if (img) {
     await canvasCtrl.loadImage(`/uploads/${img.filename}`);
     viewport.resetView();
-    if (typeof msg.fogMask === "string") {
+    if (typeof msg.fogMask === "string")
       await canvasCtrl.applyFogMask(msg.fogMask);
-    }
   }
   renderGallery();
+  updateEmptyState();
   tokenCtrl.render();
 });
 ws.on("fog:reset", (msg) => {
@@ -149,12 +166,28 @@ ws.on("fog:reset", (msg) => {
     canvasCtrl.applyFogMask(msg.fogMask);
   }
 });
+function updateEmptyState() {
+  emptyState.hidden = imageList.length > 0;
+}
+emptyUploadBtn.addEventListener("click", () => openSheet(mapsSheet));
+shareBtn.addEventListener("click", () => {
+  if (!inviteUrl)
+    return;
+  navigator.clipboard.writeText(inviteUrl).catch(() => {});
+  shareBtn.classList.add("active");
+  setTimeout(() => shareBtn.classList.remove("active"), 1200);
+});
+copyInviteBtn.addEventListener("click", () => {
+  if (!inviteUrl)
+    return;
+  navigator.clipboard.writeText(inviteUrl).catch(() => {});
+  copyInviteBtn.textContent = "Copied!";
+  setTimeout(() => {
+    copyInviteBtn.textContent = "Copy invite link";
+  }, 1500);
+});
 function renderPresence(roster) {
-  const sorted = [...roster].sort((a, b) => {
-    if (a.online === b.online)
-      return 0;
-    return a.online ? -1 : 1;
-  });
+  const sorted = [...roster].sort((a, b) => a.online === b.online ? 0 : a.online ? -1 : 1);
   playerPresenceEl.replaceChildren();
   const MAX_VISIBLE = 4;
   const visible = sorted.length > MAX_VISIBLE ? sorted.slice(0, 3) : sorted;
@@ -165,86 +198,65 @@ function renderPresence(roster) {
     avatar.style.background = player.color;
     avatar.textContent = player.name.charAt(0).toUpperCase();
     avatar.title = player.name;
-    avatar.addEventListener("click", (e) => {
-      e.stopPropagation();
-      togglePresencePopover(sorted);
-    });
     playerPresenceEl.appendChild(avatar);
   }
   if (overflowCount > 0) {
-    const overflowEl = document.createElement("div");
-    overflowEl.className = "presence-avatar presence-overflow";
-    overflowEl.textContent = `+${overflowCount}`;
-    overflowEl.addEventListener("click", (e) => {
-      e.stopPropagation();
-      togglePresencePopover(sorted);
-    });
-    playerPresenceEl.appendChild(overflowEl);
+    const overflow = document.createElement("div");
+    overflow.className = "presence-avatar presence-overflow";
+    overflow.textContent = `+${overflowCount}`;
+    playerPresenceEl.appendChild(overflow);
   }
+  const online = roster.filter((p) => p.online).length;
+  playerCount.textContent = roster.length > 0 ? String(online) : "";
+  renderPlayersList(sorted);
 }
-function togglePresencePopover(roster) {
-  if (presencePopover) {
-    presencePopover.remove();
-    presencePopover = null;
-    return;
-  }
-  presencePopover = document.createElement("div");
-  presencePopover.className = "presence-popover";
+function renderPlayersList(roster) {
+  playersList.replaceChildren();
   for (const player of roster) {
     const row = document.createElement("div");
-    row.className = "popover-player";
+    row.className = "player-row";
     const dot = document.createElement("span");
-    dot.className = "popover-player-dot";
+    dot.className = "player-row-dot";
     dot.style.background = player.color;
     const name = document.createElement("span");
-    name.className = "popover-player-name";
+    name.className = "player-row-name";
     name.textContent = player.name;
     const status = document.createElement("span");
-    status.className = "popover-player-status";
+    status.className = `player-row-status${player.online ? " online" : ""}`;
     status.textContent = player.online ? "online" : "offline";
-    const actions = document.createElement("div");
-    actions.className = "popover-player-actions";
-    const copyBtn = document.createElement("button");
-    copyBtn.className = "popover-btn";
-    copyBtn.textContent = "Copy link";
-    copyBtn.addEventListener("click", () => {
-      navigator.clipboard.writeText(inviteUrl).catch(() => {});
-    });
     const removeBtn = document.createElement("button");
-    removeBtn.className = "popover-btn danger";
-    removeBtn.textContent = "✕";
-    removeBtn.title = "Remove player";
+    removeBtn.className = "player-row-remove";
+    removeBtn.textContent = "Remove";
     removeBtn.addEventListener("click", () => {
       ws.send({ type: "player:remove", tokenId: player.tokenId });
-      presencePopover?.remove();
-      presencePopover = null;
     });
-    actions.appendChild(copyBtn);
-    actions.appendChild(removeBtn);
     row.appendChild(dot);
     row.appendChild(name);
     row.appendChild(status);
-    row.appendChild(actions);
-    presencePopover.appendChild(row);
+    row.appendChild(removeBtn);
+    playersList.appendChild(row);
   }
-  document.body.appendChild(presencePopover);
-  setTimeout(() => {
-    document.addEventListener("click", closePresencePopover, { once: true });
-  }, 0);
 }
-function closePresencePopover() {
-  presencePopover?.remove();
-  presencePopover = null;
+function openSheet(sheet) {
+  closeAllPopups();
+  sheetBackdrop.removeAttribute("hidden");
+  sheet.removeAttribute("hidden");
 }
-mapPanelToggleBtn.addEventListener("click", () => {
-  const isOpen = mapPanel.hasAttribute("hidden");
-  if (isOpen) {
-    mapPanel.removeAttribute("hidden");
-  } else {
-    mapPanel.setAttribute("hidden", "");
+function closeSheet(sheet) {
+  sheet.setAttribute("hidden", "");
+  if (playersSheet.hasAttribute("hidden") && mapsSheet.hasAttribute("hidden")) {
+    sheetBackdrop.setAttribute("hidden", "");
   }
-  mapPanelToggleBtn.classList.toggle("active", isOpen);
+}
+sheetBackdrop.addEventListener("click", () => {
+  closeSheet(playersSheet);
+  closeSheet(mapsSheet);
+  sheetBackdrop.setAttribute("hidden", "");
 });
+document.getElementById("players-close").addEventListener("click", () => closeSheet(playersSheet));
+document.getElementById("maps-close").addEventListener("click", () => closeSheet(mapsSheet));
+playersBt.addEventListener("click", () => openSheet(playersSheet));
+mapsBtn.addEventListener("click", () => openSheet(mapsSheet));
 function renderGallery() {
   gallery.replaceChildren();
   for (const img of imageList) {
@@ -257,6 +269,7 @@ function renderGallery() {
     item.appendChild(thumb);
     item.addEventListener("click", () => {
       ws.send({ type: "map:switch", imageId: img.id });
+      closeSheet(mapsSheet);
     });
     gallery.appendChild(item);
   }
@@ -269,14 +282,11 @@ uploadInput.addEventListener("change", async () => {
     await uploadImage(adventureId, password, file);
     imageList = await listImages(adventureId, password);
     renderGallery();
+    updateEmptyState();
   } catch (e) {
     console.error("Upload failed", e);
   }
   uploadInput.value = "";
-});
-brushSizeSlider.addEventListener("input", () => {
-  brushRadius = parseInt(brushSizeSlider.value, 10);
-  brushSizeLabel.textContent = `${brushRadius}`;
 });
 function setMode(mode) {
   brushMode = mode;
@@ -285,36 +295,64 @@ function setMode(mode) {
 }
 modeRevealBtn.addEventListener("click", () => setMode("reveal"));
 modeFogBtn.addEventListener("click", () => setMode("fog"));
-var tokenSizeBtn = document.createElement("button");
-tokenSizeBtn.id = "token-size-btn";
-tokenSizeBtn.textContent = `● ${tokenRadius}`;
-tokenSizeBtn.title = "Token size";
-modeToggle.appendChild(tokenSizeBtn);
-var tokenSizePopup = document.createElement("div");
-tokenSizePopup.id = "token-size-popup";
-tokenSizePopup.className = "floating-control";
-tokenSizePopup.hidden = true;
-var tokenSizeSlider = document.createElement("input");
-tokenSizeSlider.type = "range";
-tokenSizeSlider.min = "5";
-tokenSizeSlider.max = "100";
-tokenSizeSlider.value = String(tokenRadius);
-tokenSizePopup.appendChild(tokenSizeSlider);
-document.body.appendChild(tokenSizePopup);
+function updateBrushLabel() {
+  brushSizeLabel.textContent = String(brushRadius);
+  brushSizeSlider.value = String(brushRadius);
+}
+brushSizeSlider.addEventListener("input", () => {
+  brushRadius = parseInt(brushSizeSlider.value, 10);
+  brushSizeLabel.textContent = String(brushRadius);
+});
+canvasArea.addEventListener("wheel", (ev) => {
+  if (!ev.shiftKey)
+    return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  const delta = ev.deltaY > 0 ? -5 : 5;
+  brushRadius = Math.max(10, Math.min(200, brushRadius + delta));
+  updateBrushLabel();
+}, { passive: false, capture: true });
 function updateTokenSizeLabel() {
-  tokenSizeBtn.textContent = `● ${tokenRadius}`;
+  tokenSizeLabel.textContent = String(tokenRadius);
   tokenSizeSlider.value = String(tokenRadius);
 }
-tokenSizeBtn.addEventListener("click", () => {
-  tokenSizePopup.hidden = !tokenSizePopup.hidden;
-  tokenSizeBtn.classList.toggle("active", !tokenSizePopup.hidden);
-});
 tokenSizeSlider.addEventListener("input", () => {
   tokenRadius = parseInt(tokenSizeSlider.value, 10);
   tokenCtrl.render();
   updateTokenSizeLabel();
   ws.send({ type: "settings:update", tokenSize: tokenRadius });
 });
+function closeAllPopups() {
+  brushPopup.setAttribute("hidden", "");
+  brushBtn.classList.remove("active");
+  tokenPopup.setAttribute("hidden", "");
+  tokenBtn.classList.remove("active");
+}
+function togglePopup(popup, anchorBtn) {
+  const isOpen = !popup.hasAttribute("hidden");
+  closeAllPopups();
+  if (isOpen)
+    return;
+  const rect = anchorBtn.getBoundingClientRect();
+  const popupWidth = 200;
+  let left = rect.left + rect.width / 2 - popupWidth / 2;
+  left = Math.max(8, Math.min(left, window.innerWidth - popupWidth - 8));
+  popup.style.left = `${left}px`;
+  popup.style.bottom = `${window.innerHeight - rect.top + 8}px`;
+  popup.removeAttribute("hidden");
+  anchorBtn.classList.add("active");
+}
+brushBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  togglePopup(brushPopup, brushBtn);
+});
+tokenBtn.addEventListener("click", (e) => {
+  e.stopPropagation();
+  togglePopup(tokenPopup, tokenBtn);
+});
+document.addEventListener("click", () => closeAllPopups());
+brushPopup.addEventListener("click", (e) => e.stopPropagation());
+tokenPopup.addEventListener("click", (e) => e.stopPropagation());
 var MAX_HISTORY = 50;
 var undoStack = [];
 var redoStack = [];
@@ -322,23 +360,22 @@ var currentAction = [];
 function updateUndoRedoButtons() {
   undoBtn.disabled = undoStack.length === 0;
   redoBtn.disabled = redoStack.length === 0;
+  tbHistory.hidden = undoStack.length === 0 && redoStack.length === 0;
 }
 function sendUndo(strokes) {
   ws.send({ type: "fog:undo", strokes });
 }
 function performUndo() {
-  if (undoStack.length === 0)
+  if (!undoStack.length)
     return;
-  const action = undoStack.pop();
-  redoStack.push(action);
+  redoStack.push(undoStack.pop());
   sendUndo(undoStack.flat());
   updateUndoRedoButtons();
 }
 function performRedo() {
-  if (redoStack.length === 0)
+  if (!redoStack.length)
     return;
-  const action = redoStack.pop();
-  undoStack.push(action);
+  undoStack.push(redoStack.pop());
   sendUndo(undoStack.flat());
   updateUndoRedoButtons();
 }
@@ -355,13 +392,8 @@ document.addEventListener("keydown", (ev) => {
   if (!ctrl)
     return;
   if (ev.key === "z" || ev.key === "Z") {
-    if (ev.shiftKey) {
-      ev.preventDefault();
-      performRedo();
-    } else {
-      ev.preventDefault();
-      performUndo();
-    }
+    ev.preventDefault();
+    ev.shiftKey ? performRedo() : performUndo();
   } else if (ev.key === "y" || ev.key === "Y") {
     ev.preventDefault();
     performRedo();
@@ -369,6 +401,7 @@ document.addEventListener("keydown", (ev) => {
 });
 var isDrawing = false;
 var isPinging = false;
+var isDraggingToken = false;
 var pending = [];
 var lastFlush = 0;
 var FLUSH_INTERVAL = 1000 / 60;
@@ -390,7 +423,7 @@ function makeStroke(clientX, clientY) {
   return { x: pos.x, y: pos.y, radius: brushRadius, mode: brushMode };
 }
 function flushPending() {
-  if (pending.length === 0)
+  if (!pending.length)
     return;
   if (pending.length === 1) {
     ws.send({ type: "fog:stroke", stroke: pending[0] });
@@ -400,16 +433,17 @@ function flushPending() {
   pending.length = 0;
   lastFlush = Date.now();
 }
-var isDraggingToken = false;
 viewport.onInteractStart((ev) => {
   if (!activeImageId)
     return;
+  closeAllPopups();
   tokenCtrl.handlePointerDown(ev);
   if (tokenCtrl.isDragging()) {
     isDraggingToken = true;
     return;
   }
   isDraggingToken = false;
+  toolbox.classList.add("painting");
   longPressStartPos = { x: ev.clientX, y: ev.clientY };
   longPressTimer = setTimeout(() => {
     longPressTimer = null;
@@ -456,6 +490,7 @@ viewport.onPointerMove((ev) => {
     flushPending();
 });
 function finishAction() {
+  toolbox.classList.remove("painting");
   if (isDraggingToken) {
     tokenCtrl.handlePointerUp();
     isDraggingToken = false;

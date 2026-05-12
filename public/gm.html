@@ -9,46 +9,96 @@
 <body class="gm">
   <main id="canvas-area"></main>
 
-  <!-- Topbar: floating, top edge -->
+  <!-- Topbar -->
   <header id="topbar" class="floating-control">
     <span id="adventure-name">Loading…</span>
     <div id="player-presence"></div>
+    <button id="share-btn" class="topbar-btn" aria-label="Copy invite link" title="Copy invite link">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+      </svg>
+    </button>
     <span id="connection-status" class="status-dot"></span>
   </header>
 
-  <!-- Brush size: vertical slider, left edge -->
-  <div id="brush-slider" class="floating-control">
-    <input type="range" id="brush-size" min="10" max="200" value="50" orient="vertical">
-    <span id="brush-size-label">50</span>
+  <!-- Empty state -->
+  <div id="empty-state" hidden>
+    <p>No map loaded</p>
+    <button id="empty-upload-btn">Upload your first map</button>
   </div>
 
-  <!-- Mode toggle + undo/redo: bottom-left pill -->
-  <div id="mode-toggle" class="floating-control">
-    <button id="undo-btn" aria-label="Undo" disabled>↩</button>
-    <button id="redo-btn" aria-label="Redo" disabled>↪</button>
-    <button id="mode-reveal" class="active">Reveal</button>
-    <button id="mode-fog">Re-fog</button>
+  <!-- Bottom toolbox -->
+  <div id="toolbox" class="floating-control">
+    <div id="tb-history" class="tb-group" hidden>
+      <button id="undo-btn" aria-label="Undo" disabled>↩</button>
+      <button id="redo-btn" aria-label="Redo" disabled>↪</button>
+      <div class="tb-sep"></div>
+    </div>
+    <div class="tb-group">
+      <button id="mode-reveal" class="active">Reveal</button>
+      <button id="mode-fog">Re-fog</button>
+    </div>
+    <div class="tb-sep"></div>
+    <button id="brush-btn" class="tb-icon-btn" title="Brush size (Shift+scroll)">
+      <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
+      <span id="brush-size-label">50</span>
+    </button>
+    <div class="tb-sep"></div>
+    <button id="token-btn" class="tb-icon-btn" title="Token size">
+      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>
+      <span id="token-size-label">20</span>
+    </button>
+    <div class="tb-sep"></div>
+    <button id="players-btn" class="tb-icon-btn" title="Players">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      <span id="player-count"></span>
+    </button>
+    <div class="tb-sep"></div>
+    <button id="maps-btn" class="tb-icon-btn" title="Maps">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+    </button>
   </div>
 
-  <!-- Map panel toggle: right edge icon button -->
-  <button id="map-panel-toggle" class="floating-control" aria-label="Maps">
-    <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-      <rect x="3" y="3" width="18" height="18" rx="2" ry="2"/>
-      <circle cx="8.5" cy="8.5" r="1.5"/>
-      <polyline points="21 15 16 10 5 21"/>
-    </svg>
-  </button>
+  <!-- Brush size popup -->
+  <div id="brush-popup" class="tb-popup" hidden>
+    <input type="range" id="brush-size" min="10" max="200" value="50">
+  </div>
 
-  <!-- Map panel: right-side slide-in sheet -->
-  <aside id="map-panel" class="floating-panel" hidden>
+  <!-- Token size popup -->
+  <div id="token-popup" class="tb-popup" hidden>
+    <input type="range" id="token-size" min="5" max="100" value="20">
+  </div>
+
+  <!-- Sheet backdrop -->
+  <div id="sheet-backdrop" hidden></div>
+
+  <!-- Players sheet -->
+  <div id="players-sheet" class="sheet" hidden>
+    <div class="sheet-header">
+      <span>Players</span>
+      <button class="sheet-close" id="players-close">✕</button>
+    </div>
+    <div id="players-list"></div>
+    <div class="sheet-footer">
+      <button id="copy-invite-btn">Copy invite link</button>
+    </div>
+  </div>
+
+  <!-- Maps sheet -->
+  <div id="maps-sheet" class="sheet" hidden>
+    <div class="sheet-header">
+      <span>Maps</span>
+      <button class="sheet-close" id="maps-close">✕</button>
+    </div>
     <div id="gallery"></div>
-    <label class="upload-btn">
-      Upload map
-      <input type="file" id="upload-input" accept="image/*" hidden>
-    </label>
-  </aside>
-
-  <div id="status-bar" class="floating-control"></div>
+    <div class="sheet-footer">
+      <label class="upload-btn">
+        Upload map
+        <input type="file" id="upload-input" accept="image/*" hidden>
+      </label>
+    </div>
+  </div>
 
   <script type="module" src="/dist/gm.js"></script>
 </body>
