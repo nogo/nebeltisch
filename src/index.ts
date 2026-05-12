@@ -23,8 +23,17 @@ const server = Bun.serve({
 
 console.log(`Server running on http://localhost:${server.port}`);
 
+let shuttingDown = false;
 async function shutdown() {
-  await flushAllFogCaches(db);
+  if (shuttingDown) return;
+  shuttingDown = true;
+  server.stop();
+  try {
+    await flushAllFogCaches(db);
+  } catch (err) {
+    console.error("shutdown: flush failed", err);
+    process.exit(1);
+  }
   process.exit(0);
 }
 
