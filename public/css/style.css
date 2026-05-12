@@ -248,6 +248,78 @@ body.home {
 .presence-avatar:hover { transform: scale(1.15); z-index: 1; }
 .presence-overflow { background: #444 !important; }
 
+/* ── Token placement form ── */
+#token-place-form {
+  position: fixed;
+  z-index: 50;
+  background: rgba(14, 14, 28, 0.97);
+  border: 1px solid rgba(74, 74, 255, 0.2);
+  border-radius: 10px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 180px;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+}
+#token-place-form[hidden] { display: none; }
+.tp-type-toggle {
+  display: flex;
+  gap: 4px;
+}
+.tp-type-toggle button {
+  flex: 1;
+  height: 30px;
+  background: transparent;
+  border: 1px solid #333;
+  border-radius: 6px;
+  color: #888;
+  cursor: pointer;
+  font-size: 0.8rem;
+  transition: background 150ms, color 150ms, border-color 150ms;
+}
+.tp-type-toggle button.active {
+  background: rgba(74, 74, 255, 0.2);
+  border-color: #4a4aff;
+  color: #fff;
+}
+#tp-name {
+  height: 32px;
+  padding: 0 8px;
+  background: rgba(13, 13, 26, 0.8);
+  border: 1px solid rgba(42, 42, 74, 0.6);
+  border-radius: 6px;
+  color: #e0e0e0;
+  font-size: 0.9rem;
+  outline: none;
+  width: 100%;
+  box-sizing: border-box;
+}
+#tp-name:focus { border-color: #4a4aff; }
+.tp-actions {
+  display: flex;
+  gap: 6px;
+}
+.tp-actions button {
+  flex: 1;
+  height: 30px;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.8rem;
+  font-weight: 600;
+  transition: background 150ms;
+}
+#tp-cancel { background: rgba(255,255,255,0.07); color: #aaa; }
+#tp-cancel:hover { background: rgba(255,255,255,0.12); color: #fff; }
+#tp-confirm { background: #4a4aff; color: #fff; }
+#tp-confirm:hover { background: #3333cc; }
+
+/* ── Canvas crosshair in place mode ── */
+body.placing #canvas-area { cursor: crosshair !important; }
+
 /* ── Topbar share/action button ── */
 .topbar-btn {
   background: transparent;

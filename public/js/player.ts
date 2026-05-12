@@ -144,6 +144,14 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
   const viewport = createViewport();
   viewport.attach(canvasArea, canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize());
 
+  // GM token layer below fog — hidden unless fog is revealed above them
+  const gmTokenCtrl = initTokenLayer(
+    canvasCtrl.getWrapper(),
+    () => canvasCtrl.getImageSize(),
+    (x, y) => viewport.screenToImage(x, y),
+    { interactive: false, insertBefore: canvasCtrl.getFogCanvas() }
+  );
+
   const pingCtrl = initPingLayer(
     canvasCtrl.getWrapper(),
     () => canvasCtrl.getImageSize(),
@@ -242,10 +250,14 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
 
     canvasArea.style.visibility = 'visible';
 
-    const tokens = msg.tokens as Array<{ id: string; name: string; color: string; x: number; y: number }>;
+    const tokens = msg.tokens as Array<{ id: string; name: string; color: string; x: number; y: number; token_type?: string }>;
     for (const token of tokens) {
-      tokenCtrl.addToken(token);
-      if (token.id === ownTokenId) ownTokenPos = { x: token.x, y: token.y };
+      if (token.token_type === 'monster' || token.token_type === 'npc') {
+        gmTokenCtrl.addToken(token);
+      } else {
+        tokenCtrl.addToken(token);
+        if (token.id === ownTokenId) ownTokenPos = { x: token.x, y: token.y };
+      }
     }
 
     if (ownTokenId) {
@@ -292,8 +304,14 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     tokenCtrl.addToken(token);
   });
 
+  ws.on('gm_token:added', (msg) => {
+    gmTokenCtrl.addToken(msg.token as { id: string; name: string; color: string; x: number; y: number; token_type: 'monster' | 'npc' });
+  });
+
   ws.on('token:removed', (msg) => {
-    tokenCtrl.removeToken(msg.tokenId as string);
+    const id = msg.tokenId as string;
+    tokenCtrl.removeToken(id);
+    gmTokenCtrl.removeToken(id);
   });
 
   ws.on('ping:map', (msg) => {
@@ -320,6 +338,10 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
       }
     }
     tokenCtrl.render();
+    // Swap GM tokens for the new map
+    gmTokenCtrl.clear();
+    const newGmTokens = msg.gmTokens as Array<{ id: string; name: string; color: string; x: number; y: number; token_type: 'monster' | 'npc' }> | undefined;
+    for (const t of newGmTokens ?? []) gmTokenCtrl.addToken(t);
   });
 
   ws.on('player:joined', (msg) => {

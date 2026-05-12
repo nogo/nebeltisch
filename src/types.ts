@@ -41,6 +41,8 @@ export interface Token {
   x: number;
   y: number;
   player_link: string | null;
+  token_type: 'player' | 'monster' | 'npc';
+  image_id: string | null;
   created_at: string;
 }
 

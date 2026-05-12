@@ -7,12 +7,13 @@ import {
   initTokenLayer,
   listImages,
   uploadImage
-} from "./gm-k76gdcdt.js";
+} from "./gm-f64vamqp.js";
 
 // public/js/gm.ts
 var fragment = new URLSearchParams(location.hash.slice(1));
 var adventureId = fragment.get("id") ?? "";
-var password = fragment.get("password") ?? "";
+var passwordFromUrl = fragment.get("password") ?? "";
+var password = passwordFromUrl || sessionStorage.getItem(`gm_pw_${adventureId}`) || "";
 if (!adventureId || !password) {
   const p = document.createElement("p");
   p.style.cssText = "padding:2rem";
@@ -25,7 +26,10 @@ if (!adventureId || !password) {
   document.body.appendChild(p);
   throw new Error("Missing params");
 }
-history.replaceState(null, "", location.pathname);
+if (passwordFromUrl) {
+  sessionStorage.setItem(`gm_pw_${adventureId}`, password);
+}
+history.replaceState(null, "", `${location.pathname}#id=${encodeURIComponent(adventureId)}`);
 var brushRadius = 50;
 var brushMode = "reveal";
 var tokenRadius = 20;
@@ -50,6 +54,13 @@ var tokenSizeLabel = document.getElementById("token-size-label");
 var playersBt = document.getElementById("players-btn");
 var playerCount = document.getElementById("player-count");
 var mapsBtn = document.getElementById("maps-btn");
+var placeTokenBtn = document.getElementById("place-token-btn");
+var tokenPlaceForm = document.getElementById("token-place-form");
+var tpMonsterBtn = document.getElementById("tp-monster");
+var tpNpcBtn = document.getElementById("tp-npc");
+var tpNameInput = document.getElementById("tp-name");
+var tpCancelBtn = document.getElementById("tp-cancel");
+var tpConfirmBtn = document.getElementById("tp-confirm");
 var brushPopup = document.getElementById("brush-popup");
 var brushSizeSlider = document.getElementById("brush-size");
 var tokenPopup = document.getElementById("token-popup");
@@ -73,6 +84,19 @@ function animatePings() {
   requestAnimationFrame(animatePings);
 }
 requestAnimationFrame(animatePings);
+var gmTokenCtrl = initTokenLayer(canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize(), (x, y) => viewport.screenToImage(x, y), {
+  interactive: false,
+  insertBefore: canvasCtrl.getFogCanvas(),
+  onDoubleClickToken: (tokenId) => {
+    ws.send({ type: "gm_token:remove", tokenId });
+  }
+});
+gmTokenCtrl.enableDragAll((tokenId, x, y) => {
+  ws.send({ type: "token:move", tokenId, x, y });
+});
+canvasArea.addEventListener("dblclick", (ev) => {
+  gmTokenCtrl.handleDoubleClick(ev);
+});
 var tokenCtrl = initTokenLayer(canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize(), (x, y) => viewport.screenToImage(x, y), { interactive: true, getRadius: () => tokenRadius });
 tokenCtrl.enableDragAll((tokenId, x, y) => {
   ws.send({ type: "token:move", tokenId, x, y });
@@ -110,8 +134,13 @@ ws.on("joined", async (msg) => {
     }
   }
   const tokens = msg.tokens;
-  for (const token of tokens)
-    tokenCtrl.addToken(token);
+  for (const token of tokens) {
+    if (token.token_type === "monster" || token.token_type === "npc") {
+      gmTokenCtrl.addToken(token);
+    } else {
+      tokenCtrl.addToken(token);
+    }
+  }
   renderPresence(playerRoster);
 });
 ws.on("fog:stroke", (msg) => {
@@ -127,11 +156,16 @@ ws.on("fog:stroke:batch", (msg) => {
 ws.on("token:added", (msg) => {
   tokenCtrl.addToken(msg.token);
 });
+ws.on("gm_token:added", (msg) => {
+  gmTokenCtrl.addToken(msg.token);
+});
 ws.on("token:moved", (msg) => {
   tokenCtrl.moveToken(msg.tokenId, msg.x, msg.y);
 });
 ws.on("token:removed", (msg) => {
-  tokenCtrl.removeToken(msg.tokenId);
+  const id = msg.tokenId;
+  tokenCtrl.removeToken(id);
+  gmTokenCtrl.removeToken(id);
 });
 ws.on("player:roster", (msg) => {
   playerRoster = msg.players;
@@ -145,6 +179,12 @@ ws.on("settings:updated", (msg) => {
   tokenCtrl.render();
   updateTokenSizeLabel();
 });
+function deactivatePlaceMode() {
+  placeModeActive = false;
+  placeTokenBtn.classList.remove("active");
+  document.body.classList.remove("placing");
+  hidePlaceForm();
+}
 ws.on("map:switched", async (msg) => {
   activeImageId = msg.imageId;
   pingCtrl.clear();
@@ -160,6 +200,10 @@ ws.on("map:switched", async (msg) => {
   renderGallery();
   updateEmptyState();
   tokenCtrl.render();
+  gmTokenCtrl.clear();
+  const newGmTokens = msg.gmTokens;
+  for (const t of newGmTokens ?? [])
+    gmTokenCtrl.addToken(t);
 });
 ws.on("fog:reset", (msg) => {
   if (msg.imageId === activeImageId && typeof msg.fogMask === "string") {
@@ -186,6 +230,62 @@ copyInviteBtn.addEventListener("click", () => {
     copyInviteBtn.textContent = "Copy invite link";
   }, 1500);
 });
+var placeModeActive = false;
+var pendingPlacePos = null;
+var pendingTokenType = "monster";
+placeTokenBtn.addEventListener("click", () => {
+  placeModeActive = !placeModeActive;
+  placeTokenBtn.classList.toggle("active", placeModeActive);
+  document.body.classList.toggle("placing", placeModeActive);
+  if (!placeModeActive)
+    hidePlaceForm();
+});
+tpMonsterBtn.addEventListener("click", () => {
+  pendingTokenType = "monster";
+  tpMonsterBtn.classList.add("active");
+  tpNpcBtn.classList.remove("active");
+});
+tpNpcBtn.addEventListener("click", () => {
+  pendingTokenType = "npc";
+  tpNpcBtn.classList.add("active");
+  tpMonsterBtn.classList.remove("active");
+});
+tpCancelBtn.addEventListener("click", hidePlaceForm);
+tpConfirmBtn.addEventListener("click", () => {
+  const name = tpNameInput.value.trim();
+  if (!name || !pendingPlacePos)
+    return;
+  ws.send({ type: "gm_token:place", name, tokenType: pendingTokenType, x: pendingPlacePos.x, y: pendingPlacePos.y });
+  hidePlaceForm();
+});
+tpNameInput.addEventListener("keydown", (ev) => {
+  if (ev.key === "Enter")
+    tpConfirmBtn.click();
+  if (ev.key === "Escape")
+    hidePlaceForm();
+});
+function showPlaceForm(screenX, screenY, imageX, imageY) {
+  pendingPlacePos = { x: imageX, y: imageY };
+  tpNameInput.value = "";
+  const formW = 180;
+  const formH = 130;
+  let left = screenX + 12;
+  let top = screenY - formH / 2;
+  if (left + formW > window.innerWidth - 8)
+    left = screenX - formW - 12;
+  if (top < 8)
+    top = 8;
+  if (top + formH > window.innerHeight - 8)
+    top = window.innerHeight - formH - 8;
+  tokenPlaceForm.style.left = `${left}px`;
+  tokenPlaceForm.style.top = `${top}px`;
+  tokenPlaceForm.removeAttribute("hidden");
+  tpNameInput.focus();
+}
+function hidePlaceForm() {
+  tokenPlaceForm.setAttribute("hidden", "");
+  pendingPlacePos = null;
+}
 function renderPresence(roster) {
   const sorted = [...roster].sort((a, b) => a.online === b.online ? 0 : a.online ? -1 : 1);
   playerPresenceEl.replaceChildren();
@@ -351,6 +451,10 @@ tokenBtn.addEventListener("click", (e) => {
   togglePopup(tokenPopup, tokenBtn);
 });
 document.addEventListener("click", () => closeAllPopups());
+document.addEventListener("keydown", (ev) => {
+  if (ev.key === "Escape" && placeModeActive)
+    deactivatePlaceMode();
+});
 brushPopup.addEventListener("click", (e) => e.stopPropagation());
 tokenPopup.addEventListener("click", (e) => e.stopPropagation());
 var MAX_HISTORY = 50;
@@ -401,7 +505,7 @@ document.addEventListener("keydown", (ev) => {
 });
 var isDrawing = false;
 var isPinging = false;
-var isDraggingToken = false;
+var activeDragCtrl = null;
 var pending = [];
 var lastFlush = 0;
 var FLUSH_INTERVAL = 1000 / 60;
@@ -437,12 +541,22 @@ viewport.onInteractStart((ev) => {
   if (!activeImageId)
     return;
   closeAllPopups();
-  tokenCtrl.handlePointerDown(ev);
-  if (tokenCtrl.isDragging()) {
-    isDraggingToken = true;
+  if (placeModeActive) {
+    const pos = viewport.screenToImage(ev.clientX, ev.clientY);
+    showPlaceForm(ev.clientX, ev.clientY, pos.x, pos.y);
     return;
   }
-  isDraggingToken = false;
+  tokenCtrl.handlePointerDown(ev);
+  if (tokenCtrl.isDragging()) {
+    activeDragCtrl = tokenCtrl;
+    return;
+  }
+  gmTokenCtrl.handlePointerDown(ev);
+  if (gmTokenCtrl.isDragging()) {
+    activeDragCtrl = gmTokenCtrl;
+    return;
+  }
+  activeDragCtrl = null;
   toolbox.classList.add("painting");
   longPressStartPos = { x: ev.clientX, y: ev.clientY };
   longPressTimer = setTimeout(() => {
@@ -468,8 +582,8 @@ viewport.onInteractStart((ev) => {
     flushPending();
 });
 viewport.onPointerMove((ev) => {
-  if (isDraggingToken) {
-    tokenCtrl.handlePointerMove(ev);
+  if (activeDragCtrl) {
+    activeDragCtrl.handlePointerMove(ev);
     return;
   }
   const pos = viewport.screenToImage(ev.clientX, ev.clientY);
@@ -491,9 +605,9 @@ viewport.onPointerMove((ev) => {
 });
 function finishAction() {
   toolbox.classList.remove("painting");
-  if (isDraggingToken) {
-    tokenCtrl.handlePointerUp();
-    isDraggingToken = false;
+  if (activeDragCtrl) {
+    activeDragCtrl.handlePointerUp();
+    activeDragCtrl = null;
     return;
   }
   if (!isDrawing)

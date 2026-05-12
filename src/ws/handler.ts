@@ -4,7 +4,7 @@ import type { WsData, FogMask, Token } from "../types";
 import { getAdventure, getAdventureByPlayerLink, setActiveImage, setTokenSize } from "../db/adventures";
 import { getImage } from "../db/images";
 import { repairImageDimensions } from "../routes";
-import { findOrCreateToken, createToken, getTokensByAdventure, updateTokenPosition, deleteToken } from "../db/tokens";
+import { findOrCreateToken, createToken, getTokensByAdventure, getPlayerTokensByAdventure, getGmTokensByImage, updateTokenPosition, deleteToken } from "../db/tokens";
 import { createMask, applyStroke, applyStrokes } from "../fog/mask";
 import { serializeMask, saveFogMask, loadFogMask } from "../fog/serialize";
 import {
@@ -181,7 +181,11 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
       registerConnection(ws, { adventureId, role, playerName, playerColor, tokenId, playerLink });
 
       const adventure = getAdventure(db, adventureId)!;
-      const tokens = getTokensByAdventure(db, adventureId);
+      const playerTokens = getPlayerTokensByAdventure(db, adventureId);
+      const gmTokens = adventure.active_image_id
+        ? getGmTokensByImage(db, adventureId, adventure.active_image_id)
+        : [];
+      const tokens = [...playerTokens, ...gmTokens];
 
       let fogMask: string | null = null;
       if (adventure.active_image_id) {
@@ -341,10 +345,12 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
           } catch {
             fogMask = null;
           }
+          const newGmTokens = getGmTokensByImage(db, adventureId, msg.imageId);
           const switched = serializeMessage({
             type: "map:switched",
             imageId: msg.imageId,
             fogMask,
+            gmTokens: newGmTokens,
           });
           ws.send(switched);
           ws.publish(topic, switched);
@@ -406,6 +412,51 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
           const resetMsg = serializeMessage({ type: "fog:reset", imageId, fogMask: fogMaskBase64 });
           ws.send(resetMsg);
           ws.publish(topic, resetMsg);
+          break;
+        }
+
+        case "gm_token:place": {
+          if (conn.role !== "gm") {
+            ws.send(serializeMessage({ type: "error", message: "Only GM can place tokens" }));
+            break;
+          }
+          const adv = getAdventure(db, adventureId);
+          if (!adv?.active_image_id) {
+            ws.send(serializeMessage({ type: "error", message: "No active map to place token on" }));
+            break;
+          }
+          const tokenType = msg.tokenType === 'npc' ? 'npc' : 'monster';
+          const color = tokenType === 'monster' ? '#c0392b' : '#7f8c9a';
+          const placed = createToken(db, {
+            adventureId,
+            name: String(msg.name ?? 'Unknown').slice(0, 40),
+            color,
+            tokenType,
+            x: Number(msg.x) || 0,
+            y: Number(msg.y) || 0,
+            imageId: adv.active_image_id,
+          });
+          const placedMsg = serializeMessage({ type: 'gm_token:added', token: placed });
+          ws.send(placedMsg);
+          ws.publish(topic, placedMsg);
+          break;
+        }
+
+        case "gm_token:remove": {
+          if (conn.role !== "gm") {
+            ws.send(serializeMessage({ type: "error", message: "Only GM can remove GM tokens" }));
+            break;
+          }
+          const allTokens = getTokensByAdventure(db, adventureId);
+          const target = allTokens.find((t) => t.id === msg.tokenId);
+          if (!target || target.token_type === 'player') {
+            ws.send(serializeMessage({ type: "error", message: "GM token not found" }));
+            break;
+          }
+          deleteToken(db, msg.tokenId);
+          const removedMsg = serializeMessage({ type: "token:removed", tokenId: msg.tokenId });
+          ws.send(removedMsg);
+          ws.publish(topic, removedMsg);
           break;
         }
 

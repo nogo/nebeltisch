@@ -52,6 +52,20 @@ export function createSchema(db: Database): void {
     // Column already renamed or doesn't exist — ignore
   }
 
+  // Migration: add token_type column for GM monster/NPC tokens
+  try {
+    db.run(`ALTER TABLE tokens ADD COLUMN token_type TEXT NOT NULL DEFAULT 'player'`);
+  } catch {
+    // Column already exists — ignore
+  }
+
+  // Migration: add image_id so GM tokens are scoped to a specific map
+  try {
+    db.run(`ALTER TABLE tokens ADD COLUMN image_id TEXT NULL REFERENCES images(id)`);
+  } catch {
+    // Column already exists — ignore
+  }
+
   // Unique index prevents duplicate tokens per player per adventure
   db.run(`
     CREATE UNIQUE INDEX IF NOT EXISTS tokens_adventure_player_link

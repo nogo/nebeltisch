@@ -1,6 +1,7 @@
 import { connectGM } from './websocket';
 import { initCanvas } from './canvas';
 import { initTokenLayer } from './tokens';
+import type { TokenController } from './tokens';
 import { initPingLayer } from './ping';
 import { createViewport } from './viewport';
 import type { FogStroke } from './canvas';
@@ -9,7 +10,9 @@ import * as api from './api';
 // --- URL params ---
 const fragment = new URLSearchParams(location.hash.slice(1));
 const adventureId = fragment.get('id') ?? '';
-const password = fragment.get('password') ?? '';
+// Password from URL on first load; falls back to sessionStorage on refresh
+const passwordFromUrl = fragment.get('password') ?? '';
+const password = passwordFromUrl || sessionStorage.getItem(`gm_pw_${adventureId}`) || '';
 
 if (!adventureId || !password) {
   const p = document.createElement('p');
@@ -24,8 +27,11 @@ if (!adventureId || !password) {
   throw new Error('Missing params');
 }
 
-// Strip password from visible URL
-history.replaceState(null, '', location.pathname);
+// Persist password for refresh, keep id in URL, strip password
+if (passwordFromUrl) {
+  sessionStorage.setItem(`gm_pw_${adventureId}`, password);
+}
+history.replaceState(null, '', `${location.pathname}#id=${encodeURIComponent(adventureId)}`);
 
 // --- State ---
 let brushRadius = 50;
@@ -56,6 +62,15 @@ const tokenSizeLabel = document.getElementById('token-size-label')!;
 const playersBt = document.getElementById('players-btn')!;
 const playerCount = document.getElementById('player-count')!;
 const mapsBtn = document.getElementById('maps-btn')!;
+const placeTokenBtn = document.getElementById('place-token-btn')!;
+
+// Token placement form
+const tokenPlaceForm = document.getElementById('token-place-form')!;
+const tpMonsterBtn = document.getElementById('tp-monster')!;
+const tpNpcBtn = document.getElementById('tp-npc')!;
+const tpNameInput = document.getElementById('tp-name') as HTMLInputElement;
+const tpCancelBtn = document.getElementById('tp-cancel')!;
+const tpConfirmBtn = document.getElementById('tp-confirm')!;
 
 // Popups
 const brushPopup = document.getElementById('brush-popup')!;
@@ -96,6 +111,28 @@ function animatePings() {
   requestAnimationFrame(animatePings);
 }
 requestAnimationFrame(animatePings);
+
+// --- GM token layer (below fog — monsters/NPCs hidden by fog) ---
+const gmTokenCtrl = initTokenLayer(
+  canvasCtrl.getWrapper(),
+  () => canvasCtrl.getImageSize(),
+  (x, y) => viewport.screenToImage(x, y),
+  {
+    interactive: false,
+    insertBefore: canvasCtrl.getFogCanvas(),
+    onDoubleClickToken: (tokenId) => {
+      ws.send({ type: 'gm_token:remove', tokenId });
+    },
+  }
+);
+gmTokenCtrl.enableDragAll((tokenId, x, y) => {
+  ws.send({ type: 'token:move', tokenId, x, y });
+});
+
+// dblclick on canvasArea routes to gmTokenCtrl (its canvas has pointer-events:none, can't listen directly)
+canvasArea.addEventListener('dblclick', (ev) => {
+  gmTokenCtrl.handleDoubleClick(ev);
+});
 
 // --- Token layer ---
 const tokenCtrl = initTokenLayer(
@@ -140,8 +177,14 @@ ws.on('joined', async (msg) => {
     }
   }
 
-  const tokens = msg.tokens as Array<{ id: string; name: string; color: string; x: number; y: number }>;
-  for (const token of tokens) tokenCtrl.addToken(token);
+  const tokens = msg.tokens as Array<{ id: string; name: string; color: string; x: number; y: number; token_type?: string }>;
+  for (const token of tokens) {
+    if (token.token_type === 'monster' || token.token_type === 'npc') {
+      gmTokenCtrl.addToken(token);
+    } else {
+      tokenCtrl.addToken(token);
+    }
+  }
 
   renderPresence(playerRoster);
 });
@@ -160,11 +203,19 @@ ws.on('token:added', (msg) => {
   tokenCtrl.addToken(msg.token as { id: string; name: string; color: string; x: number; y: number });
 });
 
+ws.on('gm_token:added', (msg) => {
+  gmTokenCtrl.addToken(msg.token as { id: string; name: string; color: string; x: number; y: number; token_type: 'monster' | 'npc' });
+});
+
 ws.on('token:moved', (msg) => {
   tokenCtrl.moveToken(msg.tokenId as string, msg.x as number, msg.y as number);
 });
 
-ws.on('token:removed', (msg) => { tokenCtrl.removeToken(msg.tokenId as string); });
+ws.on('token:removed', (msg) => {
+  const id = msg.tokenId as string;
+  tokenCtrl.removeToken(id);
+  gmTokenCtrl.removeToken(id);
+});
 
 ws.on('player:roster', (msg) => {
   playerRoster = msg.players as typeof playerRoster;
@@ -181,6 +232,13 @@ ws.on('settings:updated', (msg) => {
   updateTokenSizeLabel();
 });
 
+function deactivatePlaceMode() {
+  placeModeActive = false;
+  placeTokenBtn.classList.remove('active');
+  document.body.classList.remove('placing');
+  hidePlaceForm();
+}
+
 ws.on('map:switched', async (msg) => {
   activeImageId = msg.imageId as string;
   pingCtrl.clear();
@@ -195,6 +253,10 @@ ws.on('map:switched', async (msg) => {
   renderGallery();
   updateEmptyState();
   tokenCtrl.render();
+  // Swap GM tokens for the new map
+  gmTokenCtrl.clear();
+  const newGmTokens = msg.gmTokens as Array<{ id: string; name: string; color: string; x: number; y: number; token_type: 'monster' | 'npc' }> | undefined;
+  for (const t of newGmTokens ?? []) gmTokenCtrl.addToken(t);
 });
 
 ws.on('fog:reset', (msg) => {
@@ -224,6 +286,67 @@ copyInviteBtn.addEventListener('click', () => {
   copyInviteBtn.textContent = 'Copied!';
   setTimeout(() => { copyInviteBtn.textContent = 'Copy invite link'; }, 1500);
 });
+
+// --- Place token mode ---
+let placeModeActive = false;
+let pendingPlacePos: { x: number; y: number } | null = null;
+let pendingTokenType: 'monster' | 'npc' = 'monster';
+
+placeTokenBtn.addEventListener('click', () => {
+  placeModeActive = !placeModeActive;
+  placeTokenBtn.classList.toggle('active', placeModeActive);
+  document.body.classList.toggle('placing', placeModeActive);
+  if (!placeModeActive) hidePlaceForm();
+});
+
+tpMonsterBtn.addEventListener('click', () => {
+  pendingTokenType = 'monster';
+  tpMonsterBtn.classList.add('active');
+  tpNpcBtn.classList.remove('active');
+});
+
+tpNpcBtn.addEventListener('click', () => {
+  pendingTokenType = 'npc';
+  tpNpcBtn.classList.add('active');
+  tpMonsterBtn.classList.remove('active');
+});
+
+tpCancelBtn.addEventListener('click', hidePlaceForm);
+
+tpConfirmBtn.addEventListener('click', () => {
+  const name = tpNameInput.value.trim();
+  if (!name || !pendingPlacePos) return;
+  ws.send({ type: 'gm_token:place', name, tokenType: pendingTokenType, x: pendingPlacePos.x, y: pendingPlacePos.y });
+  hidePlaceForm();
+});
+
+tpNameInput.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Enter') tpConfirmBtn.click();
+  if (ev.key === 'Escape') hidePlaceForm();
+});
+
+function showPlaceForm(screenX: number, screenY: number, imageX: number, imageY: number) {
+  pendingPlacePos = { x: imageX, y: imageY };
+  tpNameInput.value = '';
+
+  const formW = 180;
+  const formH = 130;
+  let left = screenX + 12;
+  let top = screenY - formH / 2;
+  if (left + formW > window.innerWidth - 8) left = screenX - formW - 12;
+  if (top < 8) top = 8;
+  if (top + formH > window.innerHeight - 8) top = window.innerHeight - formH - 8;
+
+  tokenPlaceForm.style.left = `${left}px`;
+  tokenPlaceForm.style.top = `${top}px`;
+  tokenPlaceForm.removeAttribute('hidden');
+  tpNameInput.focus();
+}
+
+function hidePlaceForm() {
+  tokenPlaceForm.setAttribute('hidden', '');
+  pendingPlacePos = null;
+}
 
 // --- Player presence ---
 function renderPresence(roster: Array<{ tokenId: string; name: string; color: string; online: boolean }>) {
@@ -423,6 +546,9 @@ brushBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePopup(bru
 tokenBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePopup(tokenPopup, tokenBtn); });
 
 document.addEventListener('click', () => closeAllPopups());
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && placeModeActive) deactivatePlaceMode();
+});
 brushPopup.addEventListener('click', (e) => e.stopPropagation());
 tokenPopup.addEventListener('click', (e) => e.stopPropagation());
 
@@ -479,7 +605,7 @@ document.addEventListener('keydown', (ev) => {
 // --- Brush painting ---
 let isDrawing = false;
 let isPinging = false;
-let isDraggingToken = false;
+let activeDragCtrl: TokenController | null = null;
 const pending: FogStroke[] = [];
 let lastFlush = 0;
 const FLUSH_INTERVAL = 1000 / 60;
@@ -516,9 +642,19 @@ viewport.onInteractStart((ev: PointerEvent) => {
   if (!activeImageId) return;
   closeAllPopups();
 
+  // Place token mode — show form on click, skip painting
+  if (placeModeActive) {
+    const pos = viewport.screenToImage(ev.clientX, ev.clientY);
+    showPlaceForm(ev.clientX, ev.clientY, pos.x, pos.y);
+    return;
+  }
+
+  // Check player tokens first, then GM tokens
   tokenCtrl.handlePointerDown(ev);
-  if (tokenCtrl.isDragging()) { isDraggingToken = true; return; }
-  isDraggingToken = false;
+  if (tokenCtrl.isDragging()) { activeDragCtrl = tokenCtrl; return; }
+  gmTokenCtrl.handlePointerDown(ev);
+  if (gmTokenCtrl.isDragging()) { activeDragCtrl = gmTokenCtrl; return; }
+  activeDragCtrl = null;
 
   toolbox.classList.add('painting');
 
@@ -547,7 +683,7 @@ viewport.onInteractStart((ev: PointerEvent) => {
 });
 
 viewport.onPointerMove((ev: PointerEvent) => {
-  if (isDraggingToken) { tokenCtrl.handlePointerMove(ev); return; }
+  if (activeDragCtrl) { activeDragCtrl.handlePointerMove(ev); return; }
 
   const pos = viewport.screenToImage(ev.clientX, ev.clientY);
   canvasCtrl.drawBrushPreview(pos.x, pos.y, brushRadius, viewport.scale);
@@ -568,7 +704,7 @@ viewport.onPointerMove((ev: PointerEvent) => {
 
 function finishAction() {
   toolbox.classList.remove('painting');
-  if (isDraggingToken) { tokenCtrl.handlePointerUp(); isDraggingToken = false; return; }
+  if (activeDragCtrl) { activeDragCtrl.handlePointerUp(); activeDragCtrl = null; return; }
   if (!isDrawing) return;
   isDrawing = false;
   flushPending();

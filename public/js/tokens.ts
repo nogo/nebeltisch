@@ -4,6 +4,7 @@ export interface TokenData {
   color: string;
   x: number;
   y: number;
+  token_type?: 'player' | 'monster' | 'npc';
 }
 
 export interface TokenController {
@@ -17,6 +18,8 @@ export interface TokenController {
   handlePointerDown(ev: PointerEvent): void;
   handlePointerMove(ev: PointerEvent): void;
   handlePointerUp(): void;
+  handleDoubleClick(ev: MouseEvent): void;
+  clear(): void;
 }
 
 const DEFAULT_RADIUS = 20;
@@ -26,7 +29,12 @@ export function initTokenLayer(
   wrapper: HTMLElement,
   getImageSize: () => { w: number; h: number },
   screenToImage: (clientX: number, clientY: number) => { x: number; y: number },
-  options?: { interactive?: boolean; getRadius?: () => number }
+  options?: {
+    interactive?: boolean;
+    getRadius?: () => number;
+    insertBefore?: HTMLElement;
+    onDoubleClickToken?: (tokenId: string) => void;
+  }
 ): TokenController {
   const getRadius = options?.getRadius ?? (() => DEFAULT_RADIUS);
   const canvas = document.createElement('canvas');
@@ -34,7 +42,11 @@ export function initTokenLayer(
   if (options?.interactive === false) {
     canvas.style.pointerEvents = 'none';
   }
-  wrapper.appendChild(canvas);
+  if (options?.insertBefore) {
+    wrapper.insertBefore(canvas, options.insertBefore);
+  } else {
+    wrapper.appendChild(canvas);
+  }
   const ctx = canvas.getContext('2d')!;
 
   const tokens = new Map<string, TokenData>();
@@ -42,6 +54,8 @@ export function initTokenLayer(
   let onMoveCallback: ((x: number, y: number) => void) | null = null;
   let dragAllMode = false;
   let onMoveAnyCallback: ((tokenId: string, x: number, y: number) => void) | null = null;
+
+  // onDoubleClickToken is wired externally via handleDoubleClick()
 
   function render() {
     const { w, h } = getImageSize();
@@ -53,23 +67,40 @@ export function initTokenLayer(
     ctx.clearRect(0, 0, w, h);
 
     for (const token of tokens.values()) {
+      const r = getRadius();
+      const isGmToken = token.token_type === 'monster' || token.token_type === 'npc';
+
       ctx.save();
       ctx.beginPath();
-      ctx.arc(token.x, token.y, getRadius(), 0, Math.PI * 2);
+      ctx.arc(token.x, token.y, r, 0, Math.PI * 2);
       ctx.fillStyle = token.color;
       ctx.fill();
-      if (token.id === ownTokenId) {
+
+      if (isGmToken) {
+        ctx.setLineDash([3, 3]);
+        ctx.strokeStyle = 'rgba(255,255,255,0.6)';
+        ctx.lineWidth = 1.5;
+        ctx.stroke();
+        ctx.setLineDash([]);
+        // Type letter inside circle
+        ctx.fillStyle = 'rgba(255,255,255,0.9)';
+        ctx.font = `bold ${Math.max(10, r * 0.7)}px system-ui, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(token.token_type === 'monster' ? 'M' : 'N', token.x, token.y);
+      } else if (token.id === ownTokenId) {
         ctx.strokeStyle = 'rgba(255,255,255,0.9)';
         ctx.lineWidth = 2;
         ctx.stroke();
       }
       ctx.restore();
 
+      // Name label below circle
       ctx.save();
       ctx.font = `bold ${FONT_SIZE}px system-ui, sans-serif`;
       ctx.textAlign = 'center';
       ctx.textBaseline = 'top';
-      const labelY = token.y + getRadius() + 3;
+      const labelY = token.y + r + 3;
       ctx.strokeStyle = 'rgba(0,0,0,0.8)';
       ctx.lineWidth = 3;
       ctx.lineJoin = 'round';
@@ -114,7 +145,6 @@ export function initTokenLayer(
       const pos = screenToImage(ev.clientX, ev.clientY);
 
       if (dragAllMode) {
-        // GM mode: find any token under cursor
         for (const token of tokens.values()) {
           const dx = pos.x - token.x;
           const dy = pos.y - token.y;
@@ -126,7 +156,6 @@ export function initTokenLayer(
         }
       }
 
-      // Player mode: only own token
       if (!ownTokenId) return;
       const own = tokens.get(ownTokenId);
       if (!own) return;
@@ -170,6 +199,26 @@ export function initTokenLayer(
         }
       }
       dragTokenId = null;
+    },
+
+    clear() {
+      tokens.clear();
+      dragging = false;
+      dragTokenId = null;
+      render();
+    },
+
+    handleDoubleClick(ev: MouseEvent) {
+      if (!options?.onDoubleClickToken) return;
+      const pos = screenToImage(ev.clientX, ev.clientY);
+      for (const token of tokens.values()) {
+        const dx = pos.x - token.x;
+        const dy = pos.y - token.y;
+        if (Math.sqrt(dx * dx + dy * dy) < getRadius()) {
+          options.onDoubleClickToken(token.id);
+          return;
+        }
+      }
     },
   };
 }

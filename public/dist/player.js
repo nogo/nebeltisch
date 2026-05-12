@@ -5,7 +5,7 @@ import {
   initPingLayer,
   initTokenLayer,
   listImagesAsPlayer
-} from "./gm-k76gdcdt.js";
+} from "./gm-f64vamqp.js";
 
 // public/js/player.ts
 var fragment = new URLSearchParams(location.hash.slice(1));
@@ -122,6 +122,7 @@ function startPlayer(adventureId2, playerLink2, playerName2, playerColor2) {
   const canvasCtrl = initCanvas(canvasArea, { mode: "player" });
   const viewport = createViewport();
   viewport.attach(canvasArea, canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize());
+  const gmTokenCtrl = initTokenLayer(canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize(), (x, y) => viewport.screenToImage(x, y), { interactive: false, insertBefore: canvasCtrl.getFogCanvas() });
   const pingCtrl = initPingLayer(canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize(), () => viewport.scale);
   function animatePings() {
     pingCtrl.tick();
@@ -202,9 +203,13 @@ function startPlayer(adventureId2, playerLink2, playerName2, playerColor2) {
     canvasArea.style.visibility = "visible";
     const tokens = msg.tokens;
     for (const token of tokens) {
-      tokenCtrl.addToken(token);
-      if (token.id === ownTokenId)
-        ownTokenPos = { x: token.x, y: token.y };
+      if (token.token_type === "monster" || token.token_type === "npc") {
+        gmTokenCtrl.addToken(token);
+      } else {
+        tokenCtrl.addToken(token);
+        if (token.id === ownTokenId)
+          ownTokenPos = { x: token.x, y: token.y };
+      }
     }
     if (ownTokenId) {
       const tid = ownTokenId;
@@ -244,8 +249,13 @@ function startPlayer(adventureId2, playerLink2, playerName2, playerColor2) {
     const token = msg.token;
     tokenCtrl.addToken(token);
   });
+  ws.on("gm_token:added", (msg) => {
+    gmTokenCtrl.addToken(msg.token);
+  });
   ws.on("token:removed", (msg) => {
-    tokenCtrl.removeToken(msg.tokenId);
+    const id = msg.tokenId;
+    tokenCtrl.removeToken(id);
+    gmTokenCtrl.removeToken(id);
   });
   ws.on("ping:map", (msg) => {
     pingCtrl.addPing(msg.x, msg.y, msg.color);
@@ -269,6 +279,10 @@ function startPlayer(adventureId2, playerLink2, playerName2, playerColor2) {
       }
     }
     tokenCtrl.render();
+    gmTokenCtrl.clear();
+    const newGmTokens = msg.gmTokens;
+    for (const t of newGmTokens ?? [])
+      gmTokenCtrl.addToken(t);
   });
   ws.on("player:joined", (msg) => {
     showToast(`${msg.playerName} joined`);

@@ -12,6 +12,7 @@ export interface CanvasController {
   drawBrushPreview(imgX: number, imgY: number, radius: number, viewportScale?: number): void;
   clearBrushPreview(): void;
   getEventTarget(): HTMLCanvasElement;
+  getFogCanvas(): HTMLCanvasElement;
   getWrapper(): HTMLElement;
   getImageSize(): { w: number; h: number };
   clear(): void;
@@ -176,6 +177,8 @@ export function initCanvas(container: HTMLElement, options?: { mode?: 'gm' | 'pl
     },
 
     getEventTarget() { return fogCanvas; },
+
+    getFogCanvas() { return fogCanvas; },
 
     getWrapper() { return wrapper; },
 
