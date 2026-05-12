@@ -1,20 +1,22 @@
 # Stage 1: Build client assets
-FROM oven/bun:1 AS build
+FROM oven/bun:1-slim AS build
 WORKDIR /app
 
-COPY package.json tsconfig.json ./
+COPY package.json bun.lock tsconfig.json ./
+RUN bun install --frozen-lockfile
+
 COPY src/ ./src/
 COPY public/ ./public/
 
 RUN bun run build:client
 
 # Stage 2: Runtime
-FROM oven/bun:1 AS runtime
+FROM oven/bun:1-slim AS runtime
 WORKDIR /app
 
-COPY --from=build /app/src/ ./src/
-COPY --from=build /app/public/ ./public/
-COPY package.json tsconfig.json ./
+COPY --from=build --chown=bun:bun /app/src/ ./src/
+COPY --from=build --chown=bun:bun /app/public/ ./public/
+COPY --chown=bun:bun package.json tsconfig.json ./
 
 RUN mkdir -p /app/data && chown -R bun:bun /app/data
 

@@ -9,6 +9,13 @@ services:
       - PORT=3000
       - DATA_DIR=/app/data
     restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
 
 volumes:
   nebeltisch-data:
