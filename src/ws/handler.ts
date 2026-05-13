@@ -17,6 +17,37 @@ import {
 } from "./connections";
 import { parseMessage, serializeMessage } from "./messages";
 
+// ---- Spawn position ----
+
+function calcSpawnPosition(
+  existingTokens: Array<{ x: number; y: number }>,
+  adventure: { active_image_id: string | null },
+  db: Database
+): { x: number; y: number } {
+  // Base: average of existing player tokens, or image centre, or fallback
+  let baseX = 100;
+  let baseY = 100;
+
+  if (existingTokens.length > 0) {
+    baseX = existingTokens.reduce((s, t) => s + t.x, 0) / existingTokens.length;
+    baseY = existingTokens.reduce((s, t) => s + t.y, 0) / existingTokens.length;
+  } else if (adventure.active_image_id) {
+    const img = getImage(db, adventure.active_image_id);
+    if (img && img.width > 0 && img.height > 0) {
+      baseX = img.width / 2;
+      baseY = img.height / 2;
+    }
+  }
+
+  // Small random offset so tokens don't stack on top of each other
+  const angle = Math.random() * Math.PI * 2;
+  const radius = 40 + Math.random() * 40;
+  return {
+    x: Math.round(baseX + Math.cos(angle) * radius),
+    y: Math.round(baseY + Math.sin(angle) * radius),
+  };
+}
+
 // ---- Fog mask in-memory cache ----
 
 const fogMaskCache = new Map<string, FogMask>(); // keyed by imageId
@@ -226,8 +257,12 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
         );
 
         if (tokenId && tokenIsNew) {
-          // Newly created token — tell other clients to add it
-          const newToken = tokens.find((t) => t.id === tokenId);
+          // Spawn new token near existing players, or at image centre
+          const spawnPos = calcSpawnPosition(playerTokens.filter(t => t.id !== tokenId), adventure, db);
+          updateTokenPosition(db, tokenId, spawnPos.x, spawnPos.y);
+
+          // Broadcast with updated position
+          const newToken = getTokensByAdventure(db, adventureId).find((t) => t.id === tokenId);
           if (newToken) {
             ws.publish(
               `adventure:${adventureId}`,

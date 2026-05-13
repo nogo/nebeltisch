@@ -12,8 +12,7 @@ import {
 // public/js/gm.ts
 var fragment = new URLSearchParams(location.hash.slice(1));
 var adventureId = fragment.get("id") ?? "";
-var passwordFromUrl = fragment.get("password") ?? "";
-var password = passwordFromUrl || sessionStorage.getItem(`gm_pw_${adventureId}`) || "";
+var password = fragment.get("password") ?? "";
 if (!adventureId || !password) {
   const p = document.createElement("p");
   p.style.cssText = "padding:2rem";
@@ -26,10 +25,6 @@ if (!adventureId || !password) {
   document.body.appendChild(p);
   throw new Error("Missing params");
 }
-if (passwordFromUrl) {
-  sessionStorage.setItem(`gm_pw_${adventureId}`, password);
-}
-history.replaceState(null, "", `${location.pathname}#id=${encodeURIComponent(adventureId)}`);
 var brushRadius = 50;
 var brushMode = "reveal";
 var tokenRadius = 20;

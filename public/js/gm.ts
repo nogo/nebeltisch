@@ -8,11 +8,12 @@ import type { FogStroke } from './canvas';
 import * as api from './api';
 
 // --- URL params ---
+// The hash is never transmitted to the server (HTTP spec), so keeping the
+// password here is safe. We leave it in place so refresh and cross-browser
+// copy-paste both work without any extra storage.
 const fragment = new URLSearchParams(location.hash.slice(1));
 const adventureId = fragment.get('id') ?? '';
-// Password from URL on first load; falls back to sessionStorage on refresh
-const passwordFromUrl = fragment.get('password') ?? '';
-const password = passwordFromUrl || sessionStorage.getItem(`gm_pw_${adventureId}`) || '';
+const password = fragment.get('password') ?? '';
 
 if (!adventureId || !password) {
   const p = document.createElement('p');
@@ -26,12 +27,6 @@ if (!adventureId || !password) {
   document.body.appendChild(p);
   throw new Error('Missing params');
 }
-
-// Persist password for refresh, keep id in URL, strip password
-if (passwordFromUrl) {
-  sessionStorage.setItem(`gm_pw_${adventureId}`, password);
-}
-history.replaceState(null, '', `${location.pathname}#id=${encodeURIComponent(adventureId)}`);
 
 // --- State ---
 let brushRadius = 50;
