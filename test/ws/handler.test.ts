@@ -753,7 +753,7 @@ describe("WebSocket handler", () => {
     const { gm, tokenId } = await connectGmAndPlayer();
     // Remember an out-of-bounds position directly, as a larger map would have.
     ts.db.run(
-      `INSERT INTO token_positions (token_id, image_id, x, y) VALUES (?, ?, 900, 900)`,
+      `INSERT OR REPLACE INTO token_positions (token_id, image_id, x, y) VALUES (?, ?, 900, 900)`,
       [tokenId, small.id]
     );
     ts.db.run(`UPDATE adventures SET active_image_id = NULL WHERE id = ?`, [adventureId]);
@@ -813,6 +813,72 @@ describe("WebSocket handler", () => {
 
     const token = getTokensByAdventure(ts.db, adventureId).find((t) => t.id === tokenId)!;
     expect(Math.hypot(token.x - 100, token.y - 100)).toBeLessThan(100);
+  });
+
+  it("A late joiner lands at the start point, not beside the party", async () => {
+    ts.db.run(`UPDATE images SET start_x = 20, start_y = 20 WHERE id = ?`, [imageId]);
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
+
+    const gm = await connectGm();
+
+    // An established party, far from the entrance.
+    const first = track(
+      await connectWS(ts.wsUrl, {
+        adventureId, role: "player", playerLink,
+        playerName: "Darian", playerColor: "#ff0000",
+      })
+    );
+    const firstJoined = await waitForMessage(first, "joined");
+    const firstId = firstJoined.tokens.find((t: any) => t.name === "Darian").id;
+    const moved = waitForMessage(gm, "token:moved");
+    first.send(JSON.stringify({ type: "token:move", tokenId: firstId, x: 90, y: 90 }));
+    await moved;
+
+    // Latecomer arrives.
+    const late = track(
+      await connectWS(ts.wsUrl, {
+        adventureId, role: "player", playerLink,
+        playerName: "Icegrimm", playerColor: "#00ff00",
+      })
+    );
+    const lateJoined = await waitForMessage(late, "joined");
+    const lateId = lateJoined.tokens.find((t: any) => t.name === "Icegrimm").id;
+
+    const token = getTokensByAdventure(ts.db, adventureId).find((t) => t.id === lateId)!;
+    // Near the entrance, and nowhere near the party in the far corner.
+    expect(Math.hypot(token.x - 20, token.y - 20)).toBeLessThan(60);
+    expect(Math.hypot(token.x - 90, token.y - 90)).toBeGreaterThan(40);
+  });
+
+  it("Setting a start point forgets positions recorded before it", async () => {
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
+    const { gm, player, tokenId } = await connectGmAndPlayer();
+
+    // The GM paints on the map first; the party's position gets recorded.
+    const moved = waitForMessage(gm, "token:moved");
+    player.send(JSON.stringify({ type: "token:move", tokenId, x: 95, y: 95 }));
+    await moved;
+
+    // The flag goes up afterwards — the natural order, since setting it no
+    // longer requires activating the map.
+    const ack = waitForMessage(gm, "map:start_point:set");
+    gm.send(JSON.stringify({ type: "map:start_point", imageId, x: 15, y: 15 }));
+    await ack;
+
+    // Leave and come back: the party arrives at the flag, not the old spot.
+    const other = createImageRecord(ts.db, {
+      adventureId, filename: "o.png", originalName: "o.png", width: 100, height: 100,
+    });
+    let switched = waitForMessage(gm, "map:switched");
+    gm.send(JSON.stringify({ type: "map:switch", imageId: other.id }));
+    await switched;
+    switched = waitForMessage(gm, "map:switched");
+    gm.send(JSON.stringify({ type: "map:switch", imageId }));
+    await switched;
+
+    const token = getTokensByAdventure(ts.db, adventureId).find((t) => t.id === tokenId)!;
+    expect(Math.hypot(token.x - 15, token.y - 15)).toBeLessThan(60);
+    expect(token.x).not.toBe(95);
   });
 
   it("Player cannot set a start point", async () => {

@@ -4,7 +4,7 @@ import type { WsData, FogMask, Token } from "../types";
 import { getAdventure, getAdventureByPlayerLink, setActiveImage, setTokenSize } from "../db/adventures";
 import { getImage, setStartPoint } from "../db/images";
 import { repairImageDimensions } from "../routes";
-import { findOrCreateToken, createToken, getTokensByAdventure, getPlayerTokensByAdventure, getGmTokensByImage, updateTokenPosition, rememberTokenPosition, getRememberedPositions, deleteToken } from "../db/tokens";
+import { findOrCreateToken, createToken, getTokensByAdventure, getPlayerTokensByAdventure, getGmTokensByImage, updateTokenPosition, rememberTokenPosition, getRememberedPositions, clearRememberedPositions, deleteToken } from "../db/tokens";
 import { createMask, applyStroke, applyStrokes } from "../fog/mask";
 import { serializeMask, saveFogMask, loadFogMask } from "../fog/serialize";
 import {
@@ -18,6 +18,34 @@ import {
 import { parseMessage, serializeMessage } from "./messages";
 
 // ---- Spawn position ----
+
+/**
+ * Where a newly joined player appears: the active map's start point, offset so
+ * successive arrivals do not stack. Falls back to the map centre when no start
+ * point is set, and to the old near-the-party spawn when no map is active.
+ */
+function placeArrivingToken(
+  db: Database,
+  adventure: { active_image_id: string | null; token_size?: number },
+  existingCount: number
+): { x: number; y: number } {
+  if (adventure.active_image_id) {
+    const img = getImage(db, adventure.active_image_id);
+    if (img && img.width > 0 && img.height > 0) {
+      const tokenSize = adventure.token_size ?? 20;
+      const ring = scatterPositions(
+        existingCount + 1,
+        img.start_x ?? img.width / 2,
+        img.start_y ?? img.height / 2,
+        img.width,
+        img.height,
+        tokenSize
+      );
+      return ring[existingCount];
+    }
+  }
+  return calcSpawnPosition([], adventure, db);
+}
 
 function calcSpawnPosition(
   existingTokens: Array<{ x: number; y: number }>,
@@ -367,9 +395,14 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
         );
 
         if (tokenId && tokenIsNew) {
-          // Spawn new token near existing players, or at image centre
-          const spawnPos = calcSpawnPosition(playerTokens.filter(t => t.id !== tokenId), adventure, db);
+          // Arrivals land on the map's start point, not beside the party, so a
+          // latecomer walks in from the entrance instead of appearing mid-scene.
+          const others = playerTokens.filter((t) => t.id !== tokenId).length;
+          const spawnPos = placeArrivingToken(db, adventure, others);
           updateTokenPosition(db, tokenId, spawnPos.x, spawnPos.y);
+          if (adventure.active_image_id) {
+            rememberTokenPosition(db, tokenId, adventure.active_image_id, spawnPos.x, spawnPos.y);
+          }
 
           // Broadcast with updated position
           const newToken = getTokensByAdventure(db, adventureId).find((t) => t.id === tokenId);
@@ -575,6 +608,11 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
           const x = clearing ? null : Math.round(Math.min(image.width, Math.max(0, Number(msg.x) || 0)));
           const y = clearing ? null : Math.round(Math.min(image.height, Math.max(0, Number(msg.y) || 0)));
           setStartPoint(db, msg.imageId, x, y);
+          if (!clearing) {
+            // Declaring where arrival happens overrides positions recorded
+            // earlier — typically while painting fog before the flag was set.
+            clearRememberedPositions(db, msg.imageId);
+          }
           // GM-only: players must never learn where the party will appear.
           ws.send(serializeMessage({ type: "map:start_point:set", imageId: msg.imageId, x, y }));
           break;
