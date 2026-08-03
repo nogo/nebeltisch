@@ -52,8 +52,9 @@ export interface SettingsUpdateMessage {
 export interface MapStartPointMessage {
   type: "map:start_point";
   imageId: string;
-  x: number;
-  y: number;
+  /** Null clears the start point; the map centre becomes the fallback again. */
+  x: number | null;
+  y: number | null;
 }
 
 export interface PingMessage {
@@ -138,8 +139,8 @@ export interface MapSwitchedMessage {
 export interface MapStartPointSetMessage {
   type: "map:start_point:set";
   imageId: string;
-  x: number;
-  y: number;
+  x: number | null;
+  y: number | null;
 }
 
 export interface PlayerJoinedMessage {

@@ -59,6 +59,7 @@ const playerCount = document.getElementById('player-count')!;
 const mapsBtn = document.getElementById('maps-btn')!;
 const placeTokenBtn = document.getElementById('place-token-btn')!;
 const startPointBtn = document.getElementById('start-point-btn')!;
+const flagIconTemplate = document.getElementById('flag-icon') as HTMLTemplateElement;
 
 // Token placement form
 const tokenPlaceForm = document.getElementById('token-place-form')!;
@@ -327,11 +328,83 @@ startPointBtn.addEventListener('click', () => {
 });
 
 ws.on('map:start_point:set', (msg) => {
-  if (msg.imageId !== activeImageId) return;
-  startPoint = { x: msg.x as number, y: msg.y as number };
-  renderStartMarker();
-  const img = imageList.find(i => i.id === activeImageId);
-  if (img) { img.start_x = msg.x as number; img.start_y = msg.y as number; }
+  const id = msg.imageId as string;
+  const x = msg.x as number | null;
+  const y = msg.y as number | null;
+
+  const img = imageList.find(i => i.id === id);
+  if (img) { img.start_x = x; img.start_y = y; }
+
+  if (id === activeImageId) {
+    startPoint = x != null && y != null ? { x, y } : null;
+    renderStartMarker();
+  }
+  if (id === pickerImageId) positionPickerDot();
+  renderGallery();
+});
+
+// --- Start point picker ---
+// Lets the GM set a start point on any map without activating it, which would
+// otherwise show that map to players and teleport the party onto it.
+const startPicker = document.getElementById('start-picker')!;
+const startPickerImg = document.getElementById('start-picker-img') as HTMLImageElement;
+const startPickerDot = document.getElementById('start-picker-dot')!;
+const startPickerTitle = document.getElementById('start-picker-title')!;
+const startPickerClose = document.getElementById('start-picker-close')!;
+const startPickerClear = document.getElementById('start-picker-clear')!;
+let pickerImageId: string | null = null;
+
+function positionPickerDot() {
+  const rec = imageList.find(i => i.id === pickerImageId);
+  const w = startPickerImg.naturalWidth;
+  const h = startPickerImg.naturalHeight;
+  if (!rec || rec.start_x == null || rec.start_y == null || !w || !h) {
+    startPickerDot.setAttribute('hidden', '');
+    return;
+  }
+  const rect = startPickerImg.getBoundingClientRect();
+  const stage = startPickerImg.parentElement!.getBoundingClientRect();
+  startPickerDot.style.left = `${(rec.start_x / w) * rect.width + (rect.left - stage.left)}px`;
+  startPickerDot.style.top = `${(rec.start_y / h) * rect.height + (rect.top - stage.top)}px`;
+  startPickerDot.removeAttribute('hidden');
+}
+
+function openStartPicker(img: api.ImageRecord) {
+  pickerImageId = img.id;
+  startPickerTitle.textContent = img.original_name;
+  startPickerDot.setAttribute('hidden', '');
+  startPickerImg.onload = positionPickerDot;
+  startPickerImg.src = `/uploads/${img.filename}`;
+  startPicker.removeAttribute('hidden');
+  if (startPickerImg.complete) positionPickerDot();
+}
+
+function closeStartPicker() {
+  startPicker.setAttribute('hidden', '');
+  pickerImageId = null;
+}
+
+startPickerImg.addEventListener('click', (ev) => {
+  const w = startPickerImg.naturalWidth;
+  const h = startPickerImg.naturalHeight;
+  if (!pickerImageId || !w || !h) return;
+  const rect = startPickerImg.getBoundingClientRect();
+  const x = Math.round(((ev.clientX - rect.left) / rect.width) * w);
+  const y = Math.round(((ev.clientY - rect.top) / rect.height) * h);
+  ws.send({ type: 'map:start_point', imageId: pickerImageId, x, y });
+});
+
+startPickerClear.addEventListener('click', () => {
+  if (!pickerImageId) return;
+  ws.send({ type: 'map:start_point', imageId: pickerImageId, x: null, y: null });
+});
+
+startPickerClose.addEventListener('click', closeStartPicker);
+startPicker.addEventListener('click', (ev) => {
+  if (ev.target === startPicker) closeStartPicker();
+});
+document.addEventListener('keydown', (ev) => {
+  if (ev.key === 'Escape' && !startPicker.hasAttribute('hidden')) closeStartPicker();
 });
 
 /** Restores the marker for whichever map is active. */
@@ -506,6 +579,17 @@ function renderGallery() {
     thumb.alt = img.original_name;
     thumb.title = img.original_name;
     item.appendChild(thumb);
+
+    const startBtn = document.createElement('button');
+    startBtn.className = 'gallery-start-btn' + (img.start_x != null ? ' has-point' : '');
+    startBtn.title = img.start_x != null ? 'Change party start point' : 'Set party start point';
+    startBtn.appendChild(flagIconTemplate.content.cloneNode(true));
+    // Must not fall through to the item handler, which would activate the map.
+    startBtn.addEventListener('click', (ev) => {
+      ev.stopPropagation();
+      openStartPicker(img);
+    });
+    item.appendChild(startBtn);
 
     item.addEventListener('click', () => {
       ws.send({ type: 'map:switch', imageId: img.id });

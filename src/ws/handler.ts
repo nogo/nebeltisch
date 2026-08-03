@@ -464,8 +464,9 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
             ws.send(serializeMessage({ type: "error", message: "Image not found" }));
             break;
           }
-          const x = Math.round(Math.min(image.width, Math.max(0, Number(msg.x) || 0)));
-          const y = Math.round(Math.min(image.height, Math.max(0, Number(msg.y) || 0)));
+          const clearing = msg.x === null || msg.y === null;
+          const x = clearing ? null : Math.round(Math.min(image.width, Math.max(0, Number(msg.x) || 0)));
+          const y = clearing ? null : Math.round(Math.min(image.height, Math.max(0, Number(msg.y) || 0)));
           setStartPoint(db, msg.imageId, x, y);
           // GM-only: players must never learn where the party will appear.
           ws.send(serializeMessage({ type: "map:start_point:set", imageId: msg.imageId, x, y }));

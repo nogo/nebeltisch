@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { startWsTestServer, type WsTestServer } from "../helpers";
-import { createAdventure } from "../../src/db/adventures";
+import { createAdventure, getAdventure } from "../../src/db/adventures";
 import { createImageRecord } from "../../src/db/images";
 import { getTokensByAdventure } from "../../src/db/tokens";
 import { flushAllFogCaches } from "../../src/ws/handler";
@@ -578,6 +578,40 @@ describe("WebSocket handler", () => {
     const token = getTokensByAdventure(ts.db, adventureId).find((t) => t.id === tokenId)!;
     expect(token.x).toBe(33);
     expect(token.y).toBe(44);
+  });
+
+  it("Start point can be set on a map that is not active, and cleared", async () => {
+    const other = createImageRecord(ts.db, {
+      adventureId,
+      filename: "other.png",
+      originalName: "other.png",
+      width: 200,
+      height: 200,
+    });
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
+
+    const { gm, tokenId } = await connectGmAndPlayer();
+
+    // Set on the inactive map — the active map must not change.
+    let ack = waitForMessage(gm, "map:start_point:set");
+    gm.send(JSON.stringify({ type: "map:start_point", imageId: other.id, x: 20, y: 30 }));
+    await ack;
+    expect(getAdventure(ts.db, adventureId)!.active_image_id).toBe(imageId);
+
+    // Clearing restores the map-centre fallback.
+    ack = waitForMessage(gm, "map:start_point:set");
+    gm.send(JSON.stringify({ type: "map:start_point", imageId: other.id, x: null, y: null }));
+    const cleared = await ack;
+    expect(cleared.x).toBeNull();
+    expect(cleared.y).toBeNull();
+
+    const switched = waitForMessage(gm, "map:switched");
+    gm.send(JSON.stringify({ type: "map:switch", imageId: other.id }));
+    await switched;
+
+    const token = getTokensByAdventure(ts.db, adventureId).find((t) => t.id === tokenId)!;
+    expect(token.x).toBe(100);
+    expect(token.y).toBe(100);
   });
 
   it("Player cannot set a start point", async () => {

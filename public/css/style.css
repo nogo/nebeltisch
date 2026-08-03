@@ -321,6 +321,94 @@ body.home {
 body.placing #canvas-area { cursor: crosshair !important; }
 body.setting-start #canvas-area { cursor: crosshair !important; }
 
+/* Start point picker — full-screen overlay over the maps sheet. */
+#start-picker {
+  position: fixed;
+  inset: 0;
+  z-index: 60;
+  background: rgba(0, 0, 0, 0.65);
+  backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+#start-picker[hidden] { display: none; }
+#start-picker-inner {
+  background: rgba(20, 20, 38, 0.96);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  max-width: min(90vw, 900px);
+  max-height: 90vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+#start-picker-header,
+#start-picker-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  font-size: 13px;
+}
+#start-picker-header { border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
+#start-picker-footer { border-top: 1px solid rgba(255, 255, 255, 0.1); }
+#start-picker-hint { opacity: 0.65; }
+#start-picker-close,
+#start-picker-clear {
+  background: rgba(255, 255, 255, 0.08);
+  border: none;
+  color: inherit;
+  border-radius: 6px;
+  padding: 8px 12px;
+  min-height: 36px;
+  cursor: pointer;
+}
+#start-picker-stage {
+  position: relative;
+  overflow: auto;
+  line-height: 0;
+}
+#start-picker-img {
+  display: block;
+  max-width: 100%;
+  max-height: calc(90vh - 110px);
+  cursor: crosshair;
+}
+#start-picker-dot {
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  margin: -14px 0 0 -14px;
+  border: 2px dashed #4a4aff;
+  border-radius: 50%;
+  background: rgba(74, 74, 255, 0.2);
+  pointer-events: none;
+}
+#start-picker-dot[hidden] { display: none; }
+
+/* Flag affordance on each gallery item. */
+.gallery-item { position: relative; }
+.gallery-start-btn {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  border-radius: 6px;
+  background: rgba(0, 0, 0, 0.55);
+  color: #fff;
+  cursor: pointer;
+  opacity: 0.85;
+}
+.gallery-start-btn.has-point { color: #8b8bff; background: rgba(74, 74, 255, 0.35); }
+
 /* Party start point — GM only, never rendered for players.
    Sits in the image-sized wrapper, so it pans and zooms with the map. */
 #start-marker {

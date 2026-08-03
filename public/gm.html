@@ -91,6 +91,28 @@
     <input type="range" id="token-size" min="5" max="100" value="20">
   </div>
 
+  <template id="flag-icon">
+    <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
+  </template>
+
+  <!-- Start point picker: set a map's start point without showing it to players -->
+  <div id="start-picker" hidden>
+    <div id="start-picker-inner">
+      <div id="start-picker-header">
+        <span id="start-picker-title">Start point</span>
+        <button id="start-picker-close" aria-label="Close">✕</button>
+      </div>
+      <div id="start-picker-stage">
+        <img id="start-picker-img" alt="">
+        <div id="start-picker-dot" hidden></div>
+      </div>
+      <div id="start-picker-footer">
+        <span id="start-picker-hint">Tap the map to place the party start point</span>
+        <button id="start-picker-clear">Clear</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Sheet backdrop -->
   <div id="sheet-backdrop" hidden></div>
 
