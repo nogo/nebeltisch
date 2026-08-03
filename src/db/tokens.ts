@@ -89,6 +89,34 @@ export function updateTokenPosition(db: Database, tokenId: string, x: number, y:
   db.run(`UPDATE tokens SET x = ?, y = ? WHERE id = ?`, [x, y, tokenId]);
 }
 
+/** Remembers where a token stood on a specific map. */
+export function rememberTokenPosition(
+  db: Database,
+  tokenId: string,
+  imageId: string,
+  x: number,
+  y: number
+): void {
+  db.run(
+    `INSERT INTO token_positions (token_id, image_id, x, y) VALUES (?, ?, ?, ?)
+     ON CONFLICT(token_id, image_id) DO UPDATE SET x = excluded.x, y = excluded.y`,
+    [tokenId, imageId, x, y]
+  );
+}
+
+/** Positions remembered for a map, keyed by token id. */
+export function getRememberedPositions(
+  db: Database,
+  imageId: string
+): Map<string, { x: number; y: number }> {
+  const rows = db
+    .query<{ token_id: string; x: number; y: number }, string>(
+      `SELECT token_id, x, y FROM token_positions WHERE image_id = ?`
+    )
+    .all(imageId);
+  return new Map(rows.map((r) => [r.token_id, { x: r.x, y: r.y }]));
+}
+
 export function deleteToken(db: Database, id: string): void {
   db.run(`DELETE FROM tokens WHERE id = ?`, [id]);
 }

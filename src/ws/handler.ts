@@ -4,7 +4,7 @@ import type { WsData, FogMask, Token } from "../types";
 import { getAdventure, getAdventureByPlayerLink, setActiveImage, setTokenSize } from "../db/adventures";
 import { getImage, setStartPoint } from "../db/images";
 import { repairImageDimensions } from "../routes";
-import { findOrCreateToken, createToken, getTokensByAdventure, getPlayerTokensByAdventure, getGmTokensByImage, updateTokenPosition, deleteToken } from "../db/tokens";
+import { findOrCreateToken, createToken, getTokensByAdventure, getPlayerTokensByAdventure, getGmTokensByImage, updateTokenPosition, rememberTokenPosition, getRememberedPositions, deleteToken } from "../db/tokens";
 import { createMask, applyStroke, applyStrokes } from "../fog/mask";
 import { serializeMask, saveFogMask, loadFogMask } from "../fog/serialize";
 import {
@@ -448,6 +448,11 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
             break;
           }
           updateTokenPosition(db, msg.tokenId, msg.x, msg.y);
+          // Remember it per map, so switching away and back restores the party.
+          const activeImageId = getAdventure(db, adventureId)?.active_image_id;
+          if (activeImageId) {
+            rememberTokenPosition(db, msg.tokenId, activeImageId, msg.x, msg.y);
+          }
           const moved = serializeMessage({
             type: "token:moved",
             tokenId: msg.tokenId,
@@ -497,17 +502,34 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
             }
             if (image && image.width > 0 && image.height > 0) {
               const tokenSize = getAdventure(db, adventureId)?.token_size ?? 20;
+              const remembered = getRememberedPositions(db, msg.imageId);
+              // Only tokens that have never stood on this map get placed at the
+              // start point; the rest return to where they last were.
+              const arriving = playerTokens.filter((t) => !remembered.has(t.id));
               const positions = scatterPositions(
-                playerTokens.length,
+                arriving.length,
                 image.start_x ?? image.width / 2,
                 image.start_y ?? image.height / 2,
                 image.width,
                 image.height,
                 tokenSize
               );
-              playerTokens.forEach((t, i) =>
-                updateTokenPosition(db, t.id, positions[i].x, positions[i].y)
-              );
+              const margin = Math.min(tokenSize, image.width / 2, image.height / 2);
+              let arrivingIndex = 0;
+              for (const t of playerTokens) {
+                const previous = remembered.get(t.id);
+                const pos = previous
+                  ? {
+                      // Only rescue positions outside the image. The player chose
+                      // this spot and token:move does not clamp, so the margin
+                      // applied to arrivals must not drag them off it.
+                      x: Math.round(Math.min(image.width, Math.max(0, previous.x))),
+                      y: Math.round(Math.min(image.height, Math.max(0, previous.y))),
+                    }
+                  : positions[arrivingIndex++];
+                updateTokenPosition(db, t.id, pos.x, pos.y);
+                rememberTokenPosition(db, t.id, msg.imageId, pos.x, pos.y);
+              }
               playerTokens = getPlayerTokensByAdventure(db, adventureId);
             }
           }

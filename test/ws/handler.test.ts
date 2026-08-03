@@ -706,6 +706,67 @@ describe("WebSocket handler", () => {
     expect(dist).toBeLessThan(100);
   });
 
+  it("Switching away and back restores where each player was standing", async () => {
+    const second = createImageRecord(ts.db, {
+      adventureId,
+      filename: "second.png",
+      originalName: "second.png",
+      width: 300,
+      height: 300,
+    });
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
+
+    const { gm, player, tokenId } = await connectGmAndPlayer();
+
+    // The player walks to a corner of the first map.
+    const moved = waitForMessage(gm, "token:moved");
+    player.send(JSON.stringify({ type: "token:move", tokenId, x: 12, y: 88 }));
+    await moved;
+
+    // Away to another map...
+    let switched = waitForMessage(gm, "map:switched");
+    gm.send(JSON.stringify({ type: "map:switch", imageId: second.id }));
+    await switched;
+    const away = getTokensByAdventure(ts.db, adventureId).find((t) => t.id === tokenId)!;
+    expect(away.x).not.toBe(12);
+
+    // ...and back. The player should be where they left off, not at the start.
+    switched = waitForMessage(gm, "map:switched");
+    gm.send(JSON.stringify({ type: "map:switch", imageId }));
+    await switched;
+
+    const back = getTokensByAdventure(ts.db, adventureId).find((t) => t.id === tokenId)!;
+    expect(back.x).toBe(12);
+    expect(back.y).toBe(88);
+  });
+
+  it("Returning to a map that shrank keeps the remembered position in bounds", async () => {
+    const small = createImageRecord(ts.db, {
+      adventureId,
+      filename: "tiny.png",
+      originalName: "tiny.png",
+      width: 30,
+      height: 30,
+    });
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [small.id, adventureId]);
+
+    const { gm, tokenId } = await connectGmAndPlayer();
+    // Remember an out-of-bounds position directly, as a larger map would have.
+    ts.db.run(
+      `INSERT INTO token_positions (token_id, image_id, x, y) VALUES (?, ?, 900, 900)`,
+      [tokenId, small.id]
+    );
+    ts.db.run(`UPDATE adventures SET active_image_id = NULL WHERE id = ?`, [adventureId]);
+
+    const switched = waitForMessage(gm, "map:switched");
+    gm.send(JSON.stringify({ type: "map:switch", imageId: small.id }));
+    await switched;
+
+    const token = getTokensByAdventure(ts.db, adventureId).find((t) => t.id === tokenId)!;
+    expect(token.x).toBeLessThanOrEqual(30);
+    expect(token.y).toBeLessThanOrEqual(30);
+  });
+
   it("Re-activating the map already active leaves tokens where they are", async () => {
     ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
     const { gm, tokenId } = await connectGmAndPlayer();

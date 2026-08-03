@@ -78,6 +78,18 @@ export function createSchema(db: Database): void {
     // Column already exists — ignore
   }
 
+  // Where each token stood on each map, so switching away and back restores
+  // the party instead of resetting them to the start point.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS token_positions (
+      token_id TEXT NOT NULL REFERENCES tokens(id) ON DELETE CASCADE,
+      image_id TEXT NOT NULL REFERENCES images(id) ON DELETE CASCADE,
+      x REAL NOT NULL,
+      y REAL NOT NULL,
+      PRIMARY KEY (token_id, image_id)
+    );
+  `);
+
   // Unique index prevents duplicate tokens per player per adventure
   db.run(`
     CREATE UNIQUE INDEX IF NOT EXISTS tokens_adventure_player_link
