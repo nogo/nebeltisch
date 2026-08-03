@@ -1,4 +1,4 @@
-# Nebeltisch — Roadmap
+# Nebeltisch — Roadmap (maybe outdated)
 
 ## What
 A collaborative tabletop tool for remote pen & paper RPGs. GM creates an adventure, uploads map images (each with its own fog layer), reveals/re-fogs areas with a round brush, and controls which map players see. Players join via share link, pick name + color, and move their own token on the active map.
@@ -17,24 +17,6 @@ A collaborative tabletop tool for remote pen & paper RPGs. GM creates an adventu
 - **Canvas compositing.** `destination-out` to reveal, `source-over` to re-fog.
 - **No CRDT.** GM is sole fog writer, each player owns only their token. No conflict resolution needed.
 - **Auth: lightweight.** GM link with password, player share link with name+color on join. No accounts.
-
-## Status
-- [x] Discovery complete
-- [x] wu-01: Initialize project and server skeleton
-- [x] wu-02: Image upload and adventure API
-- [x] wu-03: Fog mask data model and persistence
-- [x] wu-04: WebSocket layer and real-time sync
-- [x] wu-05: GM frontend with canvas fog
-- [x] wu-06: Player frontend and token system
-- [x] wu-07: Docker and deployment
-- [x] wu-08: Fix fog mask persistence on reload
-- [x] wu-09: (reserved)
-- [ ] wu-10: Add pan and zoom with touch gestures
-- [ ] wu-11: Make tokens persistent and add player management
-- [ ] wu-12: Redesign GM and Player UI with floating controls
-- [ ] wu-13: Redesign home page with matching visual language
-- [ ] wu-14: Add undo and redo for fog strokes
-- [ ] wu-15: Add player ping marker
 
 ## Future Improvements
 - **GM fog opacity slider** — adjustable transparency (0–100%) on the fog layer, GM-only. Lets the GM peek through fog to plan reveals. Players always see fully opaque fog. Pure client-side, no server changes needed.

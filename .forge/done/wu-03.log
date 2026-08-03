@@ -1,9 +1,0 @@
-All 59 tests pass. Here's what was created:
-
-- **`src/types.ts`** — added `FogMask` and `FogStroke` interfaces
-- **`src/fog/mask.ts`** — `createMask`, `createRevealedMask`, `applyStroke`, `applyStrokes`, `isRevealed`, `getRevealedPercentage`
-- **`src/fog/serialize.ts`** — compact binary format (8-byte header + deflate-compressed pixels) using `Bun.deflateSync`/`Bun.inflateSync`; `saveFogMask`/`loadFogMask` for DB persistence
-- **`test/fog/mask.test.ts`** — 13 tests covering all mask operations
-- **`test/fog/serialize.test.ts`** — 8 tests covering round-trips, corruption, and persistence
-
-I chose the simple binary format over raw PNG — the spec explicitly allowed it and it avoids CRC32 implementation complexity with no downside.
