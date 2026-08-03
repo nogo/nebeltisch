@@ -319,6 +319,30 @@ body.home {
 
 /* ── Canvas crosshair in place mode ── */
 body.placing #canvas-area { cursor: crosshair !important; }
+body.setting-start #canvas-area { cursor: crosshair !important; }
+
+/* Party start point — GM only, never rendered for players.
+   Sits in the image-sized wrapper, so it pans and zooms with the map. */
+#start-marker {
+  position: absolute;
+  transform: translate(-50%, -50%);
+  border: 2px dashed #4a4aff;
+  border-radius: 50%;
+  background: rgba(74, 74, 255, 0.15);
+  pointer-events: none;
+  box-sizing: border-box;
+}
+#start-marker::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 20%;
+  height: 20%;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: #4a4aff;
+}
 
 /* ── Topbar share/action button ── */
 .topbar-btn {

@@ -5,7 +5,7 @@ import {
   initPingLayer,
   initTokenLayer,
   listImagesAsPlayer
-} from "./gm-f64vamqp.js";
+} from "./gm-t2wd26b2.js";
 
 // public/js/player.ts
 var fragment = new URLSearchParams(location.hash.slice(1));
@@ -129,7 +129,7 @@ function startPlayer(adventureId2, playerLink2, playerName2, playerColor2) {
     requestAnimationFrame(animatePings);
   }
   requestAnimationFrame(animatePings);
-  const tokenCtrl = initTokenLayer(canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize(), (x, y) => viewport.screenToImage(x, y), { interactive: true, getRadius: () => tokenRadius });
+  const tokenCtrl = initTokenLayer(canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize(), (x, y) => viewport.screenToImage(x, y), { interactive: true, getRadius: () => tokenRadius, getScale: () => viewport.scale });
   const LONG_PRESS_DELAY = 400;
   const PING_RATE_LIMIT = 1000;
   let longPressTimer = null;
@@ -148,7 +148,9 @@ function startPlayer(adventureId2, playerLink2, playerName2, playerColor2) {
     const pos = viewport.screenToImage(clientX, clientY);
     const dx = pos.x - ownTokenPos.x;
     const dy = pos.y - ownTokenPos.y;
-    return dx * dx + dy * dy <= tokenRadius * tokenRadius;
+    const scale = viewport.scale;
+    const r = Math.max(tokenRadius, 22 / (scale > 0 ? scale : 1));
+    return dx * dx + dy * dy <= r * r;
   }
   const ws = connectPlayer(adventureId2, playerLink2, playerName2, playerColor2);
   viewport.onInteractStart((ev) => {
@@ -244,6 +246,7 @@ function startPlayer(adventureId2, playerLink2, playerName2, playerColor2) {
     if (tokenId === ownTokenId)
       ownTokenPos = { x, y };
     tokenCtrl.moveToken(tokenId, x, y);
+    gmTokenCtrl.moveToken(tokenId, x, y);
   });
   ws.on("token:added", (msg) => {
     const token = msg.token;
@@ -277,6 +280,12 @@ function startPlayer(adventureId2, playerLink2, playerName2, playerColor2) {
       if (typeof msg.fogMask === "string") {
         await canvasCtrl.applyFogMask(msg.fogMask);
       }
+    }
+    const movedPlayers = msg.playerTokens;
+    for (const t of movedPlayers ?? []) {
+      tokenCtrl.moveToken(t.id, t.x, t.y);
+      if (t.id === ownTokenId)
+        ownTokenPos = { x: t.x, y: t.y };
     }
     tokenCtrl.render();
     gmTokenCtrl.clear();

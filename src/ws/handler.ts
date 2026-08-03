@@ -2,7 +2,7 @@ import type { Database } from "bun:sqlite";
 import type { Server, ServerWebSocket } from "bun";
 import type { WsData, FogMask, Token } from "../types";
 import { getAdventure, getAdventureByPlayerLink, setActiveImage, setTokenSize } from "../db/adventures";
-import { getImage } from "../db/images";
+import { getImage, setStartPoint } from "../db/images";
 import { repairImageDimensions } from "../routes";
 import { findOrCreateToken, createToken, getTokensByAdventure, getPlayerTokensByAdventure, getGmTokensByImage, updateTokenPosition, deleteToken } from "../db/tokens";
 import { createMask, applyStroke, applyStrokes } from "../fog/mask";
@@ -46,6 +46,38 @@ function calcSpawnPosition(
     x: Math.round(baseX + Math.cos(angle) * radius),
     y: Math.round(baseY + Math.sin(angle) * radius),
   };
+}
+
+/**
+ * Places `count` tokens around a target point without stacking them, clamped
+ * inside the image so a switch to a smaller map can never strand a token
+ * off-canvas where nobody can reach it.
+ */
+export function scatterPositions(
+  count: number,
+  cx: number,
+  cy: number,
+  width: number,
+  height: number,
+  tokenSize: number
+): Array<{ x: number; y: number }> {
+  const margin = Math.min(tokenSize, width / 2, height / 2);
+  const ring = tokenSize * 2.5;
+  const out: Array<{ x: number; y: number }> = [];
+  for (let i = 0; i < count; i++) {
+    let x = cx;
+    let y = cy;
+    if (count > 1) {
+      const angle = (i / count) * Math.PI * 2;
+      x += Math.cos(angle) * ring;
+      y += Math.sin(angle) * ring;
+    }
+    out.push({
+      x: Math.round(Math.min(width - margin, Math.max(margin, x))),
+      y: Math.round(Math.min(height - margin, Math.max(margin, y))),
+    });
+  }
+  return out;
 }
 
 // ---- Fog mask in-memory cache ----
@@ -367,12 +399,41 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
             ws.send(serializeMessage({ type: "error", message: "Only GM can switch maps" }));
             break;
           }
+          const prevImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
           try {
             setActiveImage(db, adventureId, msg.imageId);
           } catch {
             ws.send(serializeMessage({ type: "error", message: "Invalid image" }));
             break;
           }
+
+          // Move the party onto the new map. Player tokens are adventure-scoped,
+          // so without this they keep coordinates from the previous map and can
+          // land outside a smaller one, where nobody can select them.
+          let playerTokens = getPlayerTokensByAdventure(db, adventureId);
+          if (prevImageId !== msg.imageId && playerTokens.length > 0) {
+            let image = getImage(db, msg.imageId);
+            if (image && (image.width === 0 || image.height === 0) && uploadsDir) {
+              repairImageDimensions(db, msg.imageId, uploadsDir);
+              image = getImage(db, msg.imageId) ?? image;
+            }
+            if (image && image.width > 0 && image.height > 0) {
+              const tokenSize = getAdventure(db, adventureId)?.token_size ?? 20;
+              const positions = scatterPositions(
+                playerTokens.length,
+                image.start_x ?? image.width / 2,
+                image.start_y ?? image.height / 2,
+                image.width,
+                image.height,
+                tokenSize
+              );
+              playerTokens.forEach((t, i) =>
+                updateTokenPosition(db, t.id, positions[i].x, positions[i].y)
+              );
+              playerTokens = getPlayerTokensByAdventure(db, adventureId);
+            }
+          }
+
           let fogMask: string | null = null;
           try {
             const mask = await getFogMaskForImage(db, msg.imageId, uploadsDir);
@@ -386,9 +447,28 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
             imageId: msg.imageId,
             fogMask,
             gmTokens: newGmTokens,
+            playerTokens,
           });
           ws.send(switched);
           ws.publish(topic, switched);
+          break;
+        }
+
+        case "map:start_point": {
+          if (conn.role !== "gm") {
+            ws.send(serializeMessage({ type: "error", message: "Only GM can set the start point" }));
+            break;
+          }
+          const image = getImage(db, msg.imageId);
+          if (!image || image.adventure_id !== adventureId) {
+            ws.send(serializeMessage({ type: "error", message: "Image not found" }));
+            break;
+          }
+          const x = Math.round(Math.min(image.width, Math.max(0, Number(msg.x) || 0)));
+          const y = Math.round(Math.min(image.height, Math.max(0, Number(msg.y) || 0)));
+          setStartPoint(db, msg.imageId, x, y);
+          // GM-only: players must never learn where the party will appear.
+          ws.send(serializeMessage({ type: "map:start_point:set", imageId: msg.imageId, x, y }));
           break;
         }
 

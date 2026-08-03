@@ -14,6 +14,8 @@ export interface ImageRecord {
   width: number;
   height: number;
   sort_order: number;
+  start_x: number | null;
+  start_y: number | null;
 }
 
 function gmHeaders(password: string): HeadersInit {

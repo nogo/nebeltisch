@@ -66,6 +66,18 @@ export function createSchema(db: Database): void {
     // Column already exists — ignore
   }
 
+  // Migration: add per-map start point for player tokens
+  try {
+    db.run(`ALTER TABLE images ADD COLUMN start_x REAL NULL`);
+  } catch {
+    // Column already exists — ignore
+  }
+  try {
+    db.run(`ALTER TABLE images ADD COLUMN start_y REAL NULL`);
+  } catch {
+    // Column already exists — ignore
+  }
+
   // Unique index prevents duplicate tokens per player per adventure
   db.run(`
     CREATE UNIQUE INDEX IF NOT EXISTS tokens_adventure_player_link

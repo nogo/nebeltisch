@@ -41,6 +41,11 @@ export function updateFogMask(db: Database, imageId: string, mask: Buffer | null
   db.run(`UPDATE images SET fog_mask = ? WHERE id = ?`, [mask, imageId]);
 }
 
+/** Where player tokens are placed when this map becomes active. Null = map centre. */
+export function setStartPoint(db: Database, id: string, x: number, y: number): void {
+  db.run(`UPDATE images SET start_x = ?, start_y = ? WHERE id = ?`, [x, y, id]);
+}
+
 export function updateImageDimensions(db: Database, id: string, width: number, height: number): void {
   db.run(`UPDATE images SET width = ?, height = ? WHERE id = ?`, [width, height, id]);
 }

@@ -58,6 +58,7 @@ const playersBt = document.getElementById('players-btn')!;
 const playerCount = document.getElementById('player-count')!;
 const mapsBtn = document.getElementById('maps-btn')!;
 const placeTokenBtn = document.getElementById('place-token-btn')!;
+const startPointBtn = document.getElementById('start-point-btn')!;
 
 // Token placement form
 const tokenPlaceForm = document.getElementById('token-place-form')!;
@@ -115,6 +116,8 @@ const gmTokenCtrl = initTokenLayer(
   {
     interactive: false,
     insertBefore: canvasCtrl.getFogCanvas(),
+    getRadius: () => tokenRadius,
+    getScale: () => viewport.scale,
     onDoubleClickToken: (tokenId) => {
       ws.send({ type: 'gm_token:remove', tokenId });
     },
@@ -134,7 +137,7 @@ const tokenCtrl = initTokenLayer(
   canvasCtrl.getWrapper(),
   () => canvasCtrl.getImageSize(),
   (x, y) => viewport.screenToImage(x, y),
-  { interactive: true, getRadius: () => tokenRadius }
+  { interactive: true, getRadius: () => tokenRadius, getScale: () => viewport.scale }
 );
 tokenCtrl.enableDragAll((tokenId, x, y) => {
   ws.send({ type: 'token:move', tokenId, x, y });
@@ -181,6 +184,7 @@ ws.on('joined', async (msg) => {
     }
   }
 
+  syncStartPointFromImageList();
   renderPresence(playerRoster);
 });
 
@@ -203,7 +207,9 @@ ws.on('gm_token:added', (msg) => {
 });
 
 ws.on('token:moved', (msg) => {
+  // The id lives in exactly one controller; moveToken no-ops on the other.
   tokenCtrl.moveToken(msg.tokenId as string, msg.x as number, msg.y as number);
+  gmTokenCtrl.moveToken(msg.tokenId as string, msg.x as number, msg.y as number);
 });
 
 ws.on('token:removed', (msg) => {
@@ -224,6 +230,8 @@ ws.on('ping:map', (msg) => {
 ws.on('settings:updated', (msg) => {
   tokenRadius = msg.tokenSize as number;
   tokenCtrl.render();
+  gmTokenCtrl.render();
+  renderStartMarker();
   updateTokenSizeLabel();
 });
 
@@ -247,7 +255,11 @@ ws.on('map:switched', async (msg) => {
   }
   renderGallery();
   updateEmptyState();
+  // The server moves the party onto the new map's start point.
+  const movedPlayers = msg.playerTokens as Array<{ id: string; x: number; y: number }> | undefined;
+  for (const t of movedPlayers ?? []) tokenCtrl.moveToken(t.id, t.x, t.y);
   tokenCtrl.render();
+  syncStartPointFromImageList();
   // Swap GM tokens for the new map
   gmTokenCtrl.clear();
   const newGmTokens = msg.gmTokens as Array<{ id: string; name: string; color: string; x: number; y: number; token_type: 'monster' | 'npc' }> | undefined;
@@ -281,6 +293,61 @@ copyInviteBtn.addEventListener('click', () => {
   copyInviteBtn.textContent = 'Copied!';
   setTimeout(() => { copyInviteBtn.textContent = 'Copy invite link'; }, 1500);
 });
+
+// --- Start point mode ---
+// Where the party lands when this map is activated. GM-only: the marker is never
+// sent to players, so they cannot see where they will appear.
+let startPointModeActive = false;
+let startPoint: { x: number; y: number } | null = null;
+
+const startMarker = document.createElement('div');
+startMarker.id = 'start-marker';
+startMarker.hidden = true;
+canvasCtrl.getWrapper().appendChild(startMarker);
+
+function renderStartMarker() {
+  if (!startPoint) {
+    startMarker.hidden = true;
+    return;
+  }
+  const size = tokenRadius * 2;
+  startMarker.style.width = `${size}px`;
+  startMarker.style.height = `${size}px`;
+  startMarker.style.left = `${startPoint.x}px`;
+  startMarker.style.top = `${startPoint.y}px`;
+  startMarker.hidden = false;
+}
+
+function deactivateStartPointMode() {
+  startPointModeActive = false;
+  startPointBtn.classList.remove('active');
+  document.body.classList.remove('setting-start');
+}
+
+startPointBtn.addEventListener('click', () => {
+  if (!activeImageId) return;
+  startPointModeActive = !startPointModeActive;
+  startPointBtn.classList.toggle('active', startPointModeActive);
+  document.body.classList.toggle('setting-start', startPointModeActive);
+  if (startPointModeActive) deactivatePlaceMode();
+});
+
+ws.on('map:start_point:set', (msg) => {
+  if (msg.imageId !== activeImageId) return;
+  startPoint = { x: msg.x as number, y: msg.y as number };
+  renderStartMarker();
+  const img = imageList.find(i => i.id === activeImageId);
+  if (img) { img.start_x = msg.x as number; img.start_y = msg.y as number; }
+});
+
+/** Restores the marker for whichever map is active. */
+function syncStartPointFromImageList() {
+  const img = imageList.find(i => i.id === activeImageId);
+  startPoint = img && img.start_x != null && img.start_y != null
+    ? { x: img.start_x, y: img.start_y }
+    : null;
+  renderStartMarker();
+}
 
 // --- Place token mode ---
 let placeModeActive = false;
@@ -636,6 +703,14 @@ function flushPending() {
 viewport.onInteractStart((ev: PointerEvent) => {
   if (!activeImageId) return;
   closeAllPopups();
+
+  // Start point mode — one click sets it, then exits
+  if (startPointModeActive) {
+    const pos = viewport.screenToImage(ev.clientX, ev.clientY);
+    ws.send({ type: 'map:start_point', imageId: activeImageId, x: pos.x, y: pos.y });
+    deactivateStartPointMode();
+    return;
+  }
 
   // Place token mode — show form on click, skip painting
   if (placeModeActive) {

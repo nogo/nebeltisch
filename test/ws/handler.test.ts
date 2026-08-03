@@ -483,4 +483,118 @@ describe("WebSocket handler", () => {
     const err = await errPromise;
     expect(err.message).toBeDefined();
   });
+
+  // ---- Map switch repositioning ----
+
+  async function connectGmAndPlayer(name = "Alice") {
+    const gm = track(
+      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+    );
+    await waitForMessage(gm, "joined");
+    const player = track(
+      await connectWS(ts.wsUrl, {
+        adventureId,
+        role: "player",
+        playerLink,
+        playerName: name,
+        playerColor: "#ff0000",
+      })
+    );
+    const joined = await waitForMessage(player, "joined");
+    const tokenId = joined.tokens.find((t: any) => t.name === name).id;
+    return { gm, player, tokenId };
+  }
+
+  it("Map switch to a smaller map never strands a token off-canvas", async () => {
+    const small = createImageRecord(ts.db, {
+      adventureId,
+      filename: "small.png",
+      originalName: "small.png",
+      width: 40,
+      height: 40,
+    });
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
+
+    const { gm, tokenId } = await connectGmAndPlayer();
+
+    // Park the token near the far corner of the 100x100 map.
+    ts.db.run(`UPDATE tokens SET x = 95, y = 95 WHERE id = ?`, [tokenId]);
+
+    const switched = waitForMessage(gm, "map:switched");
+    gm.send(JSON.stringify({ type: "map:switch", imageId: small.id }));
+    const msg = await switched;
+
+    expect(Array.isArray(msg.playerTokens)).toBe(true);
+    const broadcast = msg.playerTokens.find((t: any) => t.id === tokenId);
+    expect(broadcast).toBeDefined();
+
+    const token = getTokensByAdventure(ts.db, adventureId).find((t) => t.id === tokenId)!;
+    expect(token.x).toBeLessThanOrEqual(40);
+    expect(token.y).toBeLessThanOrEqual(40);
+    expect(token.x).toBeGreaterThanOrEqual(0);
+    expect(token.y).toBeGreaterThanOrEqual(0);
+    expect(broadcast.x).toBe(token.x);
+    expect(broadcast.y).toBe(token.y);
+  });
+
+  it("Party lands on the GM's start point when one is set", async () => {
+    const next = createImageRecord(ts.db, {
+      adventureId,
+      filename: "next.png",
+      originalName: "next.png",
+      width: 200,
+      height: 200,
+    });
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
+
+    const { gm, tokenId } = await connectGmAndPlayer();
+
+    const setAck = waitForMessage(gm, "map:start_point:set");
+    gm.send(JSON.stringify({ type: "map:start_point", imageId: next.id, x: 150, y: 60 }));
+    const ack = await setAck;
+    expect(ack.x).toBe(150);
+    expect(ack.y).toBe(60);
+
+    const switched = waitForMessage(gm, "map:switched");
+    gm.send(JSON.stringify({ type: "map:switch", imageId: next.id }));
+    await switched;
+
+    // Single player → placed exactly on the point, no scatter offset.
+    const token = getTokensByAdventure(ts.db, adventureId).find((t) => t.id === tokenId)!;
+    expect(token.x).toBe(150);
+    expect(token.y).toBe(60);
+  });
+
+  it("Re-activating the map already active leaves tokens where they are", async () => {
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
+    const { gm, tokenId } = await connectGmAndPlayer();
+
+    ts.db.run(`UPDATE tokens SET x = 33, y = 44 WHERE id = ?`, [tokenId]);
+
+    const switched = waitForMessage(gm, "map:switched");
+    gm.send(JSON.stringify({ type: "map:switch", imageId }));
+    await switched;
+
+    const token = getTokensByAdventure(ts.db, adventureId).find((t) => t.id === tokenId)!;
+    expect(token.x).toBe(33);
+    expect(token.y).toBe(44);
+  });
+
+  it("Player cannot set a start point", async () => {
+    const player = track(
+      await connectWS(ts.wsUrl, {
+        adventureId,
+        role: "player",
+        playerLink,
+        playerName: "Bob",
+        playerColor: "#00ff00",
+      })
+    );
+    await waitForMessage(player, "joined");
+
+    const errPromise = waitForMessage(player, "error");
+    player.send(JSON.stringify({ type: "map:start_point", imageId, x: 10, y: 10 }));
+    const err = await errPromise;
+    expect(err.message).toContain("GM");
+  });
 });

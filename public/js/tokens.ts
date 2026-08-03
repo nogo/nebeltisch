@@ -24,6 +24,8 @@ export interface TokenController {
 
 const DEFAULT_RADIUS = 20;
 const FONT_SIZE = 12;
+/** Apple HIG asks for 44pt; half of that is the radius a fingertip can reliably land. */
+const MIN_TOUCH_PX = 22;
 
 export function initTokenLayer(
   wrapper: HTMLElement,
@@ -32,11 +34,23 @@ export function initTokenLayer(
   options?: {
     interactive?: boolean;
     getRadius?: () => number;
+    getScale?: () => number;
     insertBefore?: HTMLElement;
     onDoubleClickToken?: (tokenId: string) => void;
   }
 ): TokenController {
   const getRadius = options?.getRadius ?? (() => DEFAULT_RADIUS);
+  const getScale = options?.getScale ?? (() => 1);
+
+  /**
+   * Grab radius in image pixels, floored at a finger-sized target on screen.
+   * The drawn radius is in image space, so at fit-zoom on a tablet a 20px token
+   * is only a few screen pixels wide — visually fine, impossible to hit.
+   */
+  function hitRadius(): number {
+    const scale = getScale();
+    return Math.max(getRadius(), MIN_TOUCH_PX / (scale > 0 ? scale : 1));
+  }
   const canvas = document.createElement('canvas');
   canvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;';
   if (options?.interactive === false) {
@@ -144,11 +158,13 @@ export function initTokenLayer(
     handlePointerDown(ev: PointerEvent) {
       const pos = screenToImage(ev.clientX, ev.clientY);
 
+      const r = hitRadius();
+
       if (dragAllMode) {
         for (const token of tokens.values()) {
           const dx = pos.x - token.x;
           const dy = pos.y - token.y;
-          if (Math.sqrt(dx * dx + dy * dy) < getRadius()) {
+          if (Math.sqrt(dx * dx + dy * dy) < r) {
             dragging = true;
             dragTokenId = token.id;
             return;
@@ -161,7 +177,7 @@ export function initTokenLayer(
       if (!own) return;
       const dx = pos.x - own.x;
       const dy = pos.y - own.y;
-      if (Math.sqrt(dx * dx + dy * dy) < getRadius()) {
+      if (Math.sqrt(dx * dx + dy * dy) < r) {
         dragging = true;
         dragTokenId = ownTokenId;
       }
@@ -211,10 +227,11 @@ export function initTokenLayer(
     handleDoubleClick(ev: MouseEvent) {
       if (!options?.onDoubleClickToken) return;
       const pos = screenToImage(ev.clientX, ev.clientY);
+      const r = hitRadius();
       for (const token of tokens.values()) {
         const dx = pos.x - token.x;
         const dy = pos.y - token.y;
-        if (Math.sqrt(dx * dx + dy * dy) < getRadius()) {
+        if (Math.sqrt(dx * dx + dy * dy) < r) {
           options.onDoubleClickToken(token.id);
           return;
         }

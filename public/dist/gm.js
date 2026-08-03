@@ -7,7 +7,7 @@ import {
   initTokenLayer,
   listImages,
   uploadImage
-} from "./gm-f64vamqp.js";
+} from "./gm-t2wd26b2.js";
 
 // public/js/gm.ts
 var fragment = new URLSearchParams(location.hash.slice(1));
@@ -50,6 +50,7 @@ var playersBt = document.getElementById("players-btn");
 var playerCount = document.getElementById("player-count");
 var mapsBtn = document.getElementById("maps-btn");
 var placeTokenBtn = document.getElementById("place-token-btn");
+var startPointBtn = document.getElementById("start-point-btn");
 var tokenPlaceForm = document.getElementById("token-place-form");
 var tpMonsterBtn = document.getElementById("tp-monster");
 var tpNpcBtn = document.getElementById("tp-npc");
@@ -82,6 +83,8 @@ requestAnimationFrame(animatePings);
 var gmTokenCtrl = initTokenLayer(canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize(), (x, y) => viewport.screenToImage(x, y), {
   interactive: false,
   insertBefore: canvasCtrl.getFogCanvas(),
+  getRadius: () => tokenRadius,
+  getScale: () => viewport.scale,
   onDoubleClickToken: (tokenId) => {
     ws.send({ type: "gm_token:remove", tokenId });
   }
@@ -92,7 +95,7 @@ gmTokenCtrl.enableDragAll((tokenId, x, y) => {
 canvasArea.addEventListener("dblclick", (ev) => {
   gmTokenCtrl.handleDoubleClick(ev);
 });
-var tokenCtrl = initTokenLayer(canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize(), (x, y) => viewport.screenToImage(x, y), { interactive: true, getRadius: () => tokenRadius });
+var tokenCtrl = initTokenLayer(canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize(), (x, y) => viewport.screenToImage(x, y), { interactive: true, getRadius: () => tokenRadius, getScale: () => viewport.scale });
 tokenCtrl.enableDragAll((tokenId, x, y) => {
   ws.send({ type: "token:move", tokenId, x, y });
 });
@@ -136,6 +139,7 @@ ws.on("joined", async (msg) => {
       tokenCtrl.addToken(token);
     }
   }
+  syncStartPointFromImageList();
   renderPresence(playerRoster);
 });
 ws.on("fog:stroke", (msg) => {
@@ -156,6 +160,7 @@ ws.on("gm_token:added", (msg) => {
 });
 ws.on("token:moved", (msg) => {
   tokenCtrl.moveToken(msg.tokenId, msg.x, msg.y);
+  gmTokenCtrl.moveToken(msg.tokenId, msg.x, msg.y);
 });
 ws.on("token:removed", (msg) => {
   const id = msg.tokenId;
@@ -172,6 +177,8 @@ ws.on("ping:map", (msg) => {
 ws.on("settings:updated", (msg) => {
   tokenRadius = msg.tokenSize;
   tokenCtrl.render();
+  gmTokenCtrl.render();
+  renderStartMarker();
   updateTokenSizeLabel();
 });
 function deactivatePlaceMode() {
@@ -194,7 +201,11 @@ ws.on("map:switched", async (msg) => {
   }
   renderGallery();
   updateEmptyState();
+  const movedPlayers = msg.playerTokens;
+  for (const t of movedPlayers ?? [])
+    tokenCtrl.moveToken(t.id, t.x, t.y);
   tokenCtrl.render();
+  syncStartPointFromImageList();
   gmTokenCtrl.clear();
   const newGmTokens = msg.gmTokens;
   for (const t of newGmTokens ?? [])
@@ -225,6 +236,54 @@ copyInviteBtn.addEventListener("click", () => {
     copyInviteBtn.textContent = "Copy invite link";
   }, 1500);
 });
+var startPointModeActive = false;
+var startPoint = null;
+var startMarker = document.createElement("div");
+startMarker.id = "start-marker";
+startMarker.hidden = true;
+canvasCtrl.getWrapper().appendChild(startMarker);
+function renderStartMarker() {
+  if (!startPoint) {
+    startMarker.hidden = true;
+    return;
+  }
+  const size = tokenRadius * 2;
+  startMarker.style.width = `${size}px`;
+  startMarker.style.height = `${size}px`;
+  startMarker.style.left = `${startPoint.x}px`;
+  startMarker.style.top = `${startPoint.y}px`;
+  startMarker.hidden = false;
+}
+function deactivateStartPointMode() {
+  startPointModeActive = false;
+  startPointBtn.classList.remove("active");
+  document.body.classList.remove("setting-start");
+}
+startPointBtn.addEventListener("click", () => {
+  if (!activeImageId)
+    return;
+  startPointModeActive = !startPointModeActive;
+  startPointBtn.classList.toggle("active", startPointModeActive);
+  document.body.classList.toggle("setting-start", startPointModeActive);
+  if (startPointModeActive)
+    deactivatePlaceMode();
+});
+ws.on("map:start_point:set", (msg) => {
+  if (msg.imageId !== activeImageId)
+    return;
+  startPoint = { x: msg.x, y: msg.y };
+  renderStartMarker();
+  const img = imageList.find((i) => i.id === activeImageId);
+  if (img) {
+    img.start_x = msg.x;
+    img.start_y = msg.y;
+  }
+});
+function syncStartPointFromImageList() {
+  const img = imageList.find((i) => i.id === activeImageId);
+  startPoint = img && img.start_x != null && img.start_y != null ? { x: img.start_x, y: img.start_y } : null;
+  renderStartMarker();
+}
 var placeModeActive = false;
 var pendingPlacePos = null;
 var pendingTokenType = "monster";
@@ -536,6 +595,12 @@ viewport.onInteractStart((ev) => {
   if (!activeImageId)
     return;
   closeAllPopups();
+  if (startPointModeActive) {
+    const pos = viewport.screenToImage(ev.clientX, ev.clientY);
+    ws.send({ type: "map:start_point", imageId: activeImageId, x: pos.x, y: pos.y });
+    deactivateStartPointMode();
+    return;
+  }
   if (placeModeActive) {
     const pos = viewport.screenToImage(ev.clientX, ev.clientY);
     showPlaceForm(ev.clientX, ev.clientY, pos.x, pos.y);

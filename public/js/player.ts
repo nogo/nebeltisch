@@ -168,7 +168,7 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     canvasCtrl.getWrapper(),
     () => canvasCtrl.getImageSize(),
     (x, y) => viewport.screenToImage(x, y),
-    { interactive: true, getRadius: () => tokenRadius }
+    { interactive: true, getRadius: () => tokenRadius, getScale: () => viewport.scale }
   );
 
   const LONG_PRESS_DELAY = 400;
@@ -187,7 +187,11 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     const pos = viewport.screenToImage(clientX, clientY);
     const dx = pos.x - ownTokenPos.x;
     const dy = pos.y - ownTokenPos.y;
-    return dx * dx + dy * dy <= tokenRadius * tokenRadius;
+    // Must match the grab radius in tokens.ts, or a tap can start a drag and a
+    // ping at once: the token moves and a marker fires under the finger.
+    const scale = viewport.scale;
+    const r = Math.max(tokenRadius, 22 / (scale > 0 ? scale : 1));
+    return dx * dx + dy * dy <= r * r;
   }
 
   const ws = connectPlayer(adventureId, playerLink, playerName, playerColor);
@@ -296,7 +300,9 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     const x = msg.x as number;
     const y = msg.y as number;
     if (tokenId === ownTokenId) ownTokenPos = { x, y };
+    // The id lives in exactly one controller; moveToken no-ops on the other.
     tokenCtrl.moveToken(tokenId, x, y);
+    gmTokenCtrl.moveToken(tokenId, x, y);
   });
 
   ws.on('token:added', (msg) => {
@@ -336,6 +342,12 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
       if (typeof msg.fogMask === 'string') {
         await canvasCtrl.applyFogMask(msg.fogMask);
       }
+    }
+    // The server moves the party onto the new map's start point.
+    const movedPlayers = msg.playerTokens as Array<{ id: string; x: number; y: number }> | undefined;
+    for (const t of movedPlayers ?? []) {
+      tokenCtrl.moveToken(t.id, t.x, t.y);
+      if (t.id === ownTokenId) ownTokenPos = { x: t.x, y: t.y };
     }
     tokenCtrl.render();
     // Swap GM tokens for the new map

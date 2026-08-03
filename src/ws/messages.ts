@@ -49,6 +49,13 @@ export interface SettingsUpdateMessage {
   tokenSize: number;
 }
 
+export interface MapStartPointMessage {
+  type: "map:start_point";
+  imageId: string;
+  x: number;
+  y: number;
+}
+
 export interface PingMessage {
   type: "ping";
 }
@@ -70,6 +77,7 @@ export type ClientMessage =
   | PlayerRemoveMessage
   | PingMessage
   | PingMapMessage
+  | MapStartPointMessage
   | SettingsUpdateMessage;
 
 // ---- Server → Client ----
@@ -121,6 +129,17 @@ export interface MapSwitchedMessage {
   type: "map:switched";
   imageId: string;
   fogMask: string | null;
+  /** GM tokens belonging to the new map. */
+  gmTokens: Token[];
+  /** Player tokens, repositioned onto the new map's start point. */
+  playerTokens: Token[];
+}
+
+export interface MapStartPointSetMessage {
+  type: "map:start_point:set";
+  imageId: string;
+  x: number;
+  y: number;
 }
 
 export interface PlayerJoinedMessage {
@@ -179,6 +198,7 @@ export type ServerMessage =
   | TokenAddedMessage
   | TokenRemovedMessage
   | MapSwitchedMessage
+  | MapStartPointSetMessage
   | PlayerJoinedMessage
   | PlayerLeftMessage
   | PlayerRosterMessage

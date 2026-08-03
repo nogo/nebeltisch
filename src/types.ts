@@ -30,6 +30,8 @@ export interface ImageRecord {
   height: number;
   fog_mask: Buffer | null;
   sort_order: number;
+  start_x: number | null;
+  start_y: number | null;
   created_at: string;
 }
 
