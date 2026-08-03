@@ -62,22 +62,25 @@ export function scatterPositions(
   tokenSize: number
 ): Array<{ x: number; y: number }> {
   const margin = Math.min(tokenSize, width / 2, height / 2);
-  const ring = tokenSize * 2.5;
+  // Every token stands around the point, never on it, so the marker underneath
+  // stays visible. The ring grows with the party so neighbours never overlap:
+  // circumference / count must exceed a token's diameter plus a gap.
+  const ring = tokenSize * Math.max(2.2, count * 0.45);
   const out: Array<{ x: number; y: number }> = [];
   for (let i = 0; i < count; i++) {
-    let x = cx;
-    let y = cy;
-    if (count > 1) {
-      const angle = (i / count) * Math.PI * 2;
-      x += Math.cos(angle) * ring;
-      y += Math.sin(angle) * ring;
-    }
+    // Start at the top and go clockwise — predictable, so the GM can learn it.
+    const angle = (i / count) * Math.PI * 2 - Math.PI / 2;
     out.push({
-      x: Math.round(Math.min(width - margin, Math.max(margin, x))),
-      y: Math.round(Math.min(height - margin, Math.max(margin, y))),
+      x: Math.round(Math.min(width - margin, Math.max(margin, cx + Math.cos(angle) * ring))),
+      y: Math.round(Math.min(height - margin, Math.max(margin, cy + Math.sin(angle) * ring))),
     });
   }
   return out;
+}
+
+/** Radius the clients draw to show where the party will land. */
+export function gatherRingRadius(count: number, tokenSize: number): number {
+  return tokenSize * Math.max(2.2, Math.max(count, 1) * 0.45);
 }
 
 // ---- Fog mask in-memory cache ----
@@ -104,6 +107,72 @@ async function getFogMaskForImage(db: Database, imageId: string, uploadsDir?: st
   const mask = createMask(image.width, image.height);
   fogMaskCache.set(imageId, mask);
   return mask;
+}
+
+/** Loads the mask and seeds its history baseline from the persisted state. */
+async function getFogMaskWithHistory(
+  db: Database,
+  imageId: string,
+  uploadsDir?: string
+): Promise<FogMask> {
+  const mask = await getFogMaskForImage(db, imageId, uploadsDir);
+  ensureHistory(imageId, mask);
+  return mask;
+}
+
+// ---- Fog undo history ----
+//
+// Owned by the server, because the client's stack is empty after every page
+// reload. A client-held history cannot describe a mask that outlived the tab,
+// so undo would rebuild the mask from nothing and erase the whole map.
+//
+// Entries are deflated mask snapshots. The last entry of `undo` is always the
+// current state, so `undo` holds at least the baseline.
+
+interface FogHistory {
+  undo: Uint8Array[];
+  redo: Uint8Array[];
+}
+
+const fogHistories = new Map<string, FogHistory>();
+const MAX_FOG_HISTORY = 40;
+
+function snapshotMask(mask: FogMask): Uint8Array {
+  return Bun.deflateSync(mask.data);
+}
+
+function restoreMask(mask: FogMask, snap: Uint8Array): void {
+  mask.data.set(Bun.inflateSync(snap));
+}
+
+function ensureHistory(imageId: string, mask: FogMask): FogHistory {
+  let history = fogHistories.get(imageId);
+  if (!history) {
+    history = { undo: [snapshotMask(mask)], redo: [] };
+    fogHistories.set(imageId, history);
+  }
+  return history;
+}
+
+/** Records a completed brush action. Trimming the oldest snapshot only limits
+ *  how far back undo reaches — it never alters the mask itself. */
+function pushHistory(imageId: string, mask: FogMask): void {
+  const history = ensureHistory(imageId, mask);
+  history.undo.push(snapshotMask(mask));
+  while (history.undo.length > MAX_FOG_HISTORY + 1) history.undo.shift();
+  history.redo.length = 0;
+}
+
+function historyState(imageId: string): { canUndo: boolean; canRedo: boolean } {
+  const history = fogHistories.get(imageId);
+  return {
+    canUndo: (history?.undo.length ?? 0) > 1,
+    canRedo: (history?.redo.length ?? 0) > 0,
+  };
+}
+
+export function clearFogHistory(imageId: string): void {
+  fogHistories.delete(imageId);
 }
 
 function scheduleSave(db: Database, imageId: string): void {
@@ -253,7 +322,7 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
       let fogMask: string | null = null;
       if (adventure.active_image_id) {
         try {
-          const mask = await getFogMaskForImage(db, adventure.active_image_id, uploadsDir);
+          const mask = await getFogMaskWithHistory(db, adventure.active_image_id, uploadsDir);
           fogMask = await maskToBase64(mask);
         } catch {
           fogMask = null;
@@ -280,6 +349,15 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
         ws.send(
           serializeMessage({ type: "player:roster", players: buildRoster(db, adventureId) })
         );
+        if (adventure.active_image_id) {
+          ws.send(
+            serializeMessage({
+              type: "fog:history",
+              imageId: adventure.active_image_id,
+              ...historyState(adventure.active_image_id),
+            })
+          );
+        }
       }
 
       if (role === "player" && playerName && playerColor) {
@@ -339,7 +417,7 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
             break;
           }
           const imageId = adv.active_image_id;
-          const mask = await getFogMaskForImage(db, imageId, uploadsDir);
+          const mask = await getFogMaskWithHistory(db, imageId, uploadsDir);
           applyStroke(mask, msg.stroke);
           scheduleSave(db, imageId);
           ws.publish(topic, serializeMessage({ type: "fog:stroke", stroke: msg.stroke, imageId }));
@@ -357,7 +435,7 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
             break;
           }
           const imageId = adv.active_image_id;
-          const mask = await getFogMaskForImage(db, imageId, uploadsDir);
+          const mask = await getFogMaskWithHistory(db, imageId, uploadsDir);
           applyStrokes(mask, msg.strokes);
           scheduleSave(db, imageId);
           ws.publish(topic, serializeMessage({ type: "fog:stroke:batch", strokes: msg.strokes, imageId }));
@@ -436,7 +514,7 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
 
           let fogMask: string | null = null;
           try {
-            const mask = await getFogMaskForImage(db, msg.imageId, uploadsDir);
+            const mask = await getFogMaskWithHistory(db, msg.imageId, uploadsDir);
             fogMask = await maskToBase64(mask);
           } catch {
             fogMask = null;
@@ -451,6 +529,13 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
           });
           ws.send(switched);
           ws.publish(topic, switched);
+          ws.send(
+            serializeMessage({
+              type: "fog:history",
+              imageId: msg.imageId,
+              ...historyState(msg.imageId),
+            })
+          );
           break;
         }
 
@@ -500,7 +585,20 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
           break;
         }
 
-        case "fog:undo": {
+        case "fog:action:end": {
+          if (conn.role !== "gm") break;
+          const adv = getAdventure(db, adventureId);
+          if (!adv?.active_image_id) break;
+          const imageId = adv.active_image_id;
+          const mask = fogMaskCache.get(imageId);
+          if (!mask) break;
+          pushHistory(imageId, mask);
+          ws.send(serializeMessage({ type: "fog:history", imageId, ...historyState(imageId) }));
+          break;
+        }
+
+        case "fog:undo":
+        case "fog:redo": {
           if (conn.role !== "gm") {
             ws.send(serializeMessage({ type: "error", message: "Only GM can undo fog strokes" }));
             break;
@@ -511,23 +609,42 @@ export function createWsHandlers(db: Database, uploadsDir?: string) {
             break;
           }
           const imageId = adv.active_image_id;
-          let image = getImage(db, imageId);
-          if (!image) {
+          let mask: FogMask;
+          try {
+            mask = await getFogMaskWithHistory(db, imageId, uploadsDir);
+          } catch {
             ws.send(serializeMessage({ type: "error", message: "Image not found" }));
             break;
           }
-          if ((image.width === 0 || image.height === 0) && uploadsDir) {
-            repairImageDimensions(db, imageId, uploadsDir);
-            image = getImage(db, imageId) ?? image;
+          const history = ensureHistory(imageId, mask);
+
+          if (msg.type === "fog:undo") {
+            // The last entry is the current state, so one entry means nothing to undo.
+            if (history.undo.length <= 1) {
+              ws.send(serializeMessage({ type: "fog:history", imageId, ...historyState(imageId) }));
+              break;
+            }
+            history.redo.push(history.undo.pop()!);
+            restoreMask(mask, history.undo[history.undo.length - 1]);
+          } else {
+            if (history.redo.length === 0) {
+              ws.send(serializeMessage({ type: "fog:history", imageId, ...historyState(imageId) }));
+              break;
+            }
+            const snap = history.redo.pop()!;
+            history.undo.push(snap);
+            restoreMask(mask, snap);
           }
-          const freshMask = createMask(image.width, image.height);
-          applyStrokes(freshMask, msg.strokes);
-          fogMaskCache.set(imageId, freshMask);
+
           scheduleSave(db, imageId);
-          const fogMaskBase64 = await maskToBase64(freshMask);
-          const resetMsg = serializeMessage({ type: "fog:reset", imageId, fogMask: fogMaskBase64 });
+          const resetMsg = serializeMessage({
+            type: "fog:reset",
+            imageId,
+            fogMask: await maskToBase64(mask),
+          });
           ws.send(resetMsg);
           ws.publish(topic, resetMsg);
+          ws.send(serializeMessage({ type: "fog:history", imageId, ...historyState(imageId) }));
           break;
         }
 

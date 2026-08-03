@@ -216,6 +216,7 @@ ws.on('token:removed', (msg) => {
 ws.on('player:roster', (msg) => {
   playerRoster = msg.players as typeof playerRoster;
   renderPresence(playerRoster);
+  renderStartMarker(); // ring size tracks the party size
 });
 
 ws.on('ping:map', (msg) => {
@@ -240,7 +241,7 @@ function deactivatePlaceMode() {
 ws.on('map:switched', async (msg) => {
   activeImageId = msg.imageId as string;
   pingCtrl.clear();
-  resetUndoHistory();
+
   imageList = await api.listImages(adventureId, password);
   const img = imageList.find(i => i.id === activeImageId);
   if (img) {
@@ -295,21 +296,40 @@ copyInviteBtn.addEventListener('click', () => {
 let startPointModeActive = false;
 let startPoint: { x: number; y: number } | null = null;
 
+// A plain circle reads as just another token next to prepared monsters and
+// NPCs. The marker is a flag on a pole with a labelled ring showing where the
+// party will actually land — a different shape, not just a different colour.
 const startMarker = document.createElement('div');
 startMarker.id = 'start-marker';
 startMarker.hidden = true;
+const startMarkerFlag = document.createElement('div');
+startMarkerFlag.id = 'start-marker-flag';
+startMarkerFlag.appendChild(flagIconTemplate.content.cloneNode(true));
+const startMarkerLabel = document.createElement('span');
+startMarkerLabel.id = 'start-marker-label';
+startMarkerLabel.textContent = 'Start';
+startMarker.append(startMarkerFlag, startMarkerLabel);
 canvasCtrl.getWrapper().appendChild(startMarker);
+
+/** Mirrors gatherRingRadius on the server so the ring shows the real landing area. */
+function gatherRingRadius(count: number): number {
+  return tokenRadius * Math.max(2.2, Math.max(count, 1) * 0.45);
+}
 
 function renderStartMarker() {
   if (!startPoint) {
     startMarker.hidden = true;
     return;
   }
-  const size = tokenRadius * 2;
+  const size = gatherRingRadius(playerRoster.length) * 2;
   startMarker.style.width = `${size}px`;
   startMarker.style.height = `${size}px`;
   startMarker.style.left = `${startPoint.x}px`;
   startMarker.style.top = `${startPoint.y}px`;
+  const glyph = Math.max(16, tokenRadius * 1.6);
+  startMarkerFlag.style.width = `${glyph}px`;
+  startMarkerFlag.style.height = `${glyph}px`;
+  startMarkerLabel.style.fontSize = `${Math.max(9, tokenRadius * 0.6)}px`;
   startMarker.hidden = false;
 }
 
@@ -693,39 +713,24 @@ brushPopup.addEventListener('click', (e) => e.stopPropagation());
 tokenPopup.addEventListener('click', (e) => e.stopPropagation());
 
 // --- Undo/redo ---
-const MAX_HISTORY = 50;
-let undoStack: FogStroke[][] = [];
-let redoStack: FogStroke[][] = [];
-let currentAction: FogStroke[] = [];
+// Fog history lives on the server. A stack held here is empty after every page
+// reload, so undoing from it would rebuild the mask from nothing and wipe the
+// map. The client only tracks whether the current action has sent any strokes.
+let actionHasStrokes = false;
 
-function updateUndoRedoButtons() {
-  undoBtn.disabled = undoStack.length === 0;
-  redoBtn.disabled = redoStack.length === 0;
-  tbHistory.hidden = undoStack.length === 0 && redoStack.length === 0;
+function updateUndoRedoButtons(canUndo: boolean, canRedo: boolean) {
+  undoBtn.disabled = !canUndo;
+  redoBtn.disabled = !canRedo;
+  tbHistory.hidden = !canUndo && !canRedo;
 }
 
-function sendUndo(strokes: FogStroke[]) { ws.send({ type: 'fog:undo', strokes }); }
+function performUndo() { ws.send({ type: 'fog:undo' }); }
+function performRedo() { ws.send({ type: 'fog:redo' }); }
 
-function performUndo() {
-  if (!undoStack.length) return;
-  redoStack.push(undoStack.pop()!);
-  sendUndo(undoStack.flat());
-  updateUndoRedoButtons();
-}
-
-function performRedo() {
-  if (!redoStack.length) return;
-  undoStack.push(redoStack.pop()!);
-  sendUndo(undoStack.flat());
-  updateUndoRedoButtons();
-}
-
-function resetUndoHistory() {
-  undoStack = [];
-  redoStack = [];
-  currentAction = [];
-  updateUndoRedoButtons();
-}
+ws.on('fog:history', (msg) => {
+  if (msg.imageId !== activeImageId) return;
+  updateUndoRedoButtons(msg.canUndo as boolean, msg.canRedo as boolean);
+});
 
 undoBtn.addEventListener('click', performUndo);
 redoBtn.addEventListener('click', performRedo);
@@ -813,7 +818,7 @@ viewport.onInteractStart((ev: PointerEvent) => {
     if (now - lastPingTime >= PING_RATE_LIMIT) {
       lastPingTime = now;
       isDrawing = false;
-      currentAction = [];
+      actionHasStrokes = false;
       pending.length = 0;
       isPinging = true;
       const pos = viewport.screenToImage(longPressStartPos!.x, longPressStartPos!.y);
@@ -822,11 +827,10 @@ viewport.onInteractStart((ev: PointerEvent) => {
   }, LONG_PRESS_DELAY);
 
   isDrawing = true;
-  currentAction = [];
   const stroke = makeStroke(ev.clientX, ev.clientY);
   canvasCtrl.applyStroke(stroke);
   pending.push(stroke);
-  currentAction.push(stroke);
+  actionHasStrokes = true;
   if (Date.now() - lastFlush >= FLUSH_INTERVAL) flushPending();
 });
 
@@ -846,7 +850,7 @@ viewport.onPointerMove((ev: PointerEvent) => {
   const stroke = makeStroke(ev.clientX, ev.clientY);
   canvasCtrl.applyStroke(stroke);
   pending.push(stroke);
-  currentAction.push(stroke);
+  actionHasStrokes = true;
   if (Date.now() - lastFlush >= FLUSH_INTERVAL) flushPending();
 });
 
@@ -856,12 +860,10 @@ function finishAction() {
   if (!isDrawing) return;
   isDrawing = false;
   flushPending();
-  if (currentAction.length > 0) {
-    undoStack.push(currentAction);
-    if (undoStack.length > MAX_HISTORY) undoStack.shift();
-    redoStack = [];
-    currentAction = [];
-    updateUndoRedoButtons();
+  if (actionHasStrokes) {
+    actionHasStrokes = false;
+    // Ordered after flushPending, so the server snapshots the completed action.
+    ws.send({ type: 'fog:action:end' });
   }
 }
 

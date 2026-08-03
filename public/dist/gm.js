@@ -166,6 +166,7 @@ ws.on("token:removed", (msg) => {
 ws.on("player:roster", (msg) => {
   playerRoster = msg.players;
   renderPresence(playerRoster);
+  renderStartMarker();
 });
 ws.on("ping:map", (msg) => {
   pingCtrl.addPing(msg.x, msg.y, msg.color);
@@ -186,7 +187,6 @@ function deactivatePlaceMode() {
 ws.on("map:switched", async (msg) => {
   activeImageId = msg.imageId;
   pingCtrl.clear();
-  resetUndoHistory();
   imageList = await listImages(adventureId, password);
   const img = imageList.find((i) => i.id === activeImageId);
   if (img) {
@@ -237,17 +237,31 @@ var startPoint = null;
 var startMarker = document.createElement("div");
 startMarker.id = "start-marker";
 startMarker.hidden = true;
+var startMarkerFlag = document.createElement("div");
+startMarkerFlag.id = "start-marker-flag";
+startMarkerFlag.appendChild(flagIconTemplate.content.cloneNode(true));
+var startMarkerLabel = document.createElement("span");
+startMarkerLabel.id = "start-marker-label";
+startMarkerLabel.textContent = "Start";
+startMarker.append(startMarkerFlag, startMarkerLabel);
 canvasCtrl.getWrapper().appendChild(startMarker);
+function gatherRingRadius(count) {
+  return tokenRadius * Math.max(2.2, Math.max(count, 1) * 0.45);
+}
 function renderStartMarker() {
   if (!startPoint) {
     startMarker.hidden = true;
     return;
   }
-  const size = tokenRadius * 2;
+  const size = gatherRingRadius(playerRoster.length) * 2;
   startMarker.style.width = `${size}px`;
   startMarker.style.height = `${size}px`;
   startMarker.style.left = `${startPoint.x}px`;
   startMarker.style.top = `${startPoint.y}px`;
+  const glyph = Math.max(16, tokenRadius * 1.6);
+  startMarkerFlag.style.width = `${glyph}px`;
+  startMarkerFlag.style.height = `${glyph}px`;
+  startMarkerLabel.style.fontSize = `${Math.max(9, tokenRadius * 0.6)}px`;
   startMarker.hidden = false;
 }
 function deactivateStartPointMode() {
@@ -581,38 +595,23 @@ document.addEventListener("keydown", (ev) => {
 });
 brushPopup.addEventListener("click", (e) => e.stopPropagation());
 tokenPopup.addEventListener("click", (e) => e.stopPropagation());
-var MAX_HISTORY = 50;
-var undoStack = [];
-var redoStack = [];
-var currentAction = [];
-function updateUndoRedoButtons() {
-  undoBtn.disabled = undoStack.length === 0;
-  redoBtn.disabled = redoStack.length === 0;
-  tbHistory.hidden = undoStack.length === 0 && redoStack.length === 0;
-}
-function sendUndo(strokes) {
-  ws.send({ type: "fog:undo", strokes });
+var actionHasStrokes = false;
+function updateUndoRedoButtons(canUndo, canRedo) {
+  undoBtn.disabled = !canUndo;
+  redoBtn.disabled = !canRedo;
+  tbHistory.hidden = !canUndo && !canRedo;
 }
 function performUndo() {
-  if (!undoStack.length)
-    return;
-  redoStack.push(undoStack.pop());
-  sendUndo(undoStack.flat());
-  updateUndoRedoButtons();
+  ws.send({ type: "fog:undo" });
 }
 function performRedo() {
-  if (!redoStack.length)
+  ws.send({ type: "fog:redo" });
+}
+ws.on("fog:history", (msg) => {
+  if (msg.imageId !== activeImageId)
     return;
-  undoStack.push(redoStack.pop());
-  sendUndo(undoStack.flat());
-  updateUndoRedoButtons();
-}
-function resetUndoHistory() {
-  undoStack = [];
-  redoStack = [];
-  currentAction = [];
-  updateUndoRedoButtons();
-}
+  updateUndoRedoButtons(msg.canUndo, msg.canRedo);
+});
 undoBtn.addEventListener("click", performUndo);
 redoBtn.addEventListener("click", performRedo);
 document.addEventListener("keydown", (ev) => {
@@ -695,7 +694,7 @@ viewport.onInteractStart((ev) => {
     if (now - lastPingTime >= PING_RATE_LIMIT) {
       lastPingTime = now;
       isDrawing = false;
-      currentAction = [];
+      actionHasStrokes = false;
       pending.length = 0;
       isPinging = true;
       const pos = viewport.screenToImage(longPressStartPos.x, longPressStartPos.y);
@@ -703,11 +702,10 @@ viewport.onInteractStart((ev) => {
     }
   }, LONG_PRESS_DELAY);
   isDrawing = true;
-  currentAction = [];
   const stroke = makeStroke(ev.clientX, ev.clientY);
   canvasCtrl.applyStroke(stroke);
   pending.push(stroke);
-  currentAction.push(stroke);
+  actionHasStrokes = true;
   if (Date.now() - lastFlush >= FLUSH_INTERVAL)
     flushPending();
 });
@@ -729,7 +727,7 @@ viewport.onPointerMove((ev) => {
   const stroke = makeStroke(ev.clientX, ev.clientY);
   canvasCtrl.applyStroke(stroke);
   pending.push(stroke);
-  currentAction.push(stroke);
+  actionHasStrokes = true;
   if (Date.now() - lastFlush >= FLUSH_INTERVAL)
     flushPending();
 });
@@ -744,13 +742,9 @@ function finishAction() {
     return;
   isDrawing = false;
   flushPending();
-  if (currentAction.length > 0) {
-    undoStack.push(currentAction);
-    if (undoStack.length > MAX_HISTORY)
-      undoStack.shift();
-    redoStack = [];
-    currentAction = [];
-    updateUndoRedoButtons();
+  if (actionHasStrokes) {
+    actionHasStrokes = false;
+    ws.send({ type: "fog:action:end" });
   }
 }
 viewport.onInteractEnd(() => {

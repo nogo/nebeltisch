@@ -3,8 +3,9 @@ import { startWsTestServer, type WsTestServer } from "../helpers";
 import { createAdventure, getAdventure } from "../../src/db/adventures";
 import { createImageRecord } from "../../src/db/images";
 import { getTokensByAdventure } from "../../src/db/tokens";
-import { flushAllFogCaches } from "../../src/ws/handler";
+import { flushAllFogCaches, clearFogHistory } from "../../src/ws/handler";
 import { loadFogMask } from "../../src/fog/serialize";
+import { isRevealed } from "../../src/fog/mask";
 
 // ---- WebSocket test helpers ----
 
@@ -484,6 +485,145 @@ describe("WebSocket handler", () => {
     expect(err.message).toBeDefined();
   });
 
+  // ---- Fog undo history (server-owned) ----
+
+  async function connectGm() {
+    const gm = track(
+      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+    );
+    // The GM also gets fog:history right after joining. Drain it here, or the
+    // next listener registered for that type catches it instead of its own.
+    const joinHistory = waitForMessage(gm, "fog:history").catch(() => null);
+    await waitForMessage(gm, "joined");
+    await joinHistory;
+    return gm;
+  }
+
+  async function paint(gm: WebSocket, x: number, y: number, radius = 8) {
+    const historyPromise = waitForMessage(gm, "fog:history");
+    gm.send(JSON.stringify({ type: "fog:stroke", stroke: { x, y, radius, mode: "reveal" } }));
+    gm.send(JSON.stringify({ type: "fog:action:end" }));
+    return historyPromise;
+  }
+
+  async function currentMask() {
+    await flushAllFogCaches(ts.db);
+    return (await loadFogMask(ts.db, imageId))!;
+  }
+
+  /** Registers both listeners before sending, so neither can catch a stale message. */
+  async function undoOrRedo(gm: WebSocket, type: "fog:undo" | "fog:redo") {
+    const reset = waitForMessage(gm, "fog:reset");
+    const history = waitForMessage(gm, "fog:history");
+    gm.send(JSON.stringify({ type }));
+    await reset;
+    return await history;
+  }
+
+  it("Undo after a reload keeps fog painted in an earlier session", async () => {
+    // The regression this whole rework exists for. The GM's browser stack is
+    // empty after a reload; undo must not rebuild the mask from nothing.
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
+
+    const first = await connectGm();
+    await paint(first, 50, 50);
+    await closeWs(first);
+
+    // Fresh connection = fresh page, no client-side history whatsoever.
+    const second = await connectGm();
+    await paint(second, 10, 10);
+
+    const reset = waitForMessage(second, "fog:reset");
+    second.send(JSON.stringify({ type: "fog:undo" }));
+    await reset;
+
+    const mask = await currentMask();
+    expect(isRevealed(mask, 50, 50)).toBe(true);  // survived the reload
+    expect(isRevealed(mask, 10, 10)).toBe(false); // the undo did undo something
+  });
+
+  it("Undo history survives a GM reload", async () => {
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
+
+    const gm = await connectGm();
+    await paint(gm, 50, 50);
+    await closeWs(gm);
+
+    // History is keyed by image on the server, so a new tab inherits it.
+    // Connected inline rather than via connectGm, which drains fog:history.
+    const fresh = track(
+      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+    );
+    const history = waitForMessage(fresh, "fog:history");
+    await waitForMessage(fresh, "joined");
+    expect((await history).canUndo).toBe(true);
+  });
+
+  it("Undo is a no-op when the server has no history for the map", async () => {
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
+
+    const gm = await connectGm();
+    await paint(gm, 50, 50);
+
+    // A server restart loses the in-memory history; the baseline is reseeded
+    // from the persisted mask, so there is nothing to step back to.
+    clearFogHistory(imageId);
+
+    const history = waitForMessage(gm, "fog:history");
+    gm.send(JSON.stringify({ type: "fog:undo" }));
+    expect((await history).canUndo).toBe(false);
+
+    const mask = await currentMask();
+    expect(isRevealed(mask, 50, 50)).toBe(true);
+  });
+
+  it("Redo re-applies an undone action", async () => {
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
+
+    const gm = await connectGm();
+    await paint(gm, 50, 50);
+    const afterSecond = await paint(gm, 20, 20);
+    expect(afterSecond.canUndo).toBe(true);
+
+    await undoOrRedo(gm, "fog:undo");
+    expect(isRevealed(await currentMask(), 20, 20)).toBe(false);
+
+    await undoOrRedo(gm, "fog:redo");
+    const mask = await currentMask();
+    expect(isRevealed(mask, 20, 20)).toBe(true);
+    expect(isRevealed(mask, 50, 50)).toBe(true);
+  });
+
+  it("A new action clears the redo stack", async () => {
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
+
+    const gm = await connectGm();
+    await paint(gm, 50, 50);
+    expect((await undoOrRedo(gm, "fog:undo")).canRedo).toBe(true);
+
+    const afterPaint = await paint(gm, 80, 80);
+    expect(afterPaint.canRedo).toBe(false);
+  });
+
+  it("Player cannot undo fog", async () => {
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
+    const player = track(
+      await connectWS(ts.wsUrl, {
+        adventureId,
+        role: "player",
+        playerLink,
+        playerName: "Mallory",
+        playerColor: "#123456",
+      })
+    );
+    await waitForMessage(player, "joined");
+
+    const errPromise = waitForMessage(player, "error");
+    player.send(JSON.stringify({ type: "fog:undo" }));
+    const err = await errPromise;
+    expect(err.message).toContain("GM");
+  });
+
   // ---- Map switch repositioning ----
 
   async function connectGmAndPlayer(name = "Alice") {
@@ -559,10 +699,11 @@ describe("WebSocket handler", () => {
     gm.send(JSON.stringify({ type: "map:switch", imageId: next.id }));
     await switched;
 
-    // Single player → placed exactly on the point, no scatter offset.
+    // Placed around the point, not on it, so the marker stays visible.
     const token = getTokensByAdventure(ts.db, adventureId).find((t) => t.id === tokenId)!;
-    expect(token.x).toBe(150);
-    expect(token.y).toBe(60);
+    const dist = Math.hypot(token.x - 150, token.y - 60);
+    expect(dist).toBeGreaterThan(0);
+    expect(dist).toBeLessThan(100);
   });
 
   it("Re-activating the map already active leaves tokens where they are", async () => {
@@ -610,8 +751,7 @@ describe("WebSocket handler", () => {
     await switched;
 
     const token = getTokensByAdventure(ts.db, adventureId).find((t) => t.id === tokenId)!;
-    expect(token.x).toBe(100);
-    expect(token.y).toBe(100);
+    expect(Math.hypot(token.x - 100, token.y - 100)).toBeLessThan(100);
   });
 
   it("Player cannot set a start point", async () => {

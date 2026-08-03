@@ -39,9 +39,17 @@ export interface PlayerRemoveMessage {
   tokenId: string;
 }
 
+/** Marks the end of one brush action, so the server can snapshot for undo. */
+export interface FogActionEndMessage {
+  type: "fog:action:end";
+}
+
 export interface FogUndoMessage {
   type: "fog:undo";
-  strokes: FogStroke[];
+}
+
+export interface FogRedoMessage {
+  type: "fog:redo";
 }
 
 export interface SettingsUpdateMessage {
@@ -72,7 +80,9 @@ export type ClientMessage =
   | JoinMessage
   | FogStrokeMessage
   | FogStrokeBatchMessage
+  | FogActionEndMessage
   | FogUndoMessage
+  | FogRedoMessage
   | TokenMoveMessage
   | MapSwitchMessage
   | PlayerRemoveMessage
@@ -107,6 +117,14 @@ export interface FogResetMessage {
   type: "fog:reset";
   imageId: string;
   fogMask: string;
+}
+
+/** GM-only: drives the undo/redo button state. */
+export interface FogHistoryMessage {
+  type: "fog:history";
+  imageId: string;
+  canUndo: boolean;
+  canRedo: boolean;
 }
 
 export interface TokenMovedMessage {
@@ -195,6 +213,7 @@ export type ServerMessage =
   | FogStrokeBroadcast
   | FogStrokeBatchBroadcast
   | FogResetMessage
+  | FogHistoryMessage
   | TokenMovedMessage
   | TokenAddedMessage
   | TokenRemovedMessage
