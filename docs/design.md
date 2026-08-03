@@ -1,5 +1,9 @@
 # Nebeltisch — Design Intent
 
+> **Scope of this file:** interface and interaction rules — layout, gestures, visual language.
+> *Why the project exists* is in [project.md](project.md). *How it is built* is in [architecture.md](architecture.md).
+> Sections marked **[not implemented]** describe intent that no code yet fulfils.
+
 > The map IS the interface. Everything else gets out of the way.
 
 ---
@@ -15,8 +19,10 @@ Full-canvas experience. Controls float at the edges — translucent, collapsible
 | Device | Role | Input | Priority |
 |--------|------|-------|----------|
 | Desktop | GM (primary) | Mouse | High |
-| Tablet | GM + Player | Touch + stylus | High |
-| Phone | Player (join & watch) | Touch | Medium |
+| Tablet | Player (primary), GM | Touch + stylus | High |
+| Phone | Not a map device | — | — |
+
+**The group's phones run the voice call, so they are unavailable for the map.** The tablet is the only device players actually use. Touch is a primary input mode, not a fallback: any interactive target must clear a screen-space minimum regardless of zoom (see Visual Language).
 
 GM fog painting on a phone is not a goal. Tablet with stylus is.
 
@@ -34,7 +40,9 @@ No mode toggle for pan vs draw. The gesture itself disambiguates. ~100ms grace p
 
 ---
 
-## Phases
+## Phases **[not implemented]**
+
+No code distinguishes the two phases. Preparation currently happens before players join, which makes the distinction implicit rather than enforced — see the session model in [project.md](project.md).
 
 ### Prep Phase
 
@@ -152,7 +160,7 @@ No player accounts. The share link is the session key. A player can open the sam
 
 ## What This Is NOT
 
-- Not a phone-first app. Phone players get a functional but not optimized view.
+- Not a phone app. Phones carry the group's voice call and are not used for the map.
 - Not adding features beyond what's in the PoC scope.
 - Controls don't float over the canvas center. Edges and corners only.
 - No auto-hide. Collapse is explicit, user-initiated.

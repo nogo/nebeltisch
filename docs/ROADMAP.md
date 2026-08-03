@@ -1,41 +1,47 @@
-# Nebeltisch — Roadmap (maybe outdated)
+# Nebeltisch — Idea list
 
-## What
-A collaborative tabletop tool for remote pen & paper RPGs. GM creates an adventure, uploads map images (each with its own fog layer), reveals/re-fogs areas with a round brush, and controls which map players see. Players join via share link, pick name + color, and move their own token on the active map.
+> **Scope of this file:** unscheduled ideas only. Nothing here is committed, and nothing here is a source of truth.
+>
+> | Looking for | Read |
+> |---|---|
+> | Outcome, value, constraints, scope | [project.md](project.md) |
+> | Stack, design decisions, principles | [architecture.md](architecture.md) |
+> | Interface and interaction rules | [design.md](design.md) |
+> | Current and planned work | GitHub issues |
+>
+> The former "Stack" and "Design Decisions" sections were removed on 2026-08-03: they were stale copies that contradicted `architecture.md`, including describing the fog mask as PNG when it is deflate-compressed.
+>
+> Ideas that have been taken seriously enough to specify have moved to GitHub issues. What remains is a holding pen.
 
-## Stack
-- **Runtime:** Bun (no framework — raw `Bun.serve()`)
-- **Database:** bun:sqlite with WAL mode
-- **WebSocket:** Bun native pub/sub
-- **Frontend:** Vanilla TypeScript + HTML5 Canvas
-- **Deployment:** Docker
+---
 
-## Design Decisions
-- **No framework.** Bun.serve() handles HTTP + WS. 5 REST routes don't justify a dependency.
-- **Fog sync: hybrid.** Stream brush strokes over WS for instant feedback. Persist fog mask as PNG on server for late joiners and restarts.
-- **Fog mask = Uint8Array.** Pure functions for reveal/re-fog — testable without browser canvas.
-- **Canvas compositing.** `destination-out` to reveal, `source-over` to re-fog.
-- **No CRDT.** GM is sole fog writer, each player owns only their token. No conflict resolution needed.
-- **Auth: lightweight.** GM link with password, player share link with name+color on join. No accounts.
+## Out of scope, recorded for completeness
 
-## Future Improvements
-- **GM fog opacity slider** — adjustable transparency (0–100%) on the fog layer, GM-only. Lets the GM peek through fog to plan reveals. Players always see fully opaque fog. Pure client-side, no server changes needed.
-- **GM map tokens** — GM can place tokens (monsters, NPCs, treasure, traps) on the map below the fog layer. Hidden until fog is revealed. Rendered between map and fog canvas.
-- ~~**Rename project**~~ — done. Project is now Nebeltisch.
+These conflict with the scope in [project.md](project.md) — a feature belonging to the *rules* of a game is out of scope. Listed so they are not re-proposed as if new.
 
-## Maybe (post-PoC)
-- Fog shapes — rectangle and polygon reveal for entire rooms
-- Grid overlay — toggleable hex or square grid, configurable cell size (DSA uses hex)
-- Ruler/distance tool — measure in Schritt based on grid scale
+- Dice roller — `/roll 3W20` chat with shared and whispered results
+- Probe / Talent checks
+- Initiative tracker
+- Character portrait tokens, status marker icons
+
+## Map and fog
+
+- Fog shapes — rectangle and polygon reveal for whole rooms at once
+- GM fog opacity slider — GM-only transparency to plan reveals through fog; players always see it opaque. Client-side only
+- Grid overlay — toggleable hex or square grid, configurable cell size. DSA uses hex
+- Ruler / distance tool — measured in Schritt, derived from grid scale
 - Map annotations — GM-only text notes pinned to locations
-- Dice roller — integrated `/roll 3W20` chat with shared/whispered results
-- Character portrait tokens — upload image instead of colored circle
-- Status markers — condition icons (wounded, poisoned) snapped to tokens
-- Multiple adventures — GM dashboard
-- Session history — fog snapshots for rewind/branch
-- Map layers — background, middleground, foreground independently toggleable
-- Initiative tracker — ordered token list for combat rounds
-- Audio ambience — GM links ambient sound that plays for all
-- Import/export — adventure as zip (maps + fog + tokens)
-- Aventuria world map — preloaded, zoomable, persistent fog across sessions
-- Probe/Talent checks — quick 3W20 talent check without full character sheet
+- Map layers — background, middleground, foreground toggled independently
+- Aventuria world map — preloaded, zoomable, fog persisting across sessions
+
+## Session and data
+
+- Session history — fog snapshots for rewind and branch
+- Import / export — an adventure as a zip of maps, fog and tokens
+- Audio ambience — GM links a sound that plays for everyone
+
+## Done
+
+- GM map tokens — monsters and NPCs placed below the fog layer, hidden until revealed
+- Multiple adventures — now tracked as the GM account epic in GitHub issues
+- Rename project — the project is Nebeltisch
