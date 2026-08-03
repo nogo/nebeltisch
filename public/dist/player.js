@@ -5,7 +5,7 @@ import {
   initPingLayer,
   initTokenLayer,
   listImagesAsPlayer
-} from "./gm-t2wd26b2.js";
+} from "./gm-6tvrzwea.js";
 
 // public/js/player.ts
 var fragment = new URLSearchParams(location.hash.slice(1));
@@ -124,11 +124,6 @@ function startPlayer(adventureId2, playerLink2, playerName2, playerColor2) {
   viewport.attach(canvasArea, canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize());
   const gmTokenCtrl = initTokenLayer(canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize(), (x, y) => viewport.screenToImage(x, y), { interactive: false, insertBefore: canvasCtrl.getFogCanvas() });
   const pingCtrl = initPingLayer(canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize(), () => viewport.scale);
-  function animatePings() {
-    pingCtrl.tick();
-    requestAnimationFrame(animatePings);
-  }
-  requestAnimationFrame(animatePings);
   const tokenCtrl = initTokenLayer(canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize(), (x, y) => viewport.screenToImage(x, y), { interactive: true, getRadius: () => tokenRadius, getScale: () => viewport.scale });
   const LONG_PRESS_DELAY = 400;
   const PING_RATE_LIMIT = 1000;

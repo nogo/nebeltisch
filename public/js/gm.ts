@@ -102,12 +102,6 @@ const pingCtrl = initPingLayer(
   () => viewport.scale
 );
 
-function animatePings() {
-  pingCtrl.tick();
-  requestAnimationFrame(animatePings);
-}
-requestAnimationFrame(animatePings);
-
 // --- GM token layer (below fog — monsters/NPCs hidden by fog) ---
 const gmTokenCtrl = initTokenLayer(
   canvasCtrl.getWrapper(),

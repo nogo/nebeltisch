@@ -12,7 +12,6 @@ interface Ping {
 
 export interface PingController {
   addPing(x: number, y: number, color: string): void;
-  tick(): void;
   clear(): void;
 }
 
@@ -27,6 +26,10 @@ export function initPingLayer(
   const ctx = canvas.getContext('2d')!;
 
   const pings: Ping[] = [];
+  // The animation loop only runs while something is on screen. Driving rAF for
+  // the whole session keeps the page from ever idling, which costs battery and
+  // thermal headroom on a tablet for no benefit.
+  let rafId: number | null = null;
 
   function ensureSize() {
     const { w, h } = getImageSize();
@@ -36,12 +39,12 @@ export function initPingLayer(
     }
   }
 
-  return {
-    addPing(x, y, color) {
-      pings.push({ x, y, color, startTime: performance.now() });
-    },
+  function loop() {
+    tick();
+    rafId = pings.length > 0 ? requestAnimationFrame(loop) : null;
+  }
 
-    tick() {
+  function tick() {
       if (pings.length === 0) return;
       ensureSize();
       const { w, h } = getImageSize();
@@ -86,10 +89,20 @@ export function initPingLayer(
 
         ctx.restore();
       }
+  }
+
+  return {
+    addPing(x, y, color) {
+      pings.push({ x, y, color, startTime: performance.now() });
+      if (rafId === null) rafId = requestAnimationFrame(loop);
     },
 
     clear() {
       pings.length = 0;
+      if (rafId !== null) {
+        cancelAnimationFrame(rafId);
+        rafId = null;
+      }
       const { w, h } = getImageSize();
       if (w > 0 && h > 0) ctx.clearRect(0, 0, w, h);
     },

@@ -7,7 +7,7 @@ import {
   initTokenLayer,
   listImages,
   uploadImage
-} from "./gm-t2wd26b2.js";
+} from "./gm-6tvrzwea.js";
 
 // public/js/gm.ts
 var fragment = new URLSearchParams(location.hash.slice(1));
@@ -75,11 +75,6 @@ var canvasCtrl = initCanvas(canvasArea);
 var viewport = createViewport();
 viewport.attach(canvasArea, canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize());
 var pingCtrl = initPingLayer(canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize(), () => viewport.scale);
-function animatePings() {
-  pingCtrl.tick();
-  requestAnimationFrame(animatePings);
-}
-requestAnimationFrame(animatePings);
 var gmTokenCtrl = initTokenLayer(canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize(), (x, y) => viewport.screenToImage(x, y), {
   interactive: false,
   insertBefore: canvasCtrl.getFogCanvas(),

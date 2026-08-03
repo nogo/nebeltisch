@@ -158,12 +158,6 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     () => viewport.scale
   );
 
-  function animatePings() {
-    pingCtrl.tick();
-    requestAnimationFrame(animatePings);
-  }
-  requestAnimationFrame(animatePings);
-
   const tokenCtrl = initTokenLayer(
     canvasCtrl.getWrapper(),
     () => canvasCtrl.getImageSize(),
