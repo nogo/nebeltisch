@@ -434,6 +434,45 @@ describe("WebSocket handler", () => {
     expect(loaded!.height).toBe(100);
   });
 
+  it("Painting a map whose dimensions never parsed is refused, not fatal", async () => {
+    // The upload gate accepts any image/*, but only PNG, JPEG and WebP headers
+    // are parsed, so an unsupported format is stored 0x0 (#10). Opening its mask
+    // throws; unguarded, that rejection escaped the message handler and Bun
+    // exited the process — a restart loop for as long as the GM kept painting.
+    const unparsed = createImageRecord(ts.db, {
+      adventureId,
+      filename: "map.gif",
+      originalName: "map.gif",
+      width: 0,
+      height: 0,
+    }).id;
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [unparsed, adventureId]);
+
+    const gm = track(
+      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+    );
+    await waitForMessage(gm, "joined");
+
+    const err = waitForMessage(gm, "error");
+    gm.send(JSON.stringify({
+      type: "fog:stroke",
+      stroke: { x: 10, y: 10, radius: 5, mode: "reveal" },
+    }));
+    expect((await err).message).toContain("dimensions");
+
+    const batchErr = waitForMessage(gm, "error");
+    gm.send(JSON.stringify({
+      type: "fog:stroke:batch",
+      strokes: [{ x: 10, y: 10, radius: 5, mode: "reveal" }],
+    }));
+    expect((await batchErr).message).toContain("dimensions");
+
+    // Still serving: the point of the guard is that the connection survives.
+    const pong = waitForMessage(gm, "pong");
+    gm.send(JSON.stringify({ type: "ping" }));
+    await pong;
+  });
+
   it("A GM disconnect flushes its own adventure only", async () => {
     // GM disconnect used to clear every pending save timer on the server and
     // write every cached mask, including other tables' (#9).

@@ -338,7 +338,16 @@ export function createWsHandlers(deps: ServerDeps) {
             break;
           }
           const imageId = adv.active_image_id;
-          (await fog.open(imageId)).applyStrokes([msg.stroke]);
+          let session: FogSession;
+          try {
+            session = await fog.open(imageId);
+          } catch {
+            // A map whose dimensions never parsed has no mask to paint on. Left
+            // unguarded this rejection escapes the handler and exits the process.
+            ws.send(serializeMessage({ type: "error", message: "Map dimensions unknown" }));
+            break;
+          }
+          session.applyStrokes([msg.stroke]);
           ws.publish(topic, serializeMessage({ type: "fog:stroke", stroke: msg.stroke, imageId }));
           break;
         }
@@ -354,7 +363,14 @@ export function createWsHandlers(deps: ServerDeps) {
             break;
           }
           const imageId = adv.active_image_id;
-          (await fog.open(imageId)).applyStrokes(msg.strokes);
+          let session: FogSession;
+          try {
+            session = await fog.open(imageId);
+          } catch {
+            ws.send(serializeMessage({ type: "error", message: "Map dimensions unknown" }));
+            break;
+          }
+          session.applyStrokes(msg.strokes);
           ws.publish(topic, serializeMessage({ type: "fog:stroke:batch", strokes: msg.strokes, imageId }));
           break;
         }
