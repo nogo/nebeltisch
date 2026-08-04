@@ -72,7 +72,7 @@ async function showJoinForm(link: string) {
   nameInput.type = 'text';
   nameInput.required = true;
   nameInput.placeholder = 'Aria';
-  nameInput.autocomplete = 'nickname';
+  nameInput.setAttribute('autocomplete', 'nickname');
   nameLabel.appendChild(nameInput);
   form.appendChild(nameLabel);
 
@@ -223,7 +223,7 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
   });
 
   ws.on('joined', async (msg) => {
-    const adv = msg.adventure as { id: string; name: string; activeImageId: string | null; tokenSize: number };
+    const adv = msg.adventure;
     document.title = `${adv.name} — Player`;
     activeImageId = adv.activeImageId;
     tokenRadius = adv.tokenSize ?? 20;
@@ -248,7 +248,7 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
 
     canvasArea.style.visibility = 'visible';
 
-    const tokens = msg.tokens as Array<{ id: string; name: string; color: string; x: number; y: number; token_type?: string }>;
+    const tokens = msg.tokens;
     for (const token of tokens) {
       if (token.token_type === 'monster' || token.token_type === 'npc') {
         gmTokenCtrl.addToken(token);
@@ -271,13 +271,13 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
 
   ws.on('fog:stroke', (msg) => {
     if (msg.imageId === activeImageId) {
-      canvasCtrl.applyStroke(msg.stroke as FogStroke);
+      canvasCtrl.applyStroke(msg.stroke);
     }
   });
 
   ws.on('fog:stroke:batch', (msg) => {
     if (msg.imageId === activeImageId) {
-      for (const stroke of msg.strokes as FogStroke[]) {
+      for (const stroke of msg.strokes) {
         canvasCtrl.applyStroke(stroke);
       }
     }
@@ -285,14 +285,14 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
 
   ws.on('fog:reset', (msg) => {
     if (msg.imageId === activeImageId && typeof msg.fogMask === 'string') {
-      canvasCtrl.applyFogMask(msg.fogMask as string);
+      canvasCtrl.applyFogMask(msg.fogMask);
     }
   });
 
   ws.on('token:moved', (msg) => {
-    const tokenId = msg.tokenId as string;
-    const x = msg.x as number;
-    const y = msg.y as number;
+    const tokenId = msg.tokenId;
+    const x = msg.x;
+    const y = msg.y;
     if (tokenId === ownTokenId) ownTokenPos = { x, y };
     // The id lives in exactly one controller; moveToken no-ops on the other.
     tokenCtrl.moveToken(tokenId, x, y);
@@ -300,31 +300,31 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
   });
 
   ws.on('token:added', (msg) => {
-    const token = msg.token as { id: string; name: string; color: string; x: number; y: number };
+    const token = msg.token;
     tokenCtrl.addToken(token);
   });
 
   ws.on('gm_token:added', (msg) => {
-    gmTokenCtrl.addToken(msg.token as { id: string; name: string; color: string; x: number; y: number; token_type: 'monster' | 'npc' });
+    gmTokenCtrl.addToken(msg.token);
   });
 
   ws.on('token:removed', (msg) => {
-    const id = msg.tokenId as string;
+    const id = msg.tokenId;
     tokenCtrl.removeToken(id);
     gmTokenCtrl.removeToken(id);
   });
 
   ws.on('ping:map', (msg) => {
-    pingCtrl.addPing(msg.x as number, msg.y as number, msg.color as string);
+    pingCtrl.addPing(msg.x, msg.y, msg.color);
   });
 
   ws.on('settings:updated', (msg) => {
-    tokenRadius = msg.tokenSize as number;
+    tokenRadius = msg.tokenSize;
     tokenCtrl.render();
   });
 
   ws.on('map:switched', async (msg) => {
-    activeImageId = msg.imageId as string;
+    activeImageId = msg.imageId;
     pingCtrl.clear();
     try {
       imageList = await api.listImagesAsPlayer(adventureId, playerLink);
@@ -338,7 +338,7 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
       }
     }
     // The server moves the party onto the new map's start point.
-    const movedPlayers = msg.playerTokens as Array<{ id: string; x: number; y: number }> | undefined;
+    const movedPlayers = msg.playerTokens;
     for (const t of movedPlayers ?? []) {
       tokenCtrl.moveToken(t.id, t.x, t.y);
       if (t.id === ownTokenId) ownTokenPos = { x: t.x, y: t.y };
@@ -346,16 +346,16 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     tokenCtrl.render();
     // Swap GM tokens for the new map
     gmTokenCtrl.clear();
-    const newGmTokens = msg.gmTokens as Array<{ id: string; name: string; color: string; x: number; y: number; token_type: 'monster' | 'npc' }> | undefined;
+    const newGmTokens = msg.gmTokens;
     for (const t of newGmTokens ?? []) gmTokenCtrl.addToken(t);
   });
 
   ws.on('player:joined', (msg) => {
-    showToast(`${msg.playerName as string} joined`);
+    showToast(`${msg.playerName} joined`);
   });
 
   ws.on('player:left', (msg) => {
-    showToast(`${msg.playerName as string} left`);
+    showToast(`${msg.playerName} left`);
   });
 
   ws.on('player:removed', () => {

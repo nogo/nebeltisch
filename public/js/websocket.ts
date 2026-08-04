@@ -1,20 +1,39 @@
-export type MessageHandler = (msg: Record<string, unknown>) => void;
+import type { ClientMessage, ServerMessage } from '../../src/ws/messages';
+
+/**
+ * Type-only import of the server's wire contract. It is erased at build time, so no
+ * server code reaches the bundle — but a handler that reads a field the server does not
+ * send is now a compile error instead of `undefined` at the table.
+ */
+
+/** Emitted locally by this client, not by the server. */
+export type LocalEvent = 'connect' | 'disconnect';
+
+export type EventType = ServerMessage['type'] | LocalEvent;
+
+export type PayloadOf<T extends EventType> = T extends ServerMessage['type']
+  ? Extract<ServerMessage, { type: T }>
+  : Record<string, never>;
 
 export interface WebSocketClient {
-  send(msg: Record<string, unknown>): void;
-  on(type: string, handler: MessageHandler): void;
+  send(msg: ClientMessage): void;
+  on<T extends EventType>(type: T, handler: (msg: PayloadOf<T>) => void): void;
   close(): void;
 }
 
+type AnyHandler = (msg: never) => void;
+
 function makeClient(buildUrl: () => string): WebSocketClient {
-  const handlers = new Map<string, MessageHandler[]>();
+  const handlers = new Map<string, AnyHandler[]>();
   let ws: WebSocket | null = null;
   let closed = false;
   let backoff = 1000;
 
-  function emit(type: string, msg: Record<string, unknown>) {
+  // The one unchecked hop in the client: the socket yields JSON, and `type` selects the
+  // handler list. Everything downstream of here is checked against ServerMessage.
+  function emit(type: string, msg: unknown) {
     for (const h of handlers.get(type) ?? []) {
-      try { h(msg); } catch (e) { console.error('ws handler error', e); }
+      try { (h as (m: unknown) => void)(msg); } catch (e) { console.error('ws handler error', e); }
     }
   }
 
@@ -56,14 +75,14 @@ function makeClient(buildUrl: () => string): WebSocketClient {
   connect();
 
   return {
-    send(msg: Record<string, unknown>) {
+    send(msg: ClientMessage) {
       if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify(msg));
       }
     },
-    on(type: string, handler: MessageHandler) {
+    on<T extends EventType>(type: T, handler: (msg: PayloadOf<T>) => void) {
       if (!handlers.has(type)) handlers.set(type, []);
-      handlers.get(type)!.push(handler);
+      handlers.get(type)!.push(handler as AnyHandler);
     },
     close() {
       closed = true;

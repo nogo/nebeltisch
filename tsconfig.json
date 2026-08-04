@@ -4,8 +4,19 @@
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "types": ["bun-types"],
-    "skipLibCheck": true
+    "types": [
+      "bun-types"
+    ],
+    "skipLibCheck": true,
+    "lib": [
+      "ESNext",
+      "DOM",
+      "DOM.Iterable"
+    ]
   },
-  "include": ["src", "test"]
+  "include": [
+    "src",
+    "test",
+    "public/js"
+  ]
 }

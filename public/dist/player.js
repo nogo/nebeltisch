@@ -63,7 +63,7 @@ async function showJoinForm(link) {
   nameInput.type = "text";
   nameInput.required = true;
   nameInput.placeholder = "Aria";
-  nameInput.autocomplete = "nickname";
+  nameInput.setAttribute("autocomplete", "nickname");
   nameLabel.appendChild(nameInput);
   form.appendChild(nameLabel);
   const colorLabel = document.createElement("label");

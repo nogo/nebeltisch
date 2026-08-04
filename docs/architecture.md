@@ -46,7 +46,7 @@ Client — `public/js/`
 | `tokens.ts` | A token layer; hit testing and dragging |
 | `ping.ts` | Ping layer; owns its own animation loop |
 | `api.ts` | REST client |
-| `websocket.ts` | WebSocket client with reconnect and backoff |
+| `websocket.ts` | WebSocket client with reconnect and backoff; typed against the server's message unions |
 
 `test/` mirrors `src/`.
 
@@ -122,6 +122,18 @@ Map → GM tokens → fog → player tokens → pings, stacked in an image-sized
 **Why:** GM tokens below the fog are hidden until the area is revealed, for free.
 **Implication:** the wrapper is sized in image pixels, so layer contents are drawn in image coordinates.
 
+### The client imports the wire contract; it does not restate it
+
+`public/js/websocket.ts` imports `ClientMessage` and `ServerMessage` from `src/ws/messages.ts` with `import type`, and `on()` is generic over the union: `ws.on('map:switched', msg => …)` gives `msg` the exact `MapSwitchedMessage` shape.
+**Why:** the client used to re-declare each payload inline at the call site — roughly thirty hand-written casts — and they drifted from the server without anything failing. `import type` is erased at build, so no server code enters the bundle.
+**Implication:** a field the server does not send, and a `send()` of a message outside `ClientMessage`, are both compile errors. New wire messages must be added to the union before either side can use them, which is principle 4 extended across the boundary.
+
+### REST DTOs are deliberately not shared
+
+`Adventure` and `ImageRecord` in `public/js/api.ts` stay separate from the same-named row types in `src/types.ts`.
+**Why:** those are database rows. The routes return whole rows today — that is the leak in #5 — so sharing them would make it the contract instead of a bug, and `fog_mask: Buffer` has no meaning in a browser.
+**Implication:** the client types describe what a client is entitled to. When #5 is fixed the server response narrows to meet them, rather than the client widening to match the table.
+
 ### No CRDT
 
 The GM is the only writer of fog. Each player writes only their own token. The server rejects anything else.
@@ -174,7 +186,7 @@ Render the drag immediately, then reconcile with the server broadcast. Never let
 `ClientMessage` and `ServerMessage` in `ws/messages.ts` are the contract. A handler case whose type is absent from the union narrows to `never` and silently loses all type checking.
 *Two message types shipped this way and their entire handler ran unchecked.*
 
-**This is the one principle that enforces itself.** `bun test` runs `tsc --noEmit` first, so a handler case with no union member fails the suite before a single test executes. The rule went unenforced for months precisely because nothing typechecked (#6); do not remove that gate.
+**This is the one principle that enforces itself, on both sides.** `bun test` runs `tsc --noEmit` first over `src`, `test` and `public/js`, and the client imports the unions rather than restating them. A handler case with no union member, a client reading a field the server does not send, and a `send()` outside `ClientMessage` all fail the suite before a single test executes. The rule went unenforced for months precisely because nothing typechecked (#6, #7); do not remove that gate.
 
 ### 5. Touch targets have a screen-space floor
 

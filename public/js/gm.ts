@@ -146,7 +146,7 @@ ws.on('disconnect', () => { connectionStatusEl.className = 'status-dot disconnec
 ws.on('error', (msg) => { console.error('WS error', msg); });
 
 ws.on('joined', async (msg) => {
-  const adv = msg.adventure as { id: string; name: string; activeImageId: string | null; tokenSize: number };
+  const adv = msg.adventure;
   adventureNameEl.textContent = adv.name;
   tokenRadius = adv.tokenSize ?? 20;
   updateTokenSizeLabel();
@@ -170,7 +170,7 @@ ws.on('joined', async (msg) => {
     }
   }
 
-  const tokens = msg.tokens as Array<{ id: string; name: string; color: string; x: number; y: number; token_type?: string }>;
+  const tokens = msg.tokens;
   for (const token of tokens) {
     if (token.token_type === 'monster' || token.token_type === 'npc') {
       gmTokenCtrl.addToken(token);
@@ -184,47 +184,47 @@ ws.on('joined', async (msg) => {
 });
 
 ws.on('fog:stroke', (msg) => {
-  if (msg.imageId === activeImageId) canvasCtrl.applyStroke(msg.stroke as FogStroke);
+  if (msg.imageId === activeImageId) canvasCtrl.applyStroke(msg.stroke);
 });
 
 ws.on('fog:stroke:batch', (msg) => {
   if (msg.imageId === activeImageId) {
-    for (const stroke of msg.strokes as FogStroke[]) canvasCtrl.applyStroke(stroke);
+    for (const stroke of msg.strokes) canvasCtrl.applyStroke(stroke);
   }
 });
 
 ws.on('token:added', (msg) => {
-  tokenCtrl.addToken(msg.token as { id: string; name: string; color: string; x: number; y: number });
+  tokenCtrl.addToken(msg.token);
 });
 
 ws.on('gm_token:added', (msg) => {
-  gmTokenCtrl.addToken(msg.token as { id: string; name: string; color: string; x: number; y: number; token_type: 'monster' | 'npc' });
+  gmTokenCtrl.addToken(msg.token);
 });
 
 ws.on('token:moved', (msg) => {
   // The id lives in exactly one controller; moveToken no-ops on the other.
-  tokenCtrl.moveToken(msg.tokenId as string, msg.x as number, msg.y as number);
-  gmTokenCtrl.moveToken(msg.tokenId as string, msg.x as number, msg.y as number);
+  tokenCtrl.moveToken(msg.tokenId, msg.x, msg.y);
+  gmTokenCtrl.moveToken(msg.tokenId, msg.x, msg.y);
 });
 
 ws.on('token:removed', (msg) => {
-  const id = msg.tokenId as string;
+  const id = msg.tokenId;
   tokenCtrl.removeToken(id);
   gmTokenCtrl.removeToken(id);
 });
 
 ws.on('player:roster', (msg) => {
-  playerRoster = msg.players as typeof playerRoster;
+  playerRoster = msg.players;
   renderPresence(playerRoster);
   renderStartMarker(); // ring size tracks the party size
 });
 
 ws.on('ping:map', (msg) => {
-  pingCtrl.addPing(msg.x as number, msg.y as number, msg.color as string);
+  pingCtrl.addPing(msg.x, msg.y, msg.color);
 });
 
 ws.on('settings:updated', (msg) => {
-  tokenRadius = msg.tokenSize as number;
+  tokenRadius = msg.tokenSize;
   tokenCtrl.render();
   gmTokenCtrl.render();
   renderStartMarker();
@@ -239,7 +239,7 @@ function deactivatePlaceMode() {
 }
 
 ws.on('map:switched', async (msg) => {
-  activeImageId = msg.imageId as string;
+  activeImageId = msg.imageId;
   pingCtrl.clear();
 
   imageList = await api.listImages(adventureId, password);
@@ -252,19 +252,19 @@ ws.on('map:switched', async (msg) => {
   renderGallery();
   updateEmptyState();
   // The server moves the party onto the new map's start point.
-  const movedPlayers = msg.playerTokens as Array<{ id: string; x: number; y: number }> | undefined;
+  const movedPlayers = msg.playerTokens;
   for (const t of movedPlayers ?? []) tokenCtrl.moveToken(t.id, t.x, t.y);
   tokenCtrl.render();
   syncStartPointFromImageList();
   // Swap GM tokens for the new map
   gmTokenCtrl.clear();
-  const newGmTokens = msg.gmTokens as Array<{ id: string; name: string; color: string; x: number; y: number; token_type: 'monster' | 'npc' }> | undefined;
+  const newGmTokens = msg.gmTokens;
   for (const t of newGmTokens ?? []) gmTokenCtrl.addToken(t);
 });
 
 ws.on('fog:reset', (msg) => {
   if (msg.imageId === activeImageId && typeof msg.fogMask === 'string') {
-    canvasCtrl.applyFogMask(msg.fogMask as string);
+    canvasCtrl.applyFogMask(msg.fogMask);
   }
 });
 
@@ -348,9 +348,9 @@ startPointBtn.addEventListener('click', () => {
 });
 
 ws.on('map:start_point:set', (msg) => {
-  const id = msg.imageId as string;
-  const x = msg.x as number | null;
-  const y = msg.y as number | null;
+  const id = msg.imageId;
+  const x = msg.x;
+  const y = msg.y;
 
   const img = imageList.find(i => i.id === id);
   if (img) { img.start_x = x; img.start_y = y; }
@@ -729,7 +729,7 @@ function performRedo() { ws.send({ type: 'fog:redo' }); }
 
 ws.on('fog:history', (msg) => {
   if (msg.imageId !== activeImageId) return;
-  updateUndoRedoButtons(msg.canUndo as boolean, msg.canRedo as boolean);
+  updateUndoRedoButtons(msg.canUndo, msg.canRedo);
 });
 
 undoBtn.addEventListener('click', performUndo);

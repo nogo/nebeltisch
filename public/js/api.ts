@@ -1,3 +1,14 @@
+/**
+ * These are **not** imported from `src/types.ts`, unlike the WebSocket contract and `Token`.
+ *
+ * `Adventure` and `ImageRecord` there are database row types. The REST routes happen to return
+ * whole rows today, which is the defect in #5 — `fog_mask` and every map's `filename` reach the
+ * player. Importing the row types here would make that leak the contract rather than a bug, and
+ * `fog_mask: Buffer` does not exist in a browser anyway.
+ *
+ * So these stay narrower on purpose: they describe what a client is entitled to, not what the
+ * table holds. When #5 is fixed, the server response should narrow to meet them.
+ */
 export interface Adventure {
   id: string;
   name: string;

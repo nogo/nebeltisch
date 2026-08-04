@@ -1,9 +1,7 @@
-export interface FogStroke {
-  x: number;
-  y: number;
-  radius: number;
-  mode: 'reveal' | 'fog';
-}
+import type { FogStroke } from '../../src/types';
+
+/** Re-exported so client modules keep importing it from here. One definition, server-owned. */
+export type { FogStroke };
 
 export interface CanvasController {
   loadImage(url: string): Promise<void>;

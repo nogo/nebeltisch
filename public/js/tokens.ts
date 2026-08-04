@@ -1,11 +1,12 @@
-export interface TokenData {
-  id: string;
-  name: string;
-  color: string;
-  x: number;
-  y: number;
-  token_type?: 'player' | 'monster' | 'npc';
-}
+import type { Token } from '../../src/types';
+
+/**
+ * What the token layer needs to draw one. Derived from the server's `Token` so the field
+ * names and the token_type union cannot drift; the layer has no use for the rest of the row.
+ */
+export type TokenData = Pick<Token, 'id' | 'name' | 'color' | 'x' | 'y'> & {
+  token_type?: Token['token_type'];
+};
 
 export interface TokenController {
   addToken(token: TokenData): void;
