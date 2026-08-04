@@ -2,19 +2,24 @@ import { mkdirSync, rmSync } from "fs";
 import { join } from "path";
 import type { Database } from "bun:sqlite";
 import type { Server } from "bun";
+import type { WsData } from "../src/types";
 import { initDatabase } from "../src/db/database";
 import { handleRequest } from "../src/routes";
 import { createWsHandlers, handleWsUpgrade } from "../src/ws/handler";
 
-export interface TestServer {
+/**
+ * `Server` is generic over its WebSocket data. The HTTP-only server has no `websocket`
+ * handler and so is `Server<undefined>`; only the WS server carries `WsData`.
+ */
+export interface TestServer<T = undefined> {
   url: string;
-  server: Server;
+  server: Server<T>;
   db: Database;
   uploadsDir: string;
   stop(): void;
 }
 
-export interface WsTestServer extends TestServer {
+export interface WsTestServer extends TestServer<WsData> {
   wsUrl: string;
 }
 

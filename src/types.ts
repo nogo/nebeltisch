@@ -1,7 +1,12 @@
 export interface FogMask {
   width: number;
   height: number;
-  data: Uint8Array; // length = width * height, values 0-255
+  /**
+   * Length = width * height, values 0-255.
+   * Pinned to `ArrayBuffer` rather than `ArrayBufferLike`: masks are handed straight to
+   * `Bun.deflateSync`, which does not accept a `SharedArrayBuffer` view.
+   */
+  data: Uint8Array<ArrayBuffer>;
 }
 
 export interface FogStroke {

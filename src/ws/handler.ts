@@ -158,18 +158,18 @@ async function getFogMaskWithHistory(
 // current state, so `undo` holds at least the baseline.
 
 interface FogHistory {
-  undo: Uint8Array[];
-  redo: Uint8Array[];
+  undo: Uint8Array<ArrayBuffer>[];
+  redo: Uint8Array<ArrayBuffer>[];
 }
 
 const fogHistories = new Map<string, FogHistory>();
 const MAX_FOG_HISTORY = 40;
 
-function snapshotMask(mask: FogMask): Uint8Array {
+function snapshotMask(mask: FogMask): Uint8Array<ArrayBuffer> {
   return Bun.deflateSync(mask.data);
 }
 
-function restoreMask(mask: FogMask, snap: Uint8Array): void {
+function restoreMask(mask: FogMask, snap: Uint8Array<ArrayBuffer>): void {
   mask.data.set(Bun.inflateSync(snap));
 }
 
@@ -259,7 +259,7 @@ function sendRosterToGm(db: Database, adventureId: string): void {
 export function handleWsUpgrade(
   req: Request,
   db: Database,
-  server: Server
+  server: Server<WsData>
 ): Response | undefined {
   const url = new URL(req.url);
   const adventureId = url.searchParams.get("adventureId");

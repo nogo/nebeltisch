@@ -76,6 +76,21 @@ export interface PingMapMessage {
   color: string;
 }
 
+/** Places a monster or NPC on the adventure's active map. GM only. */
+export interface GmTokenPlaceMessage {
+  type: "gm_token:place";
+  name: string;
+  tokenType: "monster" | "npc";
+  x: number;
+  y: number;
+}
+
+/** Removes a monster or NPC. GM only; never accepts a player token. */
+export interface GmTokenRemoveMessage {
+  type: "gm_token:remove";
+  tokenId: string;
+}
+
 export type ClientMessage =
   | JoinMessage
   | FogStrokeMessage
@@ -89,7 +104,9 @@ export type ClientMessage =
   | PingMessage
   | PingMapMessage
   | MapStartPointMessage
-  | SettingsUpdateMessage;
+  | SettingsUpdateMessage
+  | GmTokenPlaceMessage
+  | GmTokenRemoveMessage;
 
 // ---- Server → Client ----
 
@@ -208,8 +225,15 @@ export interface PingMapBroadcast {
   name: string;
 }
 
+/** A monster or NPC was placed. Removal reuses `token:removed`. */
+export interface GmTokenAddedMessage {
+  type: "gm_token:added";
+  token: Token;
+}
+
 export type ServerMessage =
   | JoinedMessage
+  | GmTokenAddedMessage
   | FogStrokeBroadcast
   | FogStrokeBatchBroadcast
   | FogResetMessage
