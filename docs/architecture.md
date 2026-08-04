@@ -24,15 +24,18 @@ Server — `src/`
 
 | Path | Responsibility |
 |---|---|
-| `index.ts` | `Bun.serve()`; routes `/ws` to the upgrade handler and everything else to `routes.ts`; flushes fog caches on SIGINT/SIGTERM |
-| `routes.ts` | HTTP routing by path segments, static files, REST endpoints, image dimension parsing (PNG/JPEG/WebP headers) |
+| `index.ts` | The composition root: builds `ServerDeps`, runs `Bun.serve()`, routes `/ws` to the upgrade handler and everything else to `routes.ts`, flushes fog on SIGINT/SIGTERM |
+| `deps.ts` | `ServerDeps` — the database, uploads directory and fog registry, built once and passed down |
+| `routes.ts` | HTTP routing by path segments, static files, REST endpoints |
+| `images.ts` | Image dimensions from file headers (PNG/JPEG/WebP). Pure parsing plus a repair path; used by both `routes.ts` and `fog/` |
 | `types.ts` | Shared domain types: `FogMask`, `FogStroke`, `Adventure`, `ImageRecord`, `Token`, `WsData` |
 | `db/database.ts` | Opens the database and applies the schema |
 | `db/schema.ts` | DDL plus additive migrations |
 | `db/adventures.ts`, `db/images.ts`, `db/tokens.ts` | Query functions, one file per table group |
 | `fog/mask.ts` | Pure mask operations. No I/O, no database, no canvas |
 | `fog/serialize.ts` | Mask binary format and persistence |
-| `ws/handler.ts` | Connection lifecycle, message dispatch, fog mask cache, fog undo history, token placement |
+| `fog/session.ts` | Live fog state: mask cache, undo history, debounced saves, and their lifetime |
+| `ws/handler.ts` | Connection lifecycle, message dispatch, token placement |
 | `ws/messages.ts` | `ClientMessage` and `ServerMessage` unions — the wire contract |
 | `ws/connections.ts` | In-memory registry of live sockets |
 
@@ -105,6 +108,16 @@ One byte per pixel: `255` fogged, `0` revealed. All reveal/re-fog logic is pure 
 Brush strokes stream over WebSocket for immediate feedback on every client. The authoritative mask lives in a server-side cache and is written to SQLite on a debounce.
 **Implication:** late joiners and restarts read the persisted mask, not a replay of strokes.
 
+### Fog state is keyed by map; its lifetime is scoped to the adventure
+
+`fog/session.ts` holds one `FogSession` per image — mask, undo history, pending save — grouped under an `AdventureFog` per adventure, in a registry built once in `index.ts` and passed as `ServerDeps`.
+
+**Why the two levels.** The mask belongs to a map. The *lifetime* cannot: nobody connects to a map, connections carry an `adventureId`, and traversal between a village, its mill and the cellar is the normal case, so a map the party may walk back into must stay resident.
+
+Disposal is idle-triggered. When the last connection to an adventure leaves, a timer starts; a reconnect cancels it; expiry flushes every mask to SQLite and frees them. It is delayed rather than immediate because zero-connection moments happen constantly during play — page reload, tablet sleep, router blip — and undo history is memory-only, so instant disposal would silently empty the GM's undo stack on every refresh. `IDLE_DISPOSE_MS` is ten minutes; it is a comfort setting, not a correctness one, since disposal always persists first.
+
+**Implication:** nothing about fog lives at module scope. New per-map state belongs on `FogSession` and inherits its eviction for free. Mutating a mask outside `applyStrokes` skips the debounced save.
+
 ### The server owns fog undo history
 
 Undo history is a per-image stack of deflated mask snapshots in `ws/handler.ts`, not a stroke list in the browser.
@@ -163,7 +176,7 @@ Schema changes are `ALTER TABLE`/`CREATE TABLE IF NOT EXISTS` statements wrapped
 Rules for new code. Where a change conflicts with one of these, the conflict is the thing to discuss.
 
 **A principle is a rule, not a claim about the code.** Most were written the day something violated
-them, and two are still violated today — each says so and names the issue. A principle marked
+them, and one is still violated today — it says so and names the issue. A principle marked
 **[violated]** binds new code exactly as hard as the others; it just means the existing breach is
 tracked rather than forgotten. When the issue closes, remove the marker.
 
@@ -201,11 +214,11 @@ If two clients could compute a value differently — a phase, a position, a mask
 
 No dependency without a strong reason. No abstraction before a second use. No refactor bundled into a fix.
 
-### 8. Bound anything that grows **[violated — #8]**
+### 8. Bound anything that grows
 
-Caches keyed by id — `fogMaskCache`, `fogHistories`, `saveTimers` in `ws/handler.ts` — accumulate for the process lifetime unless evicted. New per-entity state needs an eviction path from the start.
+Caches keyed by id accumulate for the process lifetime unless evicted. New per-entity state needs an eviction path from the start — decided when the state is introduced, not bolted on later.
 
-`fogMaskCache` has no eviction path at all: one 4000×3000 map is 12 MB resident for the life of the process, and deleting an image purges neither the mask nor its pending save timer.
+Fog was the case that proved it: masks, histories and save timers sat at module scope in `ws/handler.ts` with no eviction at all, so one 4000×3000 map was 12 MB resident forever. They now live on `FogSession`, whose lifetime is the adventure's — see the decision above.
 
 ### 9. Never trust a client-supplied array to be small **[violated — #12]**
 

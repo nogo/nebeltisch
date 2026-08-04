@@ -1,22 +1,26 @@
 import { mkdirSync } from "fs";
 import { initDatabase } from "./db/database";
 import { handleRequest } from "./routes";
-import { createWsHandlers, handleWsUpgrade, flushAllFogCaches } from "./ws/handler";
+import { createFogRegistry } from "./fog/session";
+import { createWsHandlers, handleWsUpgrade } from "./ws/handler";
+import type { ServerDeps } from "./deps";
 
 const uploadsDir = `${process.env.DATA_DIR || "./data"}/uploads/`;
 mkdirSync(uploadsDir, { recursive: true });
 
 const db = initDatabase();
-const wsHandlers = createWsHandlers(db, uploadsDir);
+// The composition root: one database, one fog registry, for the whole process.
+const deps: ServerDeps = { db, uploadsDir, fog: createFogRegistry(db, uploadsDir) };
+const wsHandlers = createWsHandlers(deps);
 
 const server = Bun.serve({
   port: process.env.PORT ? parseInt(process.env.PORT) : 3000,
   fetch(req, server) {
     const url = new URL(req.url);
     if (url.pathname === "/ws") {
-      return handleWsUpgrade(req, db, server);
+      return handleWsUpgrade(req, deps, server);
     }
-    return handleRequest(req, db, uploadsDir);
+    return handleRequest(req, deps);
   },
   websocket: wsHandlers,
 });
@@ -29,7 +33,7 @@ async function shutdown() {
   shuttingDown = true;
   server.stop();
   try {
-    await flushAllFogCaches(db);
+    await deps.fog.flushAll();
   } catch (err) {
     console.error("shutdown: flush failed", err);
     process.exit(1);

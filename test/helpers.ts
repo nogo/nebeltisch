@@ -3,8 +3,11 @@ import { join } from "path";
 import type { Database } from "bun:sqlite";
 import type { Server } from "bun";
 import type { WsData } from "../src/types";
+import type { ServerDeps } from "../src/deps";
+import type { FogRegistry } from "../src/fog/session";
 import { initDatabase } from "../src/db/database";
 import { handleRequest } from "../src/routes";
+import { createFogRegistry } from "../src/fog/session";
 import { createWsHandlers, handleWsUpgrade } from "../src/ws/handler";
 
 /**
@@ -16,6 +19,8 @@ export interface TestServer<T = undefined> {
   server: Server<T>;
   db: Database;
   uploadsDir: string;
+  /** The server's own fog registry — tests reach state through it, not a global. */
+  fog: FogRegistry;
   stop(): void;
 }
 
@@ -32,10 +37,12 @@ export function startTestServer(): TestServer {
   );
   mkdirSync(uploadsDir, { recursive: true });
 
+  const deps: ServerDeps = { db, uploadsDir, fog: createFogRegistry(db, uploadsDir) };
+
   const server = Bun.serve({
     port: 0,
     fetch(req) {
-      return handleRequest(req, db, uploadsDir);
+      return handleRequest(req, deps);
     },
   });
 
@@ -44,6 +51,7 @@ export function startTestServer(): TestServer {
     server,
     db,
     uploadsDir,
+    fog: deps.fog,
     stop() {
       server.stop(true);
       rmSync(uploadsDir, { recursive: true, force: true });
@@ -60,14 +68,15 @@ export function startWsTestServer(): WsTestServer {
   );
   mkdirSync(uploadsDir, { recursive: true });
 
-  const wsHandlers = createWsHandlers(db);
+  const deps: ServerDeps = { db, uploadsDir, fog: createFogRegistry(db, uploadsDir) };
+  const wsHandlers = createWsHandlers(deps);
 
   const server = Bun.serve({
     port: 0,
     fetch(req, server) {
       const url = new URL(req.url);
-      if (url.pathname === "/ws") return handleWsUpgrade(req, db, server);
-      return handleRequest(req, db, uploadsDir);
+      if (url.pathname === "/ws") return handleWsUpgrade(req, deps, server);
+      return handleRequest(req, deps);
     },
     websocket: wsHandlers,
   });
@@ -78,6 +87,7 @@ export function startWsTestServer(): WsTestServer {
     server,
     db,
     uploadsDir,
+    fog: deps.fog,
     stop() {
       server.stop(true);
       rmSync(uploadsDir, { recursive: true, force: true });

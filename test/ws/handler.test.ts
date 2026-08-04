@@ -3,7 +3,7 @@ import { startWsTestServer, type WsTestServer } from "../helpers";
 import { createAdventure, getAdventure } from "../../src/db/adventures";
 import { createImageRecord } from "../../src/db/images";
 import { getTokensByAdventure } from "../../src/db/tokens";
-import { flushAllFogCaches, clearFogHistory } from "../../src/ws/handler";
+// Fog state is reached through the test server’s own registry, not a module global.
 import { loadFogMask } from "../../src/fog/serialize";
 import { isRevealed } from "../../src/fog/mask";
 
@@ -426,12 +426,57 @@ describe("WebSocket handler", () => {
     }));
     await new Promise((r) => setTimeout(r, 50));
 
-    await flushAllFogCaches(ts.db);
+    await ts.fog.flushAll();
 
     const loaded = await loadFogMask(ts.db, imageId);
     expect(loaded).not.toBeNull();
     expect(loaded!.width).toBe(100);
     expect(loaded!.height).toBe(100);
+  });
+
+  it("A GM disconnect flushes its own adventure only", async () => {
+    // GM disconnect used to clear every pending save timer on the server and
+    // write every cached mask, including other tables' (#9).
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
+
+    const other = createAdventure(ts.db, { name: "Other table", gmPassword: "other-pw" });
+    const otherImageId = createImageRecord(ts.db, {
+      adventureId: other.id,
+      filename: "other.png",
+      originalName: "other.png",
+      width: 100,
+      height: 100,
+    }).id;
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [otherImageId, other.id]);
+
+    const otherGm = track(
+      await connectWS(ts.wsUrl, {
+        adventureId: other.id,
+        role: "gm",
+        password: "other-pw",
+      })
+    );
+    await waitForMessage(otherGm, "joined");
+    otherGm.send(JSON.stringify({
+      type: "fog:stroke",
+      stroke: { x: 50, y: 50, radius: 20, mode: "reveal" },
+    }));
+
+    const gm = track(
+      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+    );
+    await waitForMessage(gm, "joined");
+    gm.send(JSON.stringify({
+      type: "fog:stroke",
+      stroke: { x: 50, y: 50, radius: 20, mode: "reveal" },
+    }));
+    await new Promise((r) => setTimeout(r, 50));
+
+    await closeWs(gm);
+    await new Promise((r) => setTimeout(r, 50));
+
+    expect(await loadFogMask(ts.db, imageId)).not.toBeNull();
+    expect(await loadFogMask(ts.db, otherImageId)).toBeNull();
   });
 
   it("Fog mask persists across GM reconnection", async () => {
@@ -511,7 +556,7 @@ describe("WebSocket handler", () => {
   }
 
   async function currentMask() {
-    await flushAllFogCaches(ts.db);
+    await ts.fog.flushAll();
     return (await loadFogMask(ts.db, imageId))!;
   }
 
@@ -571,7 +616,7 @@ describe("WebSocket handler", () => {
 
     // A server restart loses the in-memory history; the baseline is reseeded
     // from the persisted mask, so there is nothing to step back to.
-    clearFogHistory(imageId);
+    await ts.fog.forAdventure(adventureId).evict(imageId);
 
     const history = waitForMessage(gm, "fog:history");
     gm.send(JSON.stringify({ type: "fog:undo" }));
