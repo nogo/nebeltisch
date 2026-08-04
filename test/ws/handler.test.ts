@@ -342,6 +342,10 @@ describe("WebSocket handler", () => {
     );
     await waitForMessage(gm, "joined");
 
+    // Subscribe before connecting: the server publishes player:joined during the
+    // player's open() handler, so a listener attached afterwards never sees it.
+    const playerJoinedPromise = waitForMessage(gm, "player:joined");
+
     const player = track(
       await connectWS(ts.wsUrl, {
         adventureId,
@@ -355,7 +359,7 @@ describe("WebSocket handler", () => {
     const tokenId = joinedMsg.tokens.find((t: any) => t.name === "Alice").id;
 
     // Wait for gm to receive player:joined before disconnecting
-    await waitForMessage(gm, "player:joined");
+    await playerJoinedPromise;
 
     const leftPromise = waitForMessage(gm, "player:left");
 
