@@ -68,27 +68,6 @@ No accounts today. The GM holds a password in a URL fragment; players hold an in
 
 A feature that belongs to the *rules* of a game is out of scope. A feature that belongs to the *map* is a candidate.
 
-## Ideas
-
-Directions that would change the product, not just add to it. None is committed.
-
-### The table is a real table
-
-Project the map onto a physical tabletop and let the group sit around it — the same session, but co-located instead of remote.
-
-This inverts an assumption the whole product rests on. Today every device is personal: one screen per person, each with its own pan and zoom, and fog is a shared truth rendered privately. A projector makes the map a **single shared surface** that nobody owns.
-
-Consequences worth thinking through before building anything toward it:
-
-- **No per-player viewport.** Pan and zoom become a group decision, or disappear — the projection is fixed to the table.
-- **Tokens need a second input.** Players cannot drag on a projected surface. Either they keep a phone or tablet as a controller, or tokens are physical and the projection shows only the map and fog.
-- **Orientation.** Players sit on four sides; text and labels have no single "up".
-- **The GM screen stays private.** Unrevealed fog, monster tokens and the start point marker must never reach the projector.
-
-That last point matters most: it means a projector output is a **third view**, distinct from both the GM's and a player's — everything a player may see, with no personal UI at all.
-
-Compatible with the remote use case rather than replacing it. A group could mix both: three at the table, one projected in.
-
 ## Naming
 
 **Nebeltisch** — German for "fog table".
