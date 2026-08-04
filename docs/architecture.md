@@ -78,7 +78,7 @@ Player identity is the composite `playerLink|playerName`. Same link and same nam
 - **Start point governs arrival:** first entry to a map, and every late joiner.
 - **`token_positions` governs return:** coming back restores where each player stood.
 
-Both rules are specified in full, with acceptance criteria, in the GitHub story issue for the start point.
+Both rules are specified in full, with acceptance criteria, in #36 — closed, so the criteria there are the record of what was actually built.
 
 ## Design decisions
 
@@ -150,6 +150,11 @@ Schema changes are `ALTER TABLE`/`CREATE TABLE IF NOT EXISTS` statements wrapped
 
 Rules for new code. Where a change conflicts with one of these, the conflict is the thing to discuss.
 
+**A principle is a rule, not a claim about the code.** Most were written the day something violated
+them, and two are still violated today — each says so and names the issue. A principle marked
+**[violated]** binds new code exactly as hard as the others; it just means the existing breach is
+tracked rather than forgotten. When the issue closes, remove the marker.
+
 ### 1. The server is authoritative for anything that outlives a browser tab
 
 Fog, tokens, positions, history. If state must survive a reload, the browser may cache it but must never be its source.
@@ -169,6 +174,8 @@ Render the drag immediately, then reconcile with the server broadcast. Never let
 `ClientMessage` and `ServerMessage` in `ws/messages.ts` are the contract. A handler case whose type is absent from the union narrows to `never` and silently loses all type checking.
 *Two message types shipped this way and their entire handler ran unchecked.*
 
+**This is the one principle that enforces itself.** `bun test` runs `tsc --noEmit` first, so a handler case with no union member fails the suite before a single test executes. The rule went unenforced for months precisely because nothing typechecked (#6); do not remove that gate.
+
 ### 5. Touch targets have a screen-space floor
 
 Hit tests computed in image coordinates shrink as the map zooms out. Any interactive target needs a minimum measured in screen pixels — 22px radius, per the 44pt guidance in design.md.
@@ -182,13 +189,17 @@ If two clients could compute a value differently — a phase, a position, a mask
 
 No dependency without a strong reason. No abstraction before a second use. No refactor bundled into a fix.
 
-### 8. Bound anything that grows
+### 8. Bound anything that grows **[violated — #8]**
 
 Caches keyed by id — `fogMaskCache`, `fogHistories`, `saveTimers` in `ws/handler.ts` — accumulate for the process lifetime unless evicted. New per-entity state needs an eviction path from the start.
 
-### 9. Never trust a client-supplied array to be small
+`fogMaskCache` has no eviction path at all: one 4000×3000 map is 12 MB resident for the life of the process, and deleting an image purges neither the mask nor its pending save timer.
+
+### 9. Never trust a client-supplied array to be small **[violated — #12]**
 
 `fog:stroke:batch` and similar messages carry unbounded arrays that are replayed server-side. Validate shape and cap length.
+
+`parseMessage` still casts without checking any field, and neither `fog:stroke:batch` nor `fog:undo` is capped. Both paths are GM-authenticated, which bounds the blast radius to a GM degrading their own table — it does not make the arrays bounded.
 
 ### 10. Verify against reality before building on an assumption
 
