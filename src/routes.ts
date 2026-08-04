@@ -12,86 +12,17 @@ import {
   getImagesByAdventure,
   getImage,
   deleteImage,
-  updateImageDimensions,
 } from "./db/images";
+import { parseImageDimensions } from "./images";
+import type { ServerDeps } from "./deps";
 
 const publicDir = join(import.meta.dir, "..", "public");
 
-export function parseImageDimensions(buf: Buffer): { width: number; height: number } {
-  // PNG: bytes 0-7 = signature, 8-15 = IHDR length+type, 16-19 = width, 20-23 = height
-  if (buf.length >= 24 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47) {
-    return {
-      width: buf.readUInt32BE(16),
-      height: buf.readUInt32BE(20),
-    };
-  }
-  // JPEG: scan for SOF0/SOF2 markers (0xFF 0xC0 or 0xFF 0xC2)
-  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xd8) {
-    let i = 2;
-    while (i < buf.length - 9) {
-      if (buf[i] !== 0xff) { i++; continue; }
-      const marker = buf[i + 1];
-      if (marker === 0xc0 || marker === 0xc2) {
-        return {
-          height: buf.readUInt16BE(i + 5),
-          width: buf.readUInt16BE(i + 7),
-        };
-      }
-      // Skip to next marker
-      const segLen = buf.readUInt16BE(i + 2);
-      i += 2 + segLen;
-    }
-  }
-  // WebP: RIFF container with WEBP signature
-  if (buf.length >= 20 && buf[0] === 0x52 && buf[1] === 0x49 && buf[2] === 0x46 && buf[3] === 0x46 &&
-      buf[8] === 0x57 && buf[9] === 0x45 && buf[10] === 0x42 && buf[11] === 0x50) {
-    const chunk = buf.slice(12, 16).toString("ascii");
-    if (chunk === "VP8X" && buf.length >= 30) {
-      // Extended: canvas width-1 at bytes 24-26 (24-bit LE), height-1 at bytes 27-29 (24-bit LE)
-      const w = buf[24] | (buf[25] << 8) | (buf[26] << 16);
-      const h = buf[27] | (buf[28] << 8) | (buf[29] << 16);
-      return { width: w + 1, height: h + 1 };
-    }
-    if (chunk === "VP8 " && buf.length >= 30) {
-      // Lossy VP8: frame tag (3 bytes) + start code (3 bytes: 0x9D 0x01 0x2A) + width (2 bytes LE) + height (2 bytes LE)
-      if (buf[23] === 0x9d && buf[24] === 0x01 && buf[25] === 0x2a) {
-        const w = buf.readUInt16LE(26) & 0x3fff;
-        const h = buf.readUInt16LE(28) & 0x3fff;
-        return { width: w, height: h };
-      }
-    }
-    if (chunk === "VP8L" && buf.length >= 25) {
-      // Lossless: signature byte 0x2F at offset 20, then 4 bytes encoding width-1 (14 bits) and height-1 (14 bits)
-      if (buf[20] === 0x2f) {
-        const bits = buf[21] | (buf[22] << 8) | (buf[23] << 16) | (buf[24] << 24);
-        const w = (bits & 0x3fff) + 1;
-        const h = ((bits >> 14) & 0x3fff) + 1;
-        return { width: w, height: h };
-      }
-    }
-  }
-  return { width: 0, height: 0 };
-}
-
-export function repairImageDimensions(db: Database, imageId: string, uploadsDir: string): void {
-  const image = getImage(db, imageId);
-  if (!image || (image.width > 0 && image.height > 0)) return;
-  try {
-    const buf = readFileSync(join(uploadsDir, image.filename));
-    const { width, height } = parseImageDimensions(buf);
-    if (width > 0 && height > 0) {
-      updateImageDimensions(db, imageId, width, height);
-    }
-  } catch {
-    // file not found or unreadable, skip
-  }
-}
-
 export function handleRequest(
   req: Request,
-  db?: Database,
-  uploadsDir: string = "./data/uploads/"
+  deps: ServerDeps
 ): Promise<Response> | Response {
+  const { uploadsDir } = deps;
   const url = new URL(req.url);
   const { pathname } = url;
   const segments = pathname.split("/").filter(Boolean);
@@ -161,8 +92,8 @@ export function handleRequest(
     }
   }
 
-  if (segments[0] === "api" && segments[1] === "adventures" && db) {
-    return handleAdventureRoutes(req, db, uploadsDir, segments);
+  if (segments[0] === "api" && segments[1] === "adventures") {
+    return handleAdventureRoutes(req, deps, segments);
   }
 
   return new Response("Not Found", { status: 404 });
@@ -170,10 +101,10 @@ export function handleRequest(
 
 async function handleAdventureRoutes(
   req: Request,
-  db: Database,
-  uploadsDir: string,
+  deps: ServerDeps,
   segments: string[]
 ): Promise<Response> {
+  const { db, uploadsDir } = deps;
   const json = (data: unknown, status = 200) =>
     new Response(JSON.stringify(data), {
       status,
@@ -348,6 +279,9 @@ async function handleAdventureRoutes(
         // file may already be gone
       }
       deleteImage(db, imageId);
+      // Drop the cached mask and its pending save, or a deleted map would keep
+      // its fog resident until the adventure idles out.
+      await deps.fog.forAdventure(id).evict(imageId);
       return new Response(null, { status: 204 });
     }
   }
