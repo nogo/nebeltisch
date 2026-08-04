@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Scope of the project
+    url: https://github.com/nogo/nebeltisch/blob/main/docs/project.md
+    about: A feature belonging to the rules of a game is out of scope. A feature belonging to the map is a candidate.
+  - name: Idea backlog
+    url: https://github.com/nogo/nebeltisch/issues/41
+    about: Unscheduled one-line ideas live here. Only split one out when it is taken seriously enough to specify.

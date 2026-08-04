@@ -1,0 +1,82 @@
+name: Bug
+description: Something behaves differently from what the docs or the interface promise.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Title the issue with the **defect**, not the fix — what is wrong, in one line.
+        `Undo destroys all fog painted before the current page load`, not `Fix undo`.
+
+  - type: textarea
+    id: symptom
+    attributes:
+      label: Symptom
+      description: What happens, as seen from the table. Name the role — GM or player — and the device if it matters.
+      placeholder: The GM paints fog, reloads the page, presses undo, and the entire map is revealed.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Reproduction
+      description: Numbered steps. Start from a state that can actually be reached.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected
+      description: What should happen instead, and which promise it comes from — a line in the docs, an acceptance criterion, or the interface itself.
+    validations:
+      required: true
+
+  - type: textarea
+    id: cause
+    attributes:
+      label: Cause
+      description: >
+        Where the defect actually is, with `file:line`. Leave empty if not yet found — but do not guess.
+        Principle 10: verify against reality before building on an assumption.
+      placeholder: "`public/js/gm.ts:214` — the undo stack is client-held, so a reload leaves it empty and undo restores an empty mask."
+    validations:
+      required: false
+
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      description: Priority is set from this. Session-blocking means the group cannot play.
+      options:
+        - P0 — blocks the next session
+        - P1 — next cycle
+        - P2 — before opening it to other GMs
+        - P3 — backlog
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: Checkboxes. Each one is observable at the table, not in the code.
+      value: |
+        - [ ]
+    validations:
+      required: true
+
+  - type: textarea
+    id: fallout
+    attributes:
+      label: Fallout
+      description: >
+        Data already corrupted, other issues this blocks or is blocked by, and any principle in
+        `docs/architecture.md` this violated. A bug that broke an invariant belongs in the principles list.
+    validations:
+      required: false

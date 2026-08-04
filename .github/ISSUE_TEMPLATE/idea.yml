@@ -1,0 +1,85 @@
+name: Idea
+description: A direction worth recording. Not committed, not scheduled, not a promise.
+labels: ["wish", "P3"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Title the issue with the **thing itself**: `Weather effects`, `Project the map onto a real table`.
+        No `Wish:` or `Idea:` prefix — the label already says that.
+
+        An idea becomes a **User story** when it is going to be built. Rewrite it then; do not
+        promote it in place.
+
+  - type: textarea
+    id: idea
+    attributes:
+      label: The idea
+      description: What it is, in a few sentences. Enough that it can be understood in a year.
+    validations:
+      required: true
+
+  - type: textarea
+    id: why
+    attributes:
+      label: Why it might be worth it
+      description: >
+        What it would give the table that nothing else on the list gives. If the answer is
+        "it would be nice", the idea is not ready to record.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: shape
+    attributes:
+      label: Shape
+      description: >
+        A leaf hangs off the presentation layer and costs the same to build in a year.
+        A direction changes an assumption the product rests on, so deferring it has a price.
+      options:
+        - Leaf — touches neither fog, tokens nor sync
+        - Direction — inverts something the product assumes
+        - Unknown
+    validations:
+      required: true
+
+  - type: textarea
+    id: consequences
+    attributes:
+      label: Consequences
+      description: >
+        What this would force elsewhere. Required for a Direction — that is the whole reason to
+        record one before building it. For a Leaf, note the architectural cost if there is one
+        (an 8000×8000 world map is a 64 MB fog mask).
+    validations:
+      required: false
+
+  - type: textarea
+    id: not-scheduled
+    attributes:
+      label: Why this is not scheduled, and what would earn it a slot
+      description: >
+        Both halves. The second is the useful one — it is the trigger that turns this into a story.
+      placeholder: |
+        Nothing reported from play needs it. What would earn it a slot: an actual co-located
+        session where the group wants the map on the table.
+    validations:
+      required: true
+
+  - type: textarea
+    id: open-questions
+    attributes:
+      label: Open questions
+      description: The ones that would have to be answered before this could be written as a story.
+      value: |
+        -
+    validations:
+      required: false
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: Recorded so it is not re-proposed as new.
+    validations:
+      required: false

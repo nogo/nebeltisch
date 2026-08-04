@@ -1,0 +1,85 @@
+name: User story
+description: Work that is going to be built. Written from the GM's or a player's side of the table.
+labels: ["user story"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Title the issue with the **outcome**, not the mechanism.
+        `Mark a map start point, and gather the party there`, not `Add start_x/start_y columns`.
+
+        If the work is not going to be built soon, it is an **Idea**, not a story.
+
+  - type: textarea
+    id: story
+    attributes:
+      label: Story
+      description: One or more. Quote them, one per line, in the As / I want / so that form.
+      value: |
+        > **As GM I want …, so that ….**
+    validations:
+      required: true
+
+  - type: textarea
+    id: model
+    attributes:
+      label: The model
+      description: >
+        The rules the feature follows, stated as rules — not as a UI description. Everything else
+        should be a consequence of them. If you cannot write two or three sentences here, the story
+        is not understood yet.
+      placeholder: |
+        1. **The start point governs arrival.** First entry to a map, and every late joiner.
+        2. **Memory governs return.** Coming back restores where each player stood.
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: >
+        Checkboxes, grouped under `###` headings when there is more than one group. Each is observable
+        by the GM or a player. No criterion may name a function or a table.
+      value: |
+        ###
+
+        - [ ]
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      options:
+        - P0 — blocks the next session
+        - P1 — next cycle
+        - P2 — before opening it to other GMs
+        - P3 — backlog
+    validations:
+      required: true
+
+  - type: textarea
+    id: out-of-scope
+    attributes:
+      label: Out of scope
+      description: >
+        What this deliberately does not do. This is the load-bearing section — it is what keeps the
+        issue closable. Per `docs/project.md`, a feature belonging to the rules of a game is out of
+        scope; a feature belonging to the map is a candidate.
+      value: |
+        -
+    validations:
+      required: true
+
+  - type: textarea
+    id: architecture
+    attributes:
+      label: Architecture impact
+      description: >
+        Schema changes (additive only), new wire messages (they must join the unions in
+        `src/ws/messages.ts`), new per-entity caches (they need an eviction path), and any principle
+        in `docs/architecture.md` this pushes against. Empty means none — say so rather than leaving it blank.
+    validations:
+      required: false

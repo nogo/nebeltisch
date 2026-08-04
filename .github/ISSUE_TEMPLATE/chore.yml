@@ -1,0 +1,71 @@
+name: Chore
+description: Internal quality work. Nothing a GM or a player could ever observe.
+labels: ["chore"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this when the work has **no symptom at the table**: build gaps, duplicated types,
+        test-only defects, signatures that admit impossible states.
+
+        If a GM or a player would notice it, it is a **Bug** or a **User story**, not a chore.
+        A chore that lets a real defect through is still a chore — file the defect separately
+        and link it.
+
+  - type: textarea
+    id: state
+    attributes:
+      label: Current state
+      description: What the code does today, with `file:line`. Quote it.
+      placeholder: "`tsconfig.json:9` is `\"include\": [\"src\", \"test\"]`, so `public/js` is never typechecked."
+    validations:
+      required: true
+
+  - type: textarea
+    id: lets-through
+    attributes:
+      label: What it lets through
+      description: >
+        The load-bearing section. A chore earns its place only if it has already permitted a real
+        defect, or would permit a class of them. Name the issue number if one exists.
+        If nothing can be named, this is a preference, not a chore — close it.
+      placeholder: "The duplicated wire types are how `MapSwitchedMessage` drifted from the handler (#6) without anything failing."
+    validations:
+      required: true
+
+  - type: dropdown
+    id: priority
+    attributes:
+      label: Priority
+      description: >
+        A chore is rarely above P2. It competes with work the group can actually see, and loses
+        unless it is blocking something.
+      options:
+        - P1 — next cycle
+        - P2 — before opening it to other GMs
+        - P3 — backlog
+    validations:
+      required: true
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: >
+        Checkboxes. A chore's criteria are the one place that may name a file, a command or a type —
+        that is what makes it a chore rather than a story.
+      value: |
+        - [ ]
+    validations:
+      required: true
+
+  - type: textarea
+    id: blast-radius
+    attributes:
+      label: Blast radius
+      description: >
+        What breaks while this is being done, and what has to be fixed at the same time.
+        Chores tend to surface work rather than contain it — say how much.
+      placeholder: "Adding `public/js` to `include` will surface the inline WS casts in `gm.ts` and `player.ts`; that fallout is #15, not this issue."
+    validations:
+      required: false
