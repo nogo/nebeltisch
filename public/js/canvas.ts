@@ -4,8 +4,10 @@ import type { FogStroke } from '../../src/types';
 export type { FogStroke };
 
 export interface CanvasController {
-  loadImage(url: string): Promise<void>;
-  applyFogMask(base64: string): Promise<void>;
+  /** Returns false without changing the canvas when the request became stale while loading. */
+  loadImage(url: string, isCurrent?: () => boolean): Promise<boolean>;
+  /** Returns false without changing the canvas when the request became stale while decoding. */
+  applyFogMask(base64: string, isCurrent?: () => boolean): Promise<boolean>;
   applyStroke(stroke: FogStroke): void;
   drawBrushPreview(imgX: number, imgY: number, radius: number, viewportScale?: number): void;
   clearBrushPreview(): void;
@@ -100,22 +102,24 @@ export function initCanvas(container: HTMLElement, options?: { mode?: 'gm' | 'pl
   }
 
   return {
-    async loadImage(url: string) {
+    async loadImage(url: string, isCurrent = () => true) {
       const img = new Image();
       await new Promise<void>((res, rej) => {
         img.onload = () => res();
         img.onerror = () => rej(new Error(`Failed to load image: ${url}`));
         img.src = url;
       });
+      if (!isCurrent()) return false;
       sizeAll(img.naturalWidth, img.naturalHeight);
       mapCtx.clearRect(0, 0, imgW, imgH);
       mapCtx.drawImage(img, 0, 0);
       fogCtx.clearRect(0, 0, imgW, imgH);
       fillFog();
       previewCtx.clearRect(0, 0, imgW, imgH);
+      return true;
     },
 
-    async applyFogMask(base64: string) {
+    async applyFogMask(base64: string, isCurrent = () => true) {
       const bin = atob(base64);
       const bytes = new Uint8Array(bin.length);
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
@@ -123,12 +127,13 @@ export function initCanvas(container: HTMLElement, options?: { mode?: 'gm' | 'pl
       let w = view.getUint32(0, false);
       let h = view.getUint32(4, false);
       if (w === 0 || h === 0) {
-        if (imgW === 0) return; // No image loaded yet
+        if (imgW === 0) return false; // No image loaded yet
         console.warn('Fog mask has 0x0 dimensions, falling back to loaded image dimensions', imgW, imgH);
         w = imgW;
         h = imgH;
       }
       const pixels = await decompress(bytes.slice(8));
+      if (!isCurrent()) return false;
       if (imgW !== w || imgH !== h) sizeAll(w, h);
       const id = fogCtx.createImageData(w, h);
       for (let i = 0; i < pixels.length; i++) {
@@ -139,6 +144,7 @@ export function initCanvas(container: HTMLElement, options?: { mode?: 'gm' | 'pl
         id.data[i * 4 + 3] = v; // Store full alpha; CSS opacity handles GM transparency
       }
       fogCtx.putImageData(id, 0, 0);
+      return true;
     },
 
     applyStroke(stroke: FogStroke) {

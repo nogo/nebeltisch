@@ -117,6 +117,15 @@ export function createViewport(): Viewport {
     return Math.sqrt(dx * dx + dy * dy);
   }
 
+  /**
+   * Controls that live inside the transformed world still need ordinary DOM input. The viewport
+   * listens in the capture phase, so without this opt-out it would swallow their pointer sequence
+   * before a button could produce a click.
+   */
+  function isViewportControl(target: EventTarget | null): boolean {
+    return target instanceof Element && target.closest('[data-viewport-control]') !== null;
+  }
+
   function cancelGrace() {
     if (graceTimer !== null) { clearTimeout(graceTimer); graceTimer = null; }
     gracePendingEv = null;
@@ -148,6 +157,7 @@ export function createViewport(): Viewport {
   }
 
   function onDown(ev: PointerEvent) {
+    if (isViewportControl(ev.target)) return;
     ev.preventDefault();
     ev.stopPropagation();
     pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
@@ -183,6 +193,7 @@ export function createViewport(): Viewport {
   }
 
   function onMove(ev: PointerEvent) {
+    if (isViewportControl(ev.target)) return;
     if (!pointers.has(ev.pointerId)) {
       // Hover (no button pressed) — forward for brush preview
       if (pointers.size === 0) {
@@ -234,6 +245,7 @@ export function createViewport(): Viewport {
   }
 
   function onUp(ev: PointerEvent) {
+    if (isViewportControl(ev.target)) return;
     ev.stopPropagation();
     pointers.delete(ev.pointerId);
     cancelGrace();
@@ -251,6 +263,7 @@ export function createViewport(): Viewport {
   }
 
   function onLeave(ev: PointerEvent) {
+    if (isViewportControl(ev.target)) return;
     // Ignore pointerleave on descendant elements — these fire as boundary
     // events when setPointerCapture redirects the pointer to the container.
     if (ev.target !== _container) return;

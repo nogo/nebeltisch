@@ -41,6 +41,10 @@ let tokenRadius = 20;
  */
 let activeImageId: string | null = null;
 let selectedImageId: string | null = null;
+/** The page whose image and fog have finished loading into the shared canvas stack. */
+let focusedImageId: string | null = null;
+/** Invalidates asynchronous image/fog work from an older selection. */
+let focusRequest = 0;
 
 /**
  * On a board of pages, one finger drags a page and paints nothing until the fog tool is armed.
@@ -331,7 +335,7 @@ function renderPages() {
   board.setPages(imageList);
   board.setLive(activeImageId);
   board.setSelected(selectedImageId);
-  board.setFocused(selectedImageId);
+  board.setFocused(focusedImageId);
   board.applyScale(viewport.scale);
   updateEmptyState();
   updatePresentButton();
@@ -345,24 +349,24 @@ function renderPages() {
  * server, because the board has to show a page's fog as it is stored (#49).
  */
 async function focusPage(id: string | null) {
+  const request = ++focusRequest;
   selectedImageId = id;
+  focusedImageId = null;
   board.setSelected(id);
-  board.setFocused(id);
+  board.setFocused(null);
+  canvasWrapper.hidden = true;
   updatePresentButton();
   updateToolAvailability();
 
   const record = id === null ? undefined : imageList.find(i => i.id === id);
   const rect = id === null ? null : board.rectOf(id);
   if (id === null || !record || !rect) {
-    canvasWrapper.hidden = true;
     return;
   }
 
-  canvasWrapper.style.left = `${rect.x}px`;
-  canvasWrapper.style.top = `${rect.y}px`;
-  canvasWrapper.hidden = false;
+  const isCurrent = () => request === focusRequest && selectedImageId === id;
 
-  await canvasCtrl.loadImage(`/uploads/${record.filename}`);
+  if (!await canvasCtrl.loadImage(`/uploads/${record.filename}`, isCurrent)) return;
 
   let mask = id === activeImageId ? liveFogMask : null;
   if (id !== activeImageId) {
@@ -372,10 +376,16 @@ async function focusPage(id: string | null) {
       console.error('Could not read this page\'s fog', e);
     }
   }
-  // Guard against a second focus landing while this one awaited.
-  if (selectedImageId !== id) return;
-  if (mask) await canvasCtrl.applyFogMask(mask);
+  if (!isCurrent()) return;
+  if (mask && !await canvasCtrl.applyFogMask(mask, isCurrent)) return;
+  if (!isCurrent()) return;
 
+  focusedImageId = id;
+  canvasWrapper.style.left = `${rect.x}px`;
+  canvasWrapper.style.top = `${rect.y}px`;
+  board.setFocused(id);
+  canvasWrapper.hidden = false;
+  updateToolAvailability();
   syncStartPointFromImageList();
 }
 
@@ -385,7 +395,8 @@ async function focusPage(id: string | null) {
  * not looking at is #51, and until it lands these tools are off rather than silently wrong.
  */
 function isPreparingOffLivePage(): boolean {
-  return selectedImageId !== null && selectedImageId !== activeImageId;
+  return selectedImageId !== null &&
+    (selectedImageId !== activeImageId || focusedImageId !== selectedImageId);
 }
 
 function updateToolAvailability() {
@@ -465,6 +476,7 @@ canvasCtrl.getWrapper().appendChild(startMarker);
 // one size on screen and pans and zooms with the marker without any repositioning code.
 const startMenu = document.createElement('div');
 startMenu.id = 'start-menu';
+startMenu.dataset.viewportControl = '';
 startMenu.hidden = true;
 const startLockBtn = document.createElement('button');
 startLockBtn.id = 'start-lock-btn';
