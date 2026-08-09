@@ -4,9 +4,9 @@ import type { WsData, Token } from "../types";
 import type { ServerDeps } from "../deps";
 import type { FogSession } from "../fog/session";
 import { getAdventure, getAdventureByPlayerLink, setActiveImage, setTokenSize } from "../db/adventures";
-import { getImage, setStartPoint } from "../db/images";
+import { getImage, setStartPoint, setStartLocked } from "../db/images";
 import { repairImageDimensions } from "../images";
-import { findOrCreateToken, createToken, getTokensByAdventure, getPlayerTokensByAdventure, getGmTokensByImage, updateTokenPosition, rememberTokenPosition, getRememberedPositions, clearRememberedPositions, deleteToken } from "../db/tokens";
+import { findOrCreateToken, createToken, getTokensByAdventure, getPlayerTokensByAdventure, getGmTokensByImage, updateTokenPosition, rememberTokenPosition, getRememberedPositions, deleteToken } from "../db/tokens";
 import {
   registerConnection,
   unregisterConnection,
@@ -287,9 +287,9 @@ export function createWsHandlers(deps: ServerDeps) {
           const others = playerTokens.filter((t) => t.id !== tokenId).length;
           const spawnPos = placeArrivingToken(db, adventure, others);
           updateTokenPosition(db, tokenId, spawnPos.x, spawnPos.y);
-          if (adventure.active_image_id) {
-            rememberTokenPosition(db, tokenId, adventure.active_image_id, spawnPos.x, spawnPos.y);
-          }
+          // A spawn is an arrival, so it is not remembered either — same rule as the map switch
+          // below. Remembering it made a player who joined on a map return to their spawn on every
+          // later visit instead of arriving on its flag (#46, found while verifying #57).
 
           // Broadcast with updated position
           const newToken = getTokensByAdventure(db, adventureId).find((t) => t.id === tokenId);
@@ -461,7 +461,10 @@ export function createWsHandlers(deps: ServerDeps) {
                     }
                   : positions[arrivingIndex++];
                 updateTokenPosition(db, t.id, pos.x, pos.y);
-                rememberTokenPosition(db, t.id, msg.imageId, pos.x, pos.y);
+                // Arrival is deliberately *not* remembered (#46). Recording it made the very first
+                // visit consume the start point permanently, including a visit the GM made alone to
+                // paint fog. `token:move` is the only writer of token_positions, so a remembered
+                // position always means a token actually walked there.
               }
               playerTokens = getPlayerTokensByAdventure(db, adventureId);
             }
@@ -503,17 +506,54 @@ export function createWsHandlers(deps: ServerDeps) {
             ws.send(serializeMessage({ type: "error", message: "Image not found" }));
             break;
           }
+          // The lock outlives the browser tab that set it, so the server enforces it rather than
+          // trusting a client not to send (principle 1).
+          if (image.start_locked) {
+            ws.send(serializeMessage({ type: "error", message: "This start point is locked" }));
+            break;
+          }
           const clearing = msg.x === null || msg.y === null;
           const x = clearing ? null : Math.round(Math.min(image.width, Math.max(0, Number(msg.x) || 0)));
           const y = clearing ? null : Math.round(Math.min(image.height, Math.max(0, Number(msg.y) || 0)));
           setStartPoint(db, msg.imageId, x, y);
-          if (!clearing) {
-            // Declaring where arrival happens overrides positions recorded
-            // earlier — typically while painting fog before the flag was set.
-            clearRememberedPositions(db, msg.imageId);
-          }
+          // Remembered positions are left alone. They mean a token walked there, and the flag
+          // governs first entry while walking governs return — moving one must not erase the other
+          // (#57). The clear that used to live here compensated for #46 and retires with it.
           // GM-only: players must never learn where the party will appear.
-          ws.send(serializeMessage({ type: "map:start_point:set", imageId: msg.imageId, x, y }));
+          ws.send(
+            serializeMessage({
+              type: "map:start_point:set",
+              imageId: msg.imageId,
+              x,
+              y,
+              locked: false,
+            })
+          );
+          break;
+        }
+
+        case "map:start_point:lock": {
+          if (conn.role !== "gm") {
+            ws.send(serializeMessage({ type: "error", message: "Only GM can lock the start point" }));
+            break;
+          }
+          const image = getImage(db, msg.imageId);
+          if (!image || image.adventure_id !== adventureId) {
+            ws.send(serializeMessage({ type: "error", message: "Image not found" }));
+            break;
+          }
+          setStartLocked(db, msg.imageId, msg.locked);
+          // Same GM-only path, and the same message, so the client has one place to read the
+          // start point's whole state from.
+          ws.send(
+            serializeMessage({
+              type: "map:start_point:set",
+              imageId: msg.imageId,
+              x: image.start_x,
+              y: image.start_y,
+              locked: msg.locked,
+            })
+          );
           break;
         }
 

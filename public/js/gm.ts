@@ -76,7 +76,6 @@ const playerCount = document.getElementById('player-count')!;
 const presentBtn = document.getElementById('present-btn') as HTMLButtonElement;
 const fitBtn = document.getElementById('fit-btn')!;
 const placeTokenBtn = document.getElementById('place-token-btn')!;
-const startPointBtn = document.getElementById('start-point-btn')!;
 const flagIconTemplate = document.getElementById('flag-icon') as HTMLTemplateElement;
 
 // Token placement form
@@ -124,7 +123,11 @@ const viewport = createViewport();
 // Unbounded: the board is a canvas the pages float on, not a page. What is on it never decides how
 // far the GM can pull back, and panning is free — `fitBoard` is what brings them home.
 viewport.attach(canvasArea, board.element, () => board.getWorldBounds(), { bounded: false });
-viewport.onChange(() => board.applyScale(viewport.scale));
+viewport.onChange(() => {
+  board.applyScale(viewport.scale);
+  // The marker's menu counter-scales, so zooming has to re-apply it.
+  if (startSelected) renderStartMarker();
+});
 
 /** Frames every page. On a canvas with no edges this is the only way back to the content. */
 function fitBoard() {
@@ -432,11 +435,16 @@ copyInviteBtn.addEventListener('click', () => {
   setTimeout(() => { copyInviteBtn.textContent = 'Copy invite link'; }, 1500);
 });
 
-// --- Start point mode ---
-// Where the party lands when this map is activated. GM-only: the marker is never
-// sent to players, so they cannot see where they will appear.
-let startPointModeActive = false;
+// --- The start point ---
+// Where the party lands when this map is presented. GM-only: the marker is never sent to players,
+// so they cannot see where they will appear.
+//
+// Every map has one. A null `start_x` means "never moved", not "none" — the server already lands
+// the party at the map centre in that case, so the marker is drawn there rather than hidden. There
+// is nothing to create and nothing to clear (#57).
 let startPoint: { x: number; y: number } | null = null;
+let startLocked = false;
+let startSelected = false;
 
 // A plain circle reads as just another token next to prepared monsters and
 // NPCs. The marker is a flag on a pole with a labelled ring showing where the
@@ -453,14 +461,47 @@ startMarkerLabel.textContent = 'Start';
 startMarker.append(startMarkerFlag, startMarkerLabel);
 canvasCtrl.getWrapper().appendChild(startMarker);
 
+// Selecting the marker reveals its menu. Counter-scaled like the board's page labels, so it stays
+// one size on screen and pans and zooms with the marker without any repositioning code.
+const startMenu = document.createElement('div');
+startMenu.id = 'start-menu';
+startMenu.hidden = true;
+const startLockBtn = document.createElement('button');
+startLockBtn.id = 'start-lock-btn';
+startMenu.appendChild(startLockBtn);
+canvasCtrl.getWrapper().appendChild(startMenu);
+
 /** Mirrors gatherRingRadius on the server so the ring shows the real landing area. */
 function gatherRingRadius(count: number): number {
   return tokenRadius * Math.max(2.2, Math.max(count, 1) * 0.45);
 }
 
+/** The grabbable part is the flag glyph, not the landing ring, which overlaps the party. */
+function startGlyphRadius(): number {
+  return Math.max(16, tokenRadius * 1.6) / 2;
+}
+
+/**
+ * Grab radius in image pixels, floored at a finger-sized target on screen — the same reasoning as
+ * `hitRadius` in tokens.ts, since a marker drawn in image space is a few pixels wide when zoomed out.
+ */
+const MIN_TOUCH_PX = 22;
+function startHitRadius(): number {
+  const scale = viewport.scale > 0 ? viewport.scale : 1;
+  return Math.max(startGlyphRadius(), MIN_TOUCH_PX / scale);
+}
+
+function isOnStartMarker(pageX: number, pageY: number): boolean {
+  if (!startPoint || startMarker.hidden) return false;
+  const dx = pageX - startPoint.x;
+  const dy = pageY - startPoint.y;
+  return Math.sqrt(dx * dx + dy * dy) <= startHitRadius();
+}
+
 function renderStartMarker() {
   if (!startPoint) {
     startMarker.hidden = true;
+    startMenu.hidden = true;
     return;
   }
   const size = gatherRingRadius(playerRoster.length) * 2;
@@ -468,52 +509,59 @@ function renderStartMarker() {
   startMarker.style.height = `${size}px`;
   startMarker.style.left = `${startPoint.x}px`;
   startMarker.style.top = `${startPoint.y}px`;
-  const glyph = Math.max(16, tokenRadius * 1.6);
+  const glyph = startGlyphRadius() * 2;
   startMarkerFlag.style.width = `${glyph}px`;
   startMarkerFlag.style.height = `${glyph}px`;
   startMarkerLabel.style.fontSize = `${Math.max(9, tokenRadius * 0.6)}px`;
+  startMarker.classList.toggle('locked', startLocked);
+  startMarker.classList.toggle('selected', startSelected);
   startMarker.hidden = false;
+
+  startLockBtn.textContent = startLocked ? 'Unlock' : 'Lock';
+  startMenu.style.left = `${startPoint.x}px`;
+  startMenu.style.top = `${startPoint.y - size / 2}px`;
+  startMenu.style.transform = `translate(-50%, -100%) scale(${1 / (viewport.scale || 1)})`;
+  startMenu.hidden = !startSelected;
 }
 
-function deactivateStartPointMode() {
-  startPointModeActive = false;
-  startPointBtn.classList.remove('active');
-  document.body.classList.remove('setting-start');
+function selectStartMarker(selected: boolean) {
+  if (startSelected === selected) return;
+  startSelected = selected;
+  renderStartMarker();
 }
 
-// Targets the selected page, not the presented one: `map:start_point` has always carried an
-// explicit image id, which is how the retired picker set a start point without showing the map.
-startPointBtn.addEventListener('click', () => {
+// A locked marker still selects — otherwise there would be no way to unlock it.
+startLockBtn.addEventListener('click', (ev) => {
+  ev.stopPropagation();
   if (!selectedImageId) return;
-  startPointModeActive = !startPointModeActive;
-  startPointBtn.classList.toggle('active', startPointModeActive);
-  document.body.classList.toggle('setting-start', startPointModeActive);
-  if (startPointModeActive) {
-    deactivatePlaceMode();
-    setArmed(false);
-  }
+  ws.send({ type: 'map:start_point:lock', imageId: selectedImageId, locked: !startLocked });
 });
 
 ws.on('map:start_point:set', (msg) => {
-  const id = msg.imageId;
-  const x = msg.x;
-  const y = msg.y;
-
-  const img = imageList.find(i => i.id === id);
-  if (img) { img.start_x = x; img.start_y = y; }
-
-  if (id === selectedImageId) {
-    startPoint = x != null && y != null ? { x, y } : null;
-    renderStartMarker();
+  const img = imageList.find(i => i.id === msg.imageId);
+  if (img) {
+    img.start_x = msg.x;
+    img.start_y = msg.y;
+    img.start_locked = msg.locked ? 1 : 0;
   }
+  if (msg.imageId === selectedImageId) syncStartPointFromImageList();
 });
 
-/** Restores the marker for whichever page the GM is on. */
+/** Restores the marker for whichever page the GM is on, at the centre when it was never moved. */
 function syncStartPointFromImageList() {
   const img = imageList.find(i => i.id === selectedImageId);
-  startPoint = img && img.start_x != null && img.start_y != null
-    ? { x: img.start_x, y: img.start_y }
-    : null;
+  if (!img) {
+    startPoint = null;
+    startLocked = false;
+    renderStartMarker();
+    return;
+  }
+  // The same fallback the server uses to place the party, made visible.
+  startPoint = {
+    x: img.start_x ?? img.width / 2,
+    y: img.start_y ?? img.height / 2,
+  };
+  startLocked = img.start_locked === 1;
   renderStartMarker();
 }
 
@@ -705,7 +753,7 @@ function toggleBrush(mode: 'reveal' | 'fog') {
   }
   brushMode = mode;
   deactivatePlaceMode();
-  deactivateStartPointMode();
+  selectStartMarker(false);
   setArmed(true);
 }
 
@@ -855,14 +903,6 @@ viewport.onInteractStart((ev: PointerEvent) => {
   if (imageList.length === 0) return;
   closeAllPopups();
 
-  // Start point mode — one click sets it, then exits
-  if (startPointModeActive && selectedImageId) {
-    const pos = screenToPage(ev.clientX, ev.clientY);
-    ws.send({ type: 'map:start_point', imageId: selectedImageId, x: pos.x, y: pos.y });
-    deactivateStartPointMode();
-    return;
-  }
-
   // Place token mode — show form on click, skip painting
   if (placeModeActive) {
     const pos = screenToPage(ev.clientX, ev.clientY);
@@ -873,6 +913,16 @@ viewport.onInteractStart((ev: PointerEvent) => {
   // Nothing armed: one finger works the board. A tap selects the page under it, a drag moves it,
   // and neither reaches the players (#49, #50). With the brush armed, pages hold still instead.
   if (!brushArmed) {
+    // The marker takes precedence over the page beneath it, the same order the token layers take.
+    // A tap selects it, revealing its menu; a drag moves it, unless it is locked.
+    const page = screenToPage(ev.clientX, ev.clientY);
+    if (isOnStartMarker(page.x, page.y)) {
+      startPointerStart = { x: ev.clientX, y: ev.clientY };
+      startDragging = false;
+      return;
+    }
+    selectStartMarker(false);
+
     const world = viewport.screenToImage(ev.clientX, ev.clientY);
     const hit = board.pageAt(world.x, world.y);
     if (hit) board.beginDrag(hit, world.x, world.y);
@@ -917,6 +967,22 @@ viewport.onInteractStart((ev: PointerEvent) => {
 });
 
 viewport.onPointerMove((ev: PointerEvent) => {
+  if (startPointerStart) {
+    if (!startDragging) {
+      const dx = ev.clientX - startPointerStart.x;
+      const dy = ev.clientY - startPointerStart.y;
+      if (dx * dx + dy * dy < DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) return;
+      // A locked marker absorbs the gesture rather than falling through to the page: dragging the
+      // board out from under a flag the GM just tried to move would read as the lock misfiring.
+      if (startLocked) return;
+      startDragging = true;
+    }
+    const page = screenToPage(ev.clientX, ev.clientY);
+    startPoint = { x: page.x, y: page.y };
+    renderStartMarker();
+    return;
+  }
+
   if (board.isDragging()) {
     // A finger never lands perfectly still. Without a threshold every tap would count as a drag
     // and nothing on the board could be selected by touch.
@@ -952,6 +1018,10 @@ viewport.onPointerMove((ev: PointerEvent) => {
   actionHasStrokes = true;
   if (Date.now() - lastFlush >= FLUSH_INTERVAL) flushPending();
 });
+
+/** Set while a gesture began on the start marker, so a tap can be told from a drag. */
+let startPointerStart: { x: number; y: number } | null = null;
+let startDragging = false;
 
 /** The page a board gesture started on, so a tap that never moved can be read as a selection. */
 let boardPointerTarget: string | null = null;
@@ -989,7 +1059,27 @@ function finishBoardGesture() {
   if (tapped && tapped !== selectedImageId) void focusPage(tapped);
 }
 
+function finishStartGesture() {
+  const dragged = startDragging;
+  startPointerStart = null;
+  startDragging = false;
+
+  if (dragged && startPoint && selectedImageId) {
+    // One message on release, like a page position — not one per pointer move.
+    ws.send({
+      type: 'map:start_point',
+      imageId: selectedImageId,
+      x: Math.round(startPoint.x),
+      y: Math.round(startPoint.y),
+    });
+    return;
+  }
+  // A tap that moved nothing selects the marker and shows its menu.
+  selectStartMarker(!startSelected);
+}
+
 function finishAction() {
+  if (startPointerStart !== null) { finishStartGesture(); return; }
   if (boardPointerTarget !== null || board.isDragging()) { finishBoardGesture(); return; }
   toolbox.classList.remove('painting');
   if (activeDragCtrl) { activeDragCtrl.handlePointerUp(); activeDragCtrl = null; return; }

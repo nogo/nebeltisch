@@ -263,13 +263,23 @@ async function handleAdventureRoutes(
       const gmPassword = req.headers.get("X-GM-Password");
       const playerLink = req.headers.get("X-Player-Link");
 
+      let isGm = true;
       if (gmPassword !== adventure.gm_password) {
         if (!playerLink) return error("Unauthorized", 401);
         const linked = getAdventureByPlayerLink(db, playerLink);
         if (!linked || linked.id !== id) return error("Unauthorized", 401);
+        isGm = false;
       }
 
-      return json(getImagesByAdventure(db, id));
+      const images = getImagesByAdventure(db, id);
+      if (isGm) return json(images);
+
+      // The WebSocket path is careful never to publish a start point — "players must never learn
+      // where the party will appear" — and this route was handing them every one over REST. The
+      // client reads none of these fields (#57).
+      return json(
+        images.map(({ start_x, start_y, start_locked, ...rest }) => rest)
+      );
     }
 
     // DELETE /api/adventures/:id/images/:imageId

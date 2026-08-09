@@ -65,9 +65,11 @@ adventures ──< images ──< token_positions >── tokens
 | Table | Key columns | Notes |
 |---|---|---|
 | `adventures` | `gm_password`, `player_link`, `active_image_id`, `token_size` | `active_image_id` is what players see |
-| `images` | `filename`, `width`, `height`, `fog_mask` BLOB, `sort_order`, `start_x`, `start_y`, `board_x`, `board_y` | One fog mask per map. `start_*` null means "use map centre". `board_*` is layout on the GM's board and means nothing else — no order, no adjacency, no geography |
+| `images` | `filename`, `width`, `height`, `fog_mask` BLOB, `sort_order`, `start_x`, `start_y`, `start_locked`, `board_x`, `board_y` | One fog mask per map. `start_*` null means "never moved"; the map centre is the fallback and every map therefore has a start point. `start_locked` freezes it against a stray drag. `board_*` is layout on the GM's board and means nothing else — no order, no adjacency, no geography |
 | `tokens` | `token_type`, `player_link`, `image_id`, `x`, `y` | See token rules below |
 | `token_positions` | `(token_id, image_id)` PK, `x`, `y` | Where each token last stood on each map |
+
+**The start point is deliberately not a token kind.** It would inherit dragging, locking and its menu for free — and it would put a GM-only secret in the table whose rows are broadcast to players. Monster and NPC tokens reach the player client through `joined`, `map:switched` and `token:added`; the start point reaches only the GM, by a single `ws.send`. Keeping it in `images` makes that structural instead of a filter five code paths must each remember, where the failure is silent and shows up as a marker on a player's screen at the worst moment.
 
 ### Token rules
 
@@ -83,7 +85,13 @@ Player identity is the composite `playerLink|playerName`. Same link and same nam
 - **Start point governs arrival:** first entry to a map, and every late joiner.
 - **`token_positions` governs return:** coming back restores where each player stood.
 
-Both rules are specified in full, with acceptance criteria, in #36 — closed, so the criteria there are the record of what was actually built.
+**`token:move` is the only writer of `token_positions`.** A remembered position therefore means a token *walked* there, and that is what makes the two rules separable. Arrival does not write one, and neither does a spawn — both are arrivals. Moving the start point does not clear them either: the flag governs first entry, so redeclaring it cannot retroactively un-visit the map.
+
+That invariant is the whole of the fix for #46, where recording arrival as if it were a return made the very first visit consume a map's start point permanently — including a visit the GM made alone to paint fog. Every map in one production adventure was in that state. Two earlier compensations existed and both retire with it: the write at the join path, and `clearRememberedPositions` on setting a start point (#39).
+
+**Every map has a start point.** `start_x`/`start_y` are nullable, and null means "never moved", not "none" — the server lands the party at the map centre either way. The GM's marker is drawn at that fallback rather than hidden, so a map nobody has set up looks like what it is.
+
+Both rules are specified in full, with acceptance criteria, in #36 — closed, so the criteria there are the record of what was actually built. #57 rewrote how the point is set and made the invariant above true.
 
 ## Design decisions
 

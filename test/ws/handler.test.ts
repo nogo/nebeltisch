@@ -938,22 +938,22 @@ describe("WebSocket handler", () => {
     expect(Math.hypot(token.x - 90, token.y - 90)).toBeGreaterThan(40);
   });
 
-  it("Setting a start point forgets positions recorded before it", async () => {
+  // Inverts the assertion this test carried before #57. It used to expect the flag to override a
+  // recorded position, which #39 added to compensate for #46 — arrival being recorded as a return.
+  // With that defect gone, a recorded position means the player genuinely walked there, and the
+  // documented promise applies: the flag governs first entry, walking governs return.
+  it("Moving the start point does not forget where the party walked", async () => {
     ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
     const { gm, player, tokenId } = await connectGmAndPlayer();
 
-    // The GM paints on the map first; the party's position gets recorded.
     const moved = waitForMessage(gm, "token:moved");
     player.send(JSON.stringify({ type: "token:move", tokenId, x: 95, y: 95 }));
     await moved;
 
-    // The flag goes up afterwards — the natural order, since setting it no
-    // longer requires activating the map.
     const ack = waitForMessage(gm, "map:start_point:set");
     gm.send(JSON.stringify({ type: "map:start_point", imageId, x: 15, y: 15 }));
     await ack;
 
-    // Leave and come back: the party arrives at the flag, not the old spot.
     const other = createImageRecord(ts.db, {
       adventureId, filename: "o.png", originalName: "o.png", width: 100, height: 100,
     });
@@ -965,8 +965,123 @@ describe("WebSocket handler", () => {
     await switched;
 
     const token = getTokensByAdventure(ts.db, adventureId).find((t) => t.id === tokenId)!;
-    expect(Math.hypot(token.x - 15, token.y - 15)).toBeLessThan(60);
-    expect(token.x).not.toBe(95);
+    expect(token.x).toBe(95);
+    expect(token.y).toBe(95);
+  });
+
+  // #46: the GM prepares a map alone, then brings the party there in play.
+  it("Opening a map alone during preparation does not consume its start point", async () => {
+    const prepared = createImageRecord(ts.db, {
+      adventureId, filename: "prep.png", originalName: "prep.png", width: 200, height: 200,
+    });
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
+    const { gm, tokenId } = await connectGmAndPlayer();
+
+    const ack = waitForMessage(gm, "map:start_point:set");
+    gm.send(JSON.stringify({ type: "map:start_point", imageId: prepared.id, x: 150, y: 60 }));
+    await ack;
+
+    // The GM visits it alone to paint, then goes back to where the party is.
+    let switched = waitForMessage(gm, "map:switched");
+    gm.send(JSON.stringify({ type: "map:switch", imageId: prepared.id }));
+    await switched;
+    switched = waitForMessage(gm, "map:switched");
+    gm.send(JSON.stringify({ type: "map:switch", imageId }));
+    await switched;
+
+    // Now the party arrives for real. Before #57 they landed wherever the GM's solo visit put them.
+    switched = waitForMessage(gm, "map:switched");
+    gm.send(JSON.stringify({ type: "map:switch", imageId: prepared.id }));
+    await switched;
+
+    const token = getTokensByAdventure(ts.db, adventureId).find((t) => t.id === tokenId)!;
+    expect(Math.hypot(token.x - 150, token.y - 60)).toBeLessThan(60);
+  });
+
+  // Found while verifying #57: a spawn is an arrival, so remembering it made a player who joined
+  // on a map return to their spawn on every later visit instead of arriving on its flag.
+  it("A player who joins on a map still arrives on its flag when brought back", async () => {
+    const other = createImageRecord(ts.db, {
+      adventureId, filename: "other.png", originalName: "other.png", width: 200, height: 200,
+    });
+    ts.db.run(`UPDATE images SET start_x = 20, start_y = 20 WHERE id = ?`, [imageId]);
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
+
+    const { gm, tokenId } = await connectGmAndPlayer();
+
+    // Away and back, with nobody walking anywhere.
+    let switched = waitForMessage(gm, "map:switched");
+    gm.send(JSON.stringify({ type: "map:switch", imageId: other.id }));
+    await switched;
+    switched = waitForMessage(gm, "map:switched");
+    gm.send(JSON.stringify({ type: "map:switch", imageId }));
+    await switched;
+
+    const token = getTokensByAdventure(ts.db, adventureId).find((t) => t.id === tokenId)!;
+    expect(Math.hypot(token.x - 20, token.y - 20)).toBeLessThan(60);
+  });
+
+  it("A locked start point cannot be moved", async () => {
+    const { gm } = await connectGmAndPlayer();
+
+    let ack = waitForMessage(gm, "map:start_point:set");
+    gm.send(JSON.stringify({ type: "map:start_point", imageId, x: 30, y: 40 }));
+    expect((await ack).locked).toBe(false);
+
+    ack = waitForMessage(gm, "map:start_point:set");
+    gm.send(JSON.stringify({ type: "map:start_point:lock", imageId, locked: true }));
+    const locked = await ack;
+    expect(locked.locked).toBe(true);
+    // The lock carries the point with it, so one message is the whole state.
+    expect(locked.x).toBe(30);
+    expect(locked.y).toBe(40);
+
+    const errPromise = waitForMessage(gm, "error");
+    gm.send(JSON.stringify({ type: "map:start_point", imageId, x: 90, y: 90 }));
+    expect((await errPromise).message).toContain("locked");
+
+    const image = ts.db
+      .query<{ start_x: number; start_y: number }, string>(
+        `SELECT start_x, start_y FROM images WHERE id = ?`
+      )
+      .get(imageId)!;
+    expect(image.start_x).toBe(30);
+    expect(image.start_y).toBe(40);
+  });
+
+  it("Unlocking lets the start point move again", async () => {
+    const { gm } = await connectGmAndPlayer();
+
+    let ack = waitForMessage(gm, "map:start_point:set");
+    gm.send(JSON.stringify({ type: "map:start_point:lock", imageId, locked: true }));
+    await ack;
+
+    ack = waitForMessage(gm, "map:start_point:set");
+    gm.send(JSON.stringify({ type: "map:start_point:lock", imageId, locked: false }));
+    expect((await ack).locked).toBe(false);
+
+    ack = waitForMessage(gm, "map:start_point:set");
+    gm.send(JSON.stringify({ type: "map:start_point", imageId, x: 55, y: 65 }));
+    const moved = await ack;
+    expect(moved.x).toBe(55);
+    expect(moved.y).toBe(65);
+  });
+
+  it("Player cannot lock a start point", async () => {
+    const player = track(
+      await connectWS(ts.wsUrl, {
+        adventureId,
+        role: "player",
+        playerLink,
+        playerName: "Bob",
+        playerColor: "#00ff00",
+      })
+    );
+    await waitForMessage(player, "joined");
+
+    const errPromise = waitForMessage(player, "error");
+    player.send(JSON.stringify({ type: "map:start_point:lock", imageId, locked: true }));
+    expect((await errPromise).message).toContain("GM");
   });
 
   it("Player cannot set a start point", async () => {

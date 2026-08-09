@@ -55,6 +55,11 @@ export function setStartPoint(db: Database, id: string, x: number | null, y: num
   db.run(`UPDATE images SET start_x = ?, start_y = ? WHERE id = ?`, [x, y, id]);
 }
 
+/** Freezes the start point where it is. Guards against a stray drag, not against the GM. */
+export function setStartLocked(db: Database, id: string, locked: boolean): void {
+  db.run(`UPDATE images SET start_locked = ? WHERE id = ?`, [locked ? 1 : 0, id]);
+}
+
 /** Where the page sits on the adventure's board. Layout only — nothing reads geography into it. */
 export function setBoardPosition(db: Database, id: string, x: number, y: number): void {
   db.run(`UPDATE images SET board_x = ?, board_y = ? WHERE id = ?`, [x, y, id]);

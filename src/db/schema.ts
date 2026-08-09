@@ -98,6 +98,13 @@ export function createSchema(db: Database): void {
       WHERE player_link IS NOT NULL
   `);
 
+  // Migration: a start point the GM has locked cannot be dragged (#57)
+  try {
+    db.run(`ALTER TABLE images ADD COLUMN start_locked INTEGER NOT NULL DEFAULT 0`);
+  } catch {
+    // Column already exists — ignore
+  }
+
   // Migration: where each page sits on the adventure's board (#49)
   try {
     db.run(`ALTER TABLE images ADD COLUMN board_x REAL NULL`);

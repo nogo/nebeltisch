@@ -65,6 +65,12 @@ export interface MapStartPointMessage {
   y: number | null;
 }
 
+export interface MapStartPointLockMessage {
+  type: "map:start_point:lock";
+  imageId: string;
+  locked: boolean;
+}
+
 export interface PingMessage {
   type: "ping";
 }
@@ -104,6 +110,7 @@ export type ClientMessage =
   | PingMessage
   | PingMapMessage
   | MapStartPointMessage
+  | MapStartPointLockMessage
   | SettingsUpdateMessage
   | GmTokenPlaceMessage
   | GmTokenRemoveMessage;
@@ -171,11 +178,13 @@ export interface MapSwitchedMessage {
   playerTokens: Token[];
 }
 
+/** GM-only. Sent for both a move and a lock, so one message carries the whole state. */
 export interface MapStartPointSetMessage {
   type: "map:start_point:set";
   imageId: string;
   x: number | null;
   y: number | null;
+  locked: boolean;
 }
 
 export interface PlayerJoinedMessage {

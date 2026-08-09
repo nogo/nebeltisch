@@ -37,6 +37,8 @@ export interface ImageRecord {
   sort_order: number;
   start_x: number | null;
   start_y: number | null;
+  /** 1 once the GM has locked the start point in place, so a stray drag cannot move it. */
+  start_locked: number;
   /** Where the page sits on the adventure's board. Null only until the migration backfills it. */
   board_x: number | null;
   board_y: number | null;

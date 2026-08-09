@@ -25,8 +25,10 @@ export interface ImageRecord {
   width: number;
   height: number;
   sort_order: number;
+  /** Null means "never moved", not "none" — the map centre is where the party lands either way. */
   start_x: number | null;
   start_y: number | null;
+  start_locked: number;
   /** Where the page sits on the board. Null only for a row the migration has not reached yet. */
   board_x: number | null;
   board_y: number | null;

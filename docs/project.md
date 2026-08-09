@@ -13,7 +13,7 @@ A GM and their players see the same map in a browser. The GM controls what is vi
 
 | Actor | Can do |
 |---|---|
-| GM | Create an adventure, upload maps, paint and un-paint fog with a round brush, undo/redo, place monster/NPC tokens, mark a per-map party start point, switch the active map, move any token, remove players, ping |
+| GM | Create an adventure, upload maps, paint and un-paint fog with a round brush, undo/redo, place monster/NPC tokens, drag and lock a per-map party start point, switch the active map, move any token, remove players, ping |
 | Player | Join by link with a name and colour, move their own token, pan/zoom, ping |
 
 Supporting properties:
@@ -68,7 +68,7 @@ No accounts today. The GM holds a password in a URL fragment; players hold an in
 
 ### Scope
 
-**In:** maps, fog brush, undo/redo, player tokens, GM monster/NPC tokens, per-map start points, pings, pan/zoom, the preparation board and presenting a page from it (#49, #50), GM and player interfaces, Docker deployment. Committed on 2026-08-09 and not yet built: preparing a page the party is not looking at (#51), preparation and presentation phases (#52), GM accounts and an adventure dashboard (#26), and card pages carrying an image with no fog or tokens (#53).
+**In:** maps, fog brush, undo/redo, player tokens, GM monster/NPC tokens, per-map start points that are dragged and locked (#57), pings, pan/zoom, the preparation board and presenting a page from it (#49, #50), GM and player interfaces, Docker deployment. Committed on 2026-08-09 and not yet built: preparing a page the party is not looking at (#51), preparation and presentation phases (#52), GM accounts and an adventure dashboard (#26), and card pages carrying an image with no fog or tokens (#53).
 
 **Out:** dice rolling, character sheets, initiative tracking, audio, rules automation, public/community hosting. Deferred ideas are tracked as GitHub issues.
 

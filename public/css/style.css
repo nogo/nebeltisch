@@ -319,7 +319,6 @@ body.home {
 
 /* ── Canvas crosshair in place mode ── */
 body.placing #canvas-area { cursor: crosshair !important; }
-body.setting-start #canvas-area { cursor: crosshair !important; }
 /* With nothing armed the finger belongs to the board; armed, it belongs to the fog. */
 body.gm .board-page { cursor: grab; }
 body.gm .board-page.dragging { cursor: grabbing; }
@@ -428,6 +427,38 @@ body.painting-armed .board-page { cursor: crosshair; }
   line-height: 0;
 }
 #start-marker-flag svg { width: 100%; height: 100%; }
+
+/* Locked reads at a glance, without opening the menu: the ring goes solid. */
+#start-marker.locked {
+  border-style: solid;
+  background: rgba(255, 176, 32, 0.14);
+}
+#start-marker.selected {
+  background: rgba(255, 176, 32, 0.22);
+}
+
+/* The marker's menu. Counter-scaled in JS, so it stays one size on screen at any zoom. */
+#start-menu {
+  position: absolute;
+  transform-origin: bottom center;
+  z-index: 2;
+  padding-bottom: 6px;
+  white-space: nowrap;
+}
+#start-menu[hidden] { display: none; }
+#start-lock-btn {
+  background: rgba(18, 18, 36, 0.97);
+  border: 1px solid rgba(255, 176, 32, 0.5);
+  color: #ffb020;
+  border-radius: 8px;
+  padding: 0 12px;
+  min-height: 32px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+#start-lock-btn:hover { background: rgba(255, 176, 32, 0.2); color: #ffd080; }
 #start-marker-label {
   color: #ffb020;
   font-weight: 700;

@@ -32,16 +32,19 @@ GM fog painting on a phone is not a goal. Tablet with stylus is.
 
 | Gesture | Action |
 |---------|--------|
-| 1 finger / stylus | Interact — GM: drag a page, or paint fog once the brush is armed; Player: drag token |
+| 1 finger / stylus | Interact — GM: drag the start marker or a page, or paint fog once the brush is armed; Player: drag token |
+| Tap the start marker | GM only: select it, revealing its lock menu |
 | 2-finger drag | Pan |
 | Pinch | Zoom in/out |
 | Double-tap empty canvas | GM only: fit the board |
+
+The start marker takes precedence over the page beneath it, the same order the token layers already take. Five screen pixels of travel separate a tap from a drag, so a tap that jitters still selects.
 
 No mode toggle for pan vs draw. The gesture itself disambiguates. ~100ms grace period before committing to draw, so a second finger can arrive for pan/zoom.
 
 **One deliberate exception, on the board.** One finger drags a page and paints nothing until a tool is armed. The rule above still governs a single page under the finger; it cannot govern a board, where a stray finger would paint fog onto whichever page happened to be underneath — a far worse failure than an extra tap. Two fingers pan and pinch zooms whatever is armed, or a large page cannot be reached mid-stroke.
 
-**The brush is armed by picking Reveal or Re-fog**, and disarmed by tapping the armed segment again — the same idiom the start-point and place-token buttons use. Neither segment is active on load. A tap must travel five screen pixels before it counts as a drag, or no finger would ever select a page.
+**The brush is armed by picking Reveal or Re-fog**, and disarmed by tapping the armed segment again — the same idiom the place-token button uses. Neither segment is active on load. A tap must travel five screen pixels before it counts as a drag, or no finger would ever select a page.
 
 ---
 
@@ -67,7 +70,15 @@ A page's position on the board means only what the GM means by it — village he
 
 **A player's viewport is bounded, and stays that way.** One page, no zooming out past it filling the screen, no panning it off the edge. There is nothing beyond it to find, so the freedom would only buy them a way to lose the map.
 
-**Selecting and presenting are different acts.** A tap selects: the page gains the canvas stack, its stored fog is drawn, and the start-point tool acts on it. Nobody else sees any of that. Presenting is the second, explicit action — see Play Phase below.
+**Selecting and presenting are different acts.** A tap selects: the page gains the canvas stack and its stored fog is drawn. Nobody else sees any of that. Presenting is the second, explicit action — see Play Phase below.
+
+### The start point
+
+**Every map shows where the party will land**, including one nobody has set up: the marker sits at the map centre, which is where the server sends them anyway. There is no button, nothing to create and nothing to clear.
+
+**It is moved by dragging it**, like a token under the finger, and the position is saved on release. **Tap it to select**, and a small menu appears beside it with Lock and Unlock. A locked marker cannot be dragged — the ring goes solid so the state reads at a glance — and it still selects, or there would be no way to unlock it. The lock is stored per map, so it is the same on the next device, and it starts unlocked.
+
+Players never see the marker, on any map, presented or not.
 
 Only the selected page carries the canvas stack; every other page is the plain uploaded image, with no fog drawn over it.
 
@@ -75,7 +86,7 @@ Only the selected page carries the canvas stack; every other page is the plain u
 
 All panels are expanded. Pages are uploaded, named and arranged here, and any page can be prepared — fog, monster and NPC tokens, start point — whether or not it is the one on the table (#51).
 
-**Setting a start point already works on any page**, presented or not, and is done by selecting the page and arming the flag. **Fog and tokens do not yet**: everything that writes them targets the presented page, so those tools are disabled while a page that is not live is selected. Lifting that is exactly #51, and the phases themselves are #52.
+**The start point already works on any page**, presented or not — select the page and drag its marker. **Fog and tokens do not yet**: everything that writes them targets the presented page, so those tools are disabled while a page that is not live is selected. Lifting that is exactly #51, and the phases themselves are #52.
 
 Players see the presented page, or the waiting state, and nothing of this.
 
@@ -123,7 +134,6 @@ Left to right, separated into groups:
 | Token size | Button showing the current radius; opens a popup slider. Applies to every token, for everyone |
 | Players | Button showing the count; opens the players sheet |
 | Upload | Adds a page; it lands on a free spot on the board |
-| Start point | Arms a mode: the next tap sets the party start point for the *selected* page |
 | Place token | Arms a mode: the next tap opens a small form to place a monster or NPC |
 | Fit | Frames every page. Same as double-tapping empty canvas |
 | Present | Shows the selected page to the table. Disabled when it is already live |
@@ -134,7 +144,7 @@ The fog and token controls dim while a page that is not presented is selected �
 
 The players sheet slides over the canvas and never resizes it. Tap the button again, or outside the sheet, to close. It holds the roster and "Copy invite link".
 
-The maps sheet is gone. It listed maps, activated one on tap, and carried a flag button per map for setting a start point without activating it; the board does all three, and nothing should reintroduce a list of pages beside it.
+The maps sheet is gone. It listed maps, activated one on tap, and carried a flag button per map for setting a start point without activating it; the board and the marker do all three, and nothing should reintroduce a list of pages beside it.
 
 ### Player Presence (GM topbar)
 
@@ -211,7 +221,7 @@ No player accounts. The share link is the session key, and a player can open the
 | Background | `#0d0d1a` dark navy | Recedes, map pops |
 | Controls | Translucent, `backdrop-filter: blur(8px)`, 60% opacity bg | Visible but not competing with map |
 | Accent | `#4a4aff` blue-purple | Already established |
-| Start point marker | `#ffb020` gold, flag glyph on a dashed ring | Must not read as a token. Tokens are coloured circles, so the marker differs by **shape**, not only colour |
+| Start point marker | `#ffb020` gold, flag glyph on a dashed ring; solid ring when locked | Must not read as a token. Tokens are coloured circles, so the marker differs by **shape**, not only colour |
 | Mode: Reveal | Green-tinted brush preview **[not implemented]** | Intuitive: green = go, clear |
 | Mode: Fog | Red-tinted brush preview **[not implemented]** | Intuitive: red = stop, cover |
 | Tap targets | 44pt minimum (Apple HIG), including hit tests | A target computed in image coordinates shrinks as the map zooms out; it needs a screen-space floor |

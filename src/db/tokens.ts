@@ -104,12 +104,13 @@ export function rememberTokenPosition(
   );
 }
 
-/** Forgets every remembered position for a map, so the next arrival is fresh. */
-export function clearRememberedPositions(db: Database, imageId: string): void {
-  db.run(`DELETE FROM token_positions WHERE image_id = ?`, [imageId]);
-}
-
-/** Positions remembered for a map, keyed by token id. */
+/**
+ * Positions remembered for a map, keyed by token id.
+ *
+ * A remembered position means a token *walked* there. Nothing else writes one — arrival does not,
+ * which is what #46 was, and moving the start point does not clear them, because the flag governs
+ * first entry while walking governs return (#57).
+ */
 export function getRememberedPositions(
   db: Database,
   imageId: string

@@ -152,6 +152,55 @@ describe("Board API", () => {
     });
   });
 
+  describe("the player image list", () => {
+    // The WebSocket path never publishes a start point — "players must never learn where the party
+    // will appear" — and this route was handing them every one (#57).
+    it("carries no start point", async () => {
+      const adventure = createAdventure(ts.db, { name: "Leak", gmPassword });
+      const page = createImageRecord(ts.db, {
+        adventureId: adventure.id,
+        filename: "leak.png",
+        originalName: "leak.png",
+        width: 400,
+        height: 300,
+      });
+      ts.db.run(`UPDATE images SET start_x = 111, start_y = 222, start_locked = 1 WHERE id = ?`, [
+        page.id,
+      ]);
+
+      const asPlayer = await fetch(`${ts.url}/api/adventures/${adventure.id}/images`, {
+        headers: { "X-Player-Link": adventure.player_link },
+      }).then((r) => r.json());
+
+      expect(asPlayer).toHaveLength(1);
+      expect(asPlayer[0].id).toBe(page.id);
+      expect(asPlayer[0].start_x).toBeUndefined();
+      expect(asPlayer[0].start_y).toBeUndefined();
+      expect(asPlayer[0].start_locked).toBeUndefined();
+      expect(JSON.stringify(asPlayer)).not.toContain("111");
+    });
+
+    it("still carries the start point for the GM", async () => {
+      const adventure = createAdventure(ts.db, { name: "GM sees it", gmPassword });
+      const page = createImageRecord(ts.db, {
+        adventureId: adventure.id,
+        filename: "gm.png",
+        originalName: "gm.png",
+        width: 400,
+        height: 300,
+      });
+      ts.db.run(`UPDATE images SET start_x = 111, start_y = 222 WHERE id = ?`, [page.id]);
+
+      const asGm = await fetch(`${ts.url}/api/adventures/${adventure.id}/images`, {
+        headers: { "X-GM-Password": gmPassword },
+      }).then((r) => r.json());
+
+      expect(asGm[0].start_x).toBe(111);
+      expect(asGm[0].start_y).toBe(222);
+      expect(asGm[0].start_locked).toBe(0);
+    });
+  });
+
   describe("upload placement", () => {
     // The geometry is covered in `test/board.test.ts`; what matters here is that the route
     // actually goes through it instead of leaving every upload at the origin.

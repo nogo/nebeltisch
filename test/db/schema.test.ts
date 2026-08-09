@@ -23,6 +23,24 @@ describe("schema", () => {
     }).not.toThrow();
   });
 
+  test("a start point starts unlocked", () => {
+    const db = new Database(":memory:");
+    createSchema(db);
+    db.run(
+      `INSERT INTO adventures (id, name, gm_password, player_link) VALUES ('a', 'A', 'pw', 'l')`
+    );
+    db.run(
+      `INSERT INTO images (id, adventure_id, filename, original_name, width, height)
+       VALUES ('i', 'a', 'i.png', 'i.png', 100, 100)`
+    );
+    // Existing rows gain the column with the same default, so nothing is locked by a deploy.
+    createSchema(db);
+    const row = db
+      .query<{ start_locked: number }, []>(`SELECT start_locked FROM images WHERE id = 'i'`)
+      .get()!;
+    expect(row.start_locked).toBe(0);
+  });
+
   describe("board position migration", () => {
     function seedAdventureWithPages(db: Database, count: number): string[] {
       db.run(
