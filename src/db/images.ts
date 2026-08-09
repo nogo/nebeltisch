@@ -46,6 +46,22 @@ export function getImage(db: Database, id: string): ImageRecord | null {
   ).get(id) ?? null;
 }
 
+/**
+ * Whether a page belongs to an adventure, without reading the row.
+ *
+ * Every fog stroke names its page now (#51), so the write paths validate one per message — and
+ * `getImage` would pull the whole `fog_mask` blob sixty times a second to do it.
+ */
+export function imageBelongsToAdventure(
+  db: Database,
+  imageId: string,
+  adventureId: string
+): boolean {
+  return db.query<{ id: string }, [string, string]>(
+    `SELECT id FROM images WHERE id = ? AND adventure_id = ?`
+  ).get(imageId, adventureId) !== null;
+}
+
 export function updateFogMask(db: Database, imageId: string, mask: Buffer | null): void {
   db.run(`UPDATE images SET fog_mask = ? WHERE id = ?`, [mask, imageId]);
 }

@@ -126,7 +126,9 @@ Brush strokes stream over WebSocket for immediate feedback on every client. The 
 
 Disposal is idle-triggered. When the last connection to an adventure leaves, a timer starts; a reconnect cancels it; expiry flushes every mask to SQLite and frees them. It is delayed rather than immediate because zero-connection moments happen constantly during play — page reload, tablet sleep, router blip — and undo history is memory-only, so instant disposal would silently empty the GM's undo stack on every refresh. `IDLE_DISPOSE_MS` is ten minutes; it is a comfort setting, not a correctness one, since disposal always persists first.
 
-**Implication:** nothing about fog lives at module scope. New per-map state belongs on `FogSession` and inherits its eviction for free. Mutating a mask outside `applyStrokes` skips the debounced save.
+**The resident count is capped as well** (`MAX_RESIDENT_MASKS`, eight), added with #51. Idle disposal bounds a *finished* session and does nothing during one, which was enough while the GM touched one or two maps an evening. Preparing a page the party is not looking at invites touching every page of a board in a single sitting, so what grows is now the size of the board rather than the number of rooms walked through. Eviction is least-recently-opened and flushes first, so the only cost is that page's undo history. Eight covers a production adventure whole — six pages, 512×512 to 1536×1122 — and puts a ceiling on the case that actually hurts, a 4K page at 12 MB of mask before snapshots.
+
+**Implication:** nothing about fog lives at module scope. New per-map state belongs on `FogSession` and inherits both evictions for free. Mutating a mask outside `applyStrokes` skips the debounced save, and no caller may hold a `FogSession` across an `await` and assume it is still resident.
 
 ### The server owns fog undo history
 
@@ -170,7 +172,11 @@ An adventure is a board of pages the GM pans and zooms; the players see one page
 
 **Superseded on 2026-08-09** (#48, #49, #50). The rule was previously *"the GM's canvas is the players' canvas; there is no separate editing context"*, and GM edit operations targeted `active_image_id` with the per-map start point as the deliberate exception.
 
-**Half-built, deliberately.** The board, presenting and per-page start points exist. Fog strokes and token placement still carry no image id, so they still apply to `active_image_id` and those tools are disabled while a page that is not presented is selected. Making them target any page — and broadcasting only for the presented one — is #51. Until it lands, `GET /api/adventures/:id/images/:imageId/fog` may read `images.fog_mask` directly, because no in-memory mask can be ahead of it for a page nobody can paint.
+**How the guard is written** (#51). Every message that writes to a page names it: `fog:stroke`, `fog:stroke:batch`, `fog:action:end`, `fog:undo`, `fog:redo`, `fog:history:query` and `gm_token:place` all carry an `imageId`. One helper in `ws/handler.ts`, `resolvePage`, validates it against the connection's adventure and answers whether it is the presented page; the handler applies the edit unconditionally and calls `ws.publish` only when it is. `token:move` and `gm_token:remove` need no new field — a monster's own `image_id` says which page it belongs to, and a player token has none because it stands on whatever is presented.
+
+**Implication:** a new GM edit belongs to a page and must go through `resolvePage`. Reading `active_image_id` to decide *what to write* is the bug this decision exists to prevent; it may only decide *who hears*.
+
+Two consequences worth stating. `GET /api/adventures/:id/images/:imageId/fog` reads through `deps.fog.peek` rather than `images.fog_mask`, because a resident mask can now be a debounce ahead of the blob. And a page in preparation reaches the GM's *own* socket only, not every GM socket the way a start point does — a second GM device preparing simultaneously is out of scope under `No CRDT`, and it sees the page's stored state when it next selects it.
 
 **The board is an infinite canvas; a player's map is not.** `viewport.ts` takes a `bounded` flag. Bounded derives its zoom floor and pan limits from the content — correct for one page, where there is nothing beyond it. Unbounded uses an absolute 2%–400% and does not clamp panning at all, so what happens to be on the board never decides how far the GM can pull back, and pages may hold negative coordinates. The content bounds survive only to answer "what frames everything", for the initial view and the Fit control.
 **Why it matters:** the first version of the board reused the bounded viewport, which made the page bounding box the world. Zooming out stopped exactly where the outermost pages touched the screen edges, name labels hung outside that box and were clipped, and there was no visible empty space to drag a page into. The larger the maps, the worse it got — labels counter-scale, so their world height is `13px / scale`.
@@ -245,6 +251,8 @@ No dependency without a strong reason. No abstraction before a second use. No re
 Caches keyed by id accumulate for the process lifetime unless evicted. New per-entity state needs an eviction path from the start — decided when the state is introduced, not bolted on later.
 
 Fog was the case that proved it: masks, histories and save timers sat at module scope in `ws/handler.ts` with no eviction at all, so one 4000×3000 map was 12 MB resident forever. They now live on `FogSession`, whose lifetime is the adventure's — see the decision above.
+
+Fog also proved the second half of the rule: **a feature can change what "grows" means.** Preparation (#51) did not add per-entity state, it changed how much of the existing state one sitting touches, and the per-adventure eviction that had been sufficient never fires during a sitting. When a change alters the access pattern of a bounded cache, the bound is part of that change.
 
 ### 9. Never trust a client-supplied array to be small **[violated — #12]**
 

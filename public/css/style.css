@@ -542,13 +542,14 @@ body.painting-armed .board-page { cursor: crosshair; }
 }
 #present-btn:hover:not(:disabled) { background: rgba(255, 176, 32, 0.3); color: #ffd080; }
 
-/* Preparing a page the party is not looking at is #51. Until it lands, everything that would
-   write to a page targets the presented one, so those tools are off rather than silently wrong. */
-#toolbox.off-live #mode-reveal,
-#toolbox.off-live #mode-fog,
-#toolbox.off-live #brush-btn,
-#toolbox.off-live #place-token-btn,
-#toolbox.off-live #tb-history {
+/* No page is loaded under the canvas stack, so there is nothing to paint on or place a token on.
+   Not a "which page is live" state: preparing a page the party is not looking at is the point of
+   the board, and the server is what keeps it off their screens (#51). */
+#toolbox.no-page #mode-reveal,
+#toolbox.no-page #mode-fog,
+#toolbox.no-page #brush-btn,
+#toolbox.no-page #place-token-btn,
+#toolbox.no-page #tb-history {
   opacity: 0.3;
   pointer-events: none;
 }

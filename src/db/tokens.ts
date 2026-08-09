@@ -58,7 +58,7 @@ export function findOrCreateToken(
   }
 }
 
-function getToken(db: Database, id: string): Token | null {
+export function getToken(db: Database, id: string): Token | null {
   return db.query<Token, string>(
     `SELECT * FROM tokens WHERE id = ?`
   ).get(id) ?? null;

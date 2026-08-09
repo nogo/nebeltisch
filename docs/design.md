@@ -82,11 +82,17 @@ Players never see the marker, on any map, presented or not.
 
 Only the selected page carries the canvas stack; every other page is the plain uploaded image, with no fog drawn over it.
 
-### Prep Phase **[not implemented]**
+### Prep Phase **[not implemented — #52]**
 
 All panels are expanded. Pages are uploaded, named and arranged here, and any page can be prepared — fog, monster and NPC tokens, start point — whether or not it is the one on the table (#51).
 
-**The start point already works on any page**, presented or not — select the page and drag its marker. **Fog and tokens do not yet**: everything that writes them targets the presented page, so those tools are disabled while a page that is not live is selected. Lifting that is exactly #51, and the phases themselves are #52.
+**Everything the GM can do to the live page, they can do to a page in prep**, and nobody sees it: reveal and re-fog, place and remove monsters and NPCs, drag them, set the start point, and undo and redo, which run per page so stepping back on the room being prepared never touches the one on the table. What keeps it invisible is a server rule, not this screen — see *Only the presented page reaches the players* in [architecture.md](architecture.md).
+
+**The live page keeps its badge while another is being prepared**, so the GM can always see what the table is looking at. The page under the canvas stack is the one being worked on; the badge is the one being watched, and they are routinely not the same page.
+
+**The party is not drawn on a page in preparation.** Player tokens stand on whatever is presented and pings point at what is on the table, so both layers belong to the live page only. Monsters and NPCs belong to a page and follow the selection. Player tokens are not positioned during prep at all — arrival is governed by the start point.
+
+Only the phases themselves are still missing here (#52); everything above is built.
 
 Players see the presented page, or the waiting state, and nothing of this.
 
@@ -128,7 +134,7 @@ Left to right, separated into groups:
 
 | Control | Behaviour |
 |---|---|
-| Undo / redo | Hidden entirely when there is no history for the presented page |
+| Undo / redo | Steps the *selected* page's history, which is not always the live one. Hidden entirely when that page has none |
 | Reveal / Re-fog | Segmented pill. Picking a segment arms the brush; tapping the armed one disarms it |
 | Brush size | Button showing the current radius; opens a popup slider. Also `Shift`+scroll on the canvas |
 | Token size | Button showing the current radius; opens a popup slider. Applies to every token, for everyone |
@@ -138,7 +144,7 @@ Left to right, separated into groups:
 | Fit | Frames every page. Same as double-tapping empty canvas |
 | Present | Shows the selected page to the table. Disabled when it is already live |
 
-The fog and token controls dim while a page that is not presented is selected — see Prep Phase.
+The fog and token controls dim only while no page is loaded under the canvas stack. Selecting a page the party is not looking at leaves every one of them live — preparing that page is what the board is for (#51).
 
 ### Sheets
 

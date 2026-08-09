@@ -12,13 +12,23 @@ export interface JoinMessage {
   playerLink?: string;
 }
 
+/**
+ * Every fog message names the page it paints.
+ *
+ * The GM prepares a page the party is not looking at, so "which page" can no longer be inferred
+ * from `active_image_id`. The server stores the stroke either way and **broadcasts only when this
+ * id is the presented page** — the rule that keeps preparation invisible lives there, not in a UI
+ * mode, and the GM's phase never reaches the server (#51).
+ */
 export interface FogStrokeMessage {
   type: "fog:stroke";
+  imageId: string;
   stroke: FogStroke;
 }
 
 export interface FogStrokeBatchMessage {
   type: "fog:stroke:batch";
+  imageId: string;
   strokes: FogStroke[];
 }
 
@@ -42,14 +52,30 @@ export interface PlayerRemoveMessage {
 /** Marks the end of one brush action, so the server can snapshot for undo. */
 export interface FogActionEndMessage {
   type: "fog:action:end";
+  imageId: string;
 }
 
+/** History is per page, so undo on a page in preparation never touches the live page's stack. */
 export interface FogUndoMessage {
   type: "fog:undo";
+  imageId: string;
 }
 
 export interface FogRedoMessage {
   type: "fog:redo";
+  imageId: string;
+}
+
+/**
+ * GM-only: what are undo and redo able to do on this page?
+ *
+ * Undo history is server-owned and per image, so selecting a page on the board is the moment the
+ * GM's buttons need its state. Answered with `fog:history`; never loads a mask that is not already
+ * resident.
+ */
+export interface FogHistoryQueryMessage {
+  type: "fog:history:query";
+  imageId: string;
 }
 
 export interface SettingsUpdateMessage {
@@ -82,9 +108,15 @@ export interface PingMapMessage {
   color: string;
 }
 
-/** Places a monster or NPC on the adventure's active map. GM only. */
+/**
+ * Places a monster or NPC on one page of the adventure. GM only.
+ *
+ * Same rule as fog: stored on whichever page is named, broadcast only when that page is the one
+ * the party is looking at.
+ */
 export interface GmTokenPlaceMessage {
   type: "gm_token:place";
+  imageId: string;
   name: string;
   tokenType: "monster" | "npc";
   x: number;
@@ -104,6 +136,7 @@ export type ClientMessage =
   | FogActionEndMessage
   | FogUndoMessage
   | FogRedoMessage
+  | FogHistoryQueryMessage
   | TokenMoveMessage
   | MapSwitchMessage
   | PlayerRemoveMessage

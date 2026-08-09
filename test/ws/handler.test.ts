@@ -200,6 +200,7 @@ describe("WebSocket handler", () => {
     gm.send(
       JSON.stringify({
         type: "fog:stroke",
+        imageId,
         stroke: { x: 50, y: 50, radius: 10, mode: "reveal" },
       })
     );
@@ -228,6 +229,7 @@ describe("WebSocket handler", () => {
     player.send(
       JSON.stringify({
         type: "fog:stroke",
+        imageId,
         stroke: { x: 50, y: 50, radius: 10, mode: "reveal" },
       })
     );
@@ -385,6 +387,7 @@ describe("WebSocket handler", () => {
     gm.send(
       JSON.stringify({
         type: "fog:stroke",
+        imageId,
         stroke: { x: 50, y: 50, radius: 20, mode: "reveal" },
       })
     );
@@ -422,6 +425,7 @@ describe("WebSocket handler", () => {
 
     gm.send(JSON.stringify({
       type: "fog:stroke",
+      imageId,
       stroke: { x: 50, y: 50, radius: 20, mode: "reveal" },
     }));
     await new Promise((r) => setTimeout(r, 50));
@@ -456,6 +460,7 @@ describe("WebSocket handler", () => {
     const err = waitForMessage(gm, "error");
     gm.send(JSON.stringify({
       type: "fog:stroke",
+      imageId: unparsed,
       stroke: { x: 10, y: 10, radius: 5, mode: "reveal" },
     }));
     expect((await err).message).toContain("dimensions");
@@ -463,6 +468,7 @@ describe("WebSocket handler", () => {
     const batchErr = waitForMessage(gm, "error");
     gm.send(JSON.stringify({
       type: "fog:stroke:batch",
+      imageId: unparsed,
       strokes: [{ x: 10, y: 10, radius: 5, mode: "reveal" }],
     }));
     expect((await batchErr).message).toContain("dimensions");
@@ -498,6 +504,7 @@ describe("WebSocket handler", () => {
     await waitForMessage(otherGm, "joined");
     otherGm.send(JSON.stringify({
       type: "fog:stroke",
+      imageId: otherImageId,
       stroke: { x: 50, y: 50, radius: 20, mode: "reveal" },
     }));
 
@@ -507,6 +514,7 @@ describe("WebSocket handler", () => {
     await waitForMessage(gm, "joined");
     gm.send(JSON.stringify({
       type: "fog:stroke",
+      imageId,
       stroke: { x: 50, y: 50, radius: 20, mode: "reveal" },
     }));
     await new Promise((r) => setTimeout(r, 50));
@@ -528,6 +536,7 @@ describe("WebSocket handler", () => {
 
     gm.send(JSON.stringify({
       type: "fog:stroke",
+      imageId,
       stroke: { x: 50, y: 50, radius: 20, mode: "reveal" },
     }));
     await new Promise((r) => setTimeout(r, 50));
@@ -587,23 +596,26 @@ describe("WebSocket handler", () => {
     return gm;
   }
 
-  async function paint(gm: WebSocket, x: number, y: number, radius = 8) {
+  /** Paints one action on a page. Defaults to the adventure's only map, which is the live one. */
+  async function paint(gm: WebSocket, x: number, y: number, radius = 8, page = imageId) {
     const historyPromise = waitForMessage(gm, "fog:history");
-    gm.send(JSON.stringify({ type: "fog:stroke", stroke: { x, y, radius, mode: "reveal" } }));
-    gm.send(JSON.stringify({ type: "fog:action:end" }));
+    gm.send(
+      JSON.stringify({ type: "fog:stroke", imageId: page, stroke: { x, y, radius, mode: "reveal" } })
+    );
+    gm.send(JSON.stringify({ type: "fog:action:end", imageId: page }));
     return historyPromise;
   }
 
-  async function currentMask() {
+  async function currentMask(page = imageId) {
     await ts.fog.flushAll();
-    return (await loadFogMask(ts.db, imageId))!;
+    return (await loadFogMask(ts.db, page))!;
   }
 
   /** Registers both listeners before sending, so neither can catch a stale message. */
-  async function undoOrRedo(gm: WebSocket, type: "fog:undo" | "fog:redo") {
+  async function undoOrRedo(gm: WebSocket, type: "fog:undo" | "fog:redo", page = imageId) {
     const reset = waitForMessage(gm, "fog:reset");
     const history = waitForMessage(gm, "fog:history");
-    gm.send(JSON.stringify({ type }));
+    gm.send(JSON.stringify({ type, imageId: page }));
     await reset;
     return await history;
   }
@@ -622,7 +634,7 @@ describe("WebSocket handler", () => {
     await paint(second, 10, 10);
 
     const reset = waitForMessage(second, "fog:reset");
-    second.send(JSON.stringify({ type: "fog:undo" }));
+    second.send(JSON.stringify({ type: "fog:undo", imageId }));
     await reset;
 
     const mask = await currentMask();
@@ -658,7 +670,7 @@ describe("WebSocket handler", () => {
     await ts.fog.forAdventure(adventureId).evict(imageId);
 
     const history = waitForMessage(gm, "fog:history");
-    gm.send(JSON.stringify({ type: "fog:undo" }));
+    gm.send(JSON.stringify({ type: "fog:undo", imageId }));
     expect((await history).canUndo).toBe(false);
 
     const mask = await currentMask();
@@ -707,9 +719,354 @@ describe("WebSocket handler", () => {
     await waitForMessage(player, "joined");
 
     const errPromise = waitForMessage(player, "error");
-    player.send(JSON.stringify({ type: "fog:undo" }));
+    player.send(JSON.stringify({ type: "fog:undo", imageId }));
     const err = await errPromise;
     expect(err.message).toContain("GM");
+  });
+
+  // ---- Preparing a page the party is not looking at (#51) ----
+  //
+  // One rule carries the whole story: the server applies an edit to whichever page the message
+  // names, and publishes it **only** when that page is `active_image_id`. It never asks what phase
+  // the GM's browser is in. Every test here connects a real player and asserts silence.
+
+  describe("preparing an unpresented page", () => {
+    /** The page the party is on, plus one the GM is preparing behind their back. */
+    let prepImageId: string;
+
+    beforeEach(() => {
+      ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
+      prepImageId = createImageRecord(ts.db, {
+        adventureId,
+        filename: "cellar.png",
+        originalName: "cellar.png",
+        width: 100,
+        height: 100,
+      }).id;
+    });
+
+    async function connectGmAnd(player: string) {
+      const gm = track(
+        await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+      );
+      await waitForMessage(gm, "joined");
+      const ws = track(
+        await connectWS(ts.wsUrl, {
+          adventureId,
+          role: "player",
+          playerLink,
+          playerName: player,
+          playerColor: "#ff0000",
+        })
+      );
+      await waitForMessage(ws, "joined");
+      return { gm, player: ws };
+    }
+
+    /** Everything a socket hears from now on, so a test can assert it heard nothing. */
+    function record(ws: WebSocket): string[] {
+      const heard: string[] = [];
+      ws.addEventListener("message", (event) => {
+        heard.push(JSON.parse(event.data as string).type);
+      });
+      return heard;
+    }
+
+    /** Long enough for anything the server was going to publish to have arrived. */
+    const settle = () => new Promise((r) => setTimeout(r, 120));
+
+    it("a stroke on a page that is not presented is stored and never published", async () => {
+      const { gm, player } = await connectGmAnd("Alice");
+      const heard = record(player);
+
+      gm.send(
+        JSON.stringify({
+          type: "fog:stroke",
+          imageId: prepImageId,
+          stroke: { x: 50, y: 50, radius: 20, mode: "reveal" },
+        })
+      );
+      await settle();
+
+      expect(heard).toEqual([]);
+      // Stored, though — the whole point is that it is there when the page is presented.
+      await ts.fog.flushAll();
+      expect(isRevealed((await loadFogMask(ts.db, prepImageId))!, 50, 50)).toBe(true);
+      // And the page on the table is untouched.
+      expect(isRevealed((await loadFogMask(ts.db, imageId))!, 50, 50)).toBe(false);
+    });
+
+    it("a batch on a page that is not presented is stored and never published", async () => {
+      const { gm, player } = await connectGmAnd("Alice");
+      const heard = record(player);
+
+      gm.send(
+        JSON.stringify({
+          type: "fog:stroke:batch",
+          imageId: prepImageId,
+          strokes: [
+            { x: 20, y: 20, radius: 10, mode: "reveal" },
+            { x: 60, y: 60, radius: 10, mode: "reveal" },
+          ],
+        })
+      );
+      await settle();
+
+      expect(heard).toEqual([]);
+      await ts.fog.flushAll();
+      const mask = (await loadFogMask(ts.db, prepImageId))!;
+      expect(isRevealed(mask, 20, 20)).toBe(true);
+      expect(isRevealed(mask, 60, 60)).toBe(true);
+    });
+
+    it("painting the presented page still streams to the players", async () => {
+      // The other half of the rule. Preparation must not have made the live path conditional on
+      // anything the GM's browser believes.
+      const { gm, player } = await connectGmAnd("Alice");
+
+      const streamed = waitForMessage(player, "fog:stroke");
+      gm.send(
+        JSON.stringify({
+          type: "fog:stroke",
+          imageId,
+          stroke: { x: 30, y: 30, radius: 10, mode: "reveal" },
+        })
+      );
+      expect((await streamed).imageId).toBe(imageId);
+    });
+
+    it("fog prepared in secret is on the page when it is presented", async () => {
+      const { gm, player } = await connectGmAnd("Alice");
+
+      await paint(gm, 50, 50, 20, prepImageId);
+
+      const switched = waitForMessage(player, "map:switched");
+      gm.send(JSON.stringify({ type: "map:switch", imageId: prepImageId }));
+      const msg = await switched;
+
+      expect(msg.imageId).toBe(prepImageId);
+      expect(typeof msg.fogMask).toBe("string");
+      // The mask the player is handed is the one the GM prepared, not the untouched blob.
+      await ts.fog.flushAll();
+      expect(isRevealed((await loadFogMask(ts.db, prepImageId))!, 50, 50)).toBe(true);
+    });
+
+    it("undo on the page being prepared leaves the live page's history alone", async () => {
+      const { gm, player } = await connectGmAnd("Alice");
+
+      await paint(gm, 50, 50, 8, imageId);
+      await paint(gm, 20, 20, 8, prepImageId);
+
+      const heard = record(player);
+      await undoOrRedo(gm, "fog:undo", prepImageId);
+      await settle();
+
+      // The player saw no reset: the page that was rolled back is not the one on the table.
+      expect(heard).toEqual([]);
+      expect(isRevealed(await currentMask(prepImageId), 20, 20)).toBe(false);
+      expect(isRevealed(await currentMask(imageId), 50, 50)).toBe(true);
+
+      // And the live page's own stack is still exactly one action deep.
+      const liveHistory = waitForMessage(gm, "fog:history");
+      gm.send(JSON.stringify({ type: "fog:history:query", imageId }));
+      expect(await liveHistory).toMatchObject({ imageId, canUndo: true, canRedo: false });
+    });
+
+    it("undoing the live page still reaches the players", async () => {
+      const { gm, player } = await connectGmAnd("Alice");
+      await paint(gm, 50, 50, 8, imageId);
+
+      const reset = waitForMessage(player, "fog:reset");
+      gm.send(JSON.stringify({ type: "fog:undo", imageId }));
+      expect((await reset).imageId).toBe(imageId);
+    });
+
+    it("fog:history:query answers for a page with no history without loading its mask", async () => {
+      const { gm } = await connectGmAnd("Alice");
+
+      const history = waitForMessage(gm, "fog:history");
+      gm.send(JSON.stringify({ type: "fog:history:query", imageId: prepImageId }));
+      expect(await history).toMatchObject({
+        imageId: prepImageId,
+        canUndo: false,
+        canRedo: false,
+      });
+      // Asking about a page must not make it resident — the board asks on every selection.
+      expect(ts.fog.forAdventure(adventureId).peek(prepImageId)).toBeUndefined();
+    });
+
+    it("a monster prepared on an unpresented page reaches nobody, and is waiting when it is presented", async () => {
+      const { gm, player } = await connectGmAnd("Alice");
+      const heard = record(player);
+
+      const added = waitForMessage(gm, "gm_token:added");
+      gm.send(
+        JSON.stringify({
+          type: "gm_token:place",
+          imageId: prepImageId,
+          name: "Ogre",
+          tokenType: "monster",
+          x: 40,
+          y: 40,
+        })
+      );
+      const placed = (await added).token;
+      expect(placed.image_id).toBe(prepImageId);
+      await settle();
+      expect(heard).toEqual([]);
+
+      const switched = waitForMessage(player, "map:switched");
+      gm.send(JSON.stringify({ type: "map:switch", imageId: prepImageId }));
+      expect((await switched).gmTokens.map((t: any) => t.name)).toEqual(["Ogre"]);
+    });
+
+    it("placing a monster on the presented page still reaches the players", async () => {
+      const { gm, player } = await connectGmAnd("Alice");
+
+      const added = waitForMessage(player, "gm_token:added");
+      gm.send(
+        JSON.stringify({
+          type: "gm_token:place",
+          imageId,
+          name: "Goblin",
+          tokenType: "monster",
+          x: 10,
+          y: 10,
+        })
+      );
+      expect((await added).token.name).toBe("Goblin");
+    });
+
+    it("moving and removing a monster on an unpresented page is silent too", async () => {
+      const { gm, player } = await connectGmAnd("Alice");
+
+      const added = waitForMessage(gm, "gm_token:added");
+      gm.send(
+        JSON.stringify({
+          type: "gm_token:place",
+          imageId: prepImageId,
+          name: "Ogre",
+          tokenType: "monster",
+          x: 40,
+          y: 40,
+        })
+      );
+      const tokenId = (await added).token.id;
+
+      const heard = record(player);
+      gm.send(JSON.stringify({ type: "token:move", tokenId, x: 70, y: 70 }));
+      gm.send(JSON.stringify({ type: "gm_token:remove", tokenId }));
+      await settle();
+
+      expect(heard).toEqual([]);
+      expect(getTokensByAdventure(ts.db, adventureId).find((t) => t.id === tokenId)).toBeUndefined();
+    });
+
+    it("a monster on an unpresented page never writes the party's remembered positions", async () => {
+      // `token:move` is the only writer of `token_positions`, and a remembered position means a
+      // token *walked* there (#46). A monster dragged during prep is neither a walk nor on the
+      // live page, so it must not leave a row keyed by whatever happens to be presented.
+      const { gm } = await connectGmAnd("Alice");
+
+      const added = waitForMessage(gm, "gm_token:added");
+      gm.send(
+        JSON.stringify({
+          type: "gm_token:place",
+          imageId: prepImageId,
+          name: "Ogre",
+          tokenType: "monster",
+          x: 40,
+          y: 40,
+        })
+      );
+      const tokenId = (await added).token.id;
+
+      const moved = waitForMessage(gm, "token:moved");
+      gm.send(JSON.stringify({ type: "token:move", tokenId, x: 70, y: 70 }));
+      await moved;
+
+      const rows = ts.db
+        .query<{ n: number }, []>(`SELECT COUNT(*) AS n FROM token_positions`)
+        .get()!;
+      expect(rows.n).toBe(0);
+    });
+
+    it("a page belonging to another adventure cannot be painted", async () => {
+      const other = createAdventure(ts.db, { name: "Other table", gmPassword: "other-pw" });
+      const theirPage = createImageRecord(ts.db, {
+        adventureId: other.id,
+        filename: "theirs.png",
+        originalName: "theirs.png",
+        width: 100,
+        height: 100,
+      }).id;
+
+      const { gm } = await connectGmAnd("Alice");
+      const err = waitForMessage(gm, "error");
+      gm.send(
+        JSON.stringify({
+          type: "fog:stroke",
+          imageId: theirPage,
+          stroke: { x: 50, y: 50, radius: 20, mode: "reveal" },
+        })
+      );
+      expect((await err).message).toContain("page");
+      expect(await loadFogMask(ts.db, theirPage)).toBeNull();
+    });
+
+    it("the fog route serves what the GM just painted, ahead of the debounced save", async () => {
+      // `GET .../fog` used to read `images.fog_mask` straight from the table. That was only correct
+      // while nothing could write fog to an unpresented page; now the board would show the GM their
+      // own work rolled back to the last save.
+      const { gm } = await connectGmAnd("Alice");
+      await paint(gm, 50, 50, 20, prepImageId);
+
+      // Deliberately *not* flushed: the blob is still empty at this point.
+      expect(await loadFogMask(ts.db, prepImageId)).toBeNull();
+
+      const res = await fetch(
+        `${ts.url}/api/adventures/${adventureId}/images/${prepImageId}/fog`,
+        { headers: { "X-GM-Password": gmPassword } }
+      );
+      expect((await res.json()).fogMask).toBe(
+        await ts.fog.forAdventure(adventureId).peek(prepImageId)!.toBase64()
+      );
+    });
+
+    it("the tokens route serves the monsters standing on one page, and only those", async () => {
+      const { gm } = await connectGmAnd("Alice");
+
+      for (const [page, name] of [[prepImageId, "Ogre"], [imageId, "Goblin"]] as const) {
+        const added = waitForMessage(gm, "gm_token:added");
+        gm.send(
+          JSON.stringify({
+            type: "gm_token:place",
+            imageId: page,
+            name,
+            tokenType: "monster",
+            x: 10,
+            y: 10,
+          })
+        );
+        await added;
+      }
+
+      const res = await fetch(
+        `${ts.url}/api/adventures/${adventureId}/images/${prepImageId}/tokens`,
+        { headers: { "X-GM-Password": gmPassword } }
+      );
+      const tokens = await res.json();
+      // The party is not on a page in preparation, so no player token is in here either.
+      expect(tokens.map((t: any) => t.name)).toEqual(["Ogre"]);
+    });
+
+    it("the tokens route is GM-only", async () => {
+      const res = await fetch(
+        `${ts.url}/api/adventures/${adventureId}/images/${prepImageId}/tokens`,
+        { headers: { "X-Player-Link": playerLink } }
+      );
+      expect(res.status).toBe(401);
+    });
   });
 
   // ---- Map switch repositioning ----

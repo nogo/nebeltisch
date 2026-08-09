@@ -230,13 +230,10 @@ ws.on('joined', async (msg) => {
   fitBoard();
   await focusPage(activeImageId ?? imageList[0]?.id ?? null);
 
-  const tokens = msg.tokens;
-  for (const token of tokens) {
-    if (token.token_type === 'monster' || token.token_type === 'npc') {
-      gmTokenCtrl.addToken(token);
-    } else {
-      tokenCtrl.addToken(token);
-    }
+  // Only the party. Monsters and NPCs are per page and `focusPage` above has already loaded the
+  // ones standing on the page the GM landed on.
+  for (const token of msg.tokens) {
+    if (token.token_type !== 'monster' && token.token_type !== 'npc') tokenCtrl.addToken(token);
   }
 
   syncStartPointFromImageList();
@@ -258,7 +255,9 @@ ws.on('token:added', (msg) => {
 });
 
 ws.on('gm_token:added', (msg) => {
-  gmTokenCtrl.addToken(msg.token);
+  // A monster belongs to one page, and the layer draws the selected one. This arrives for the
+  // GM's own placement too, which is why it is filtered rather than trusted.
+  if (msg.token.image_id === selectedImageId) gmTokenCtrl.addToken(msg.token);
 });
 
 ws.on('token:moved', (msg) => {
@@ -308,17 +307,14 @@ ws.on('map:switched', async (msg) => {
 
   // Presenting follows the page to the table. The GM stays on whatever they were preparing only
   // if it was not the previously live page — otherwise focus tracks the switch, as it did before
-  // the board existed.
+  // the board existed. `focusPage` owns the GM token layer, so the new page's monsters come with
+  // it and `msg.gmTokens` is the player client's copy of the same thing.
   await focusPage(activeImageId);
 
   // The server moves the party onto the new map's start point.
   const movedPlayers = msg.playerTokens;
   for (const t of movedPlayers ?? []) tokenCtrl.moveToken(t.id, t.x, t.y);
   tokenCtrl.render();
-  // Swap GM tokens for the new map
-  gmTokenCtrl.clear();
-  const newGmTokens = msg.gmTokens;
-  for (const t of newGmTokens ?? []) gmTokenCtrl.addToken(t);
 });
 
 ws.on('fog:reset', (msg) => {
@@ -342,11 +338,12 @@ function renderPages() {
 }
 
 /**
- * Puts the canvas stack on one page of the board.
+ * Puts the canvas stack on one page of the board, and loads everything the GM can work on there.
  *
  * Selection is local and reaches nobody — presenting is the only thing on the board that does
  * (#50). Fog for the presented page arrives over the WebSocket; any other page's is read from the
- * server, because the board has to show a page's fog as it is stored (#49).
+ * server, and so are its monsters and NPCs, because the wire only ever carries the presented
+ * page's (#51).
  */
 async function focusPage(id: string | null) {
   const request = ++focusRequest;
@@ -355,6 +352,8 @@ async function focusPage(id: string | null) {
   board.setSelected(id);
   board.setFocused(null);
   canvasWrapper.hidden = true;
+  // The layer holds one page's monsters at a time; the next page's arrive below.
+  gmTokenCtrl.clear();
   updatePresentButton();
   updateToolAvailability();
 
@@ -380,6 +379,14 @@ async function focusPage(id: string | null) {
   if (mask && !await canvasCtrl.applyFogMask(mask, isCurrent)) return;
   if (!isCurrent()) return;
 
+  try {
+    const gmTokens = await api.getImageGmTokens(adventureId, password, id);
+    if (!isCurrent()) return;
+    for (const token of gmTokens) gmTokenCtrl.addToken(token);
+  } catch (e) {
+    console.error('Could not read this page\'s tokens', e);
+  }
+
   focusedImageId = id;
   canvasWrapper.style.left = `${rect.x}px`;
   canvasWrapper.style.top = `${rect.y}px`;
@@ -387,26 +394,37 @@ async function focusPage(id: string | null) {
   canvasWrapper.hidden = false;
   updateToolAvailability();
   syncStartPointFromImageList();
+  // Undo history is per page and lives on the server, so the buttons ask what this one can do.
+  ws.send({ type: 'fog:history:query', imageId: id });
 }
 
 /**
- * Everything that writes to a page targets the presented one: `fog:stroke` and `gm_token:place`
- * carry no image id, so the server applies them to `active_image_id`. Painting a page the party is
- * not looking at is #51, and until it lands these tools are off rather than silently wrong.
+ * A page is ready to work on once its image, fog and tokens have loaded into the canvas stack.
+ *
+ * Fog, tokens and undo all name `selectedImageId` on the wire, and the server decides who hears
+ * about it — preparing a page the party is not looking at is stored and silent (#51). So the tools
+ * are gated on the page being *loaded*, not on it being the presented one.
  */
-function isPreparingOffLivePage(): boolean {
-  return selectedImageId !== null &&
-    (selectedImageId !== activeImageId || focusedImageId !== selectedImageId);
+function isPageReady(): boolean {
+  return selectedImageId !== null && focusedImageId === selectedImageId;
+}
+
+/** Whether the party is looking at the page the GM is working on. */
+function isLivePageSelected(): boolean {
+  return selectedImageId !== null && selectedImageId === activeImageId;
 }
 
 function updateToolAvailability() {
-  const off = isPreparingOffLivePage();
-  toolbox.classList.toggle('off-live', off);
-  // The layers keep their tokens and pings; they simply belong to the presented page.
-  tokenCtrl.element.hidden = off;
-  gmTokenCtrl.element.hidden = off;
-  pingCtrl.element.hidden = off;
-  if (off) {
+  const ready = isPageReady();
+  toolbox.classList.toggle('no-page', !ready);
+  // Monsters and NPCs belong to a page, so that layer follows the selection. Player tokens and
+  // pings belong to the presented one: the party is not standing on a page in preparation, and a
+  // ping is someone pointing at what is actually on the table.
+  const live = isLivePageSelected();
+  gmTokenCtrl.element.hidden = !ready;
+  tokenCtrl.element.hidden = !live;
+  pingCtrl.element.hidden = !live;
+  if (!ready) {
     setArmed(false);
     deactivatePlaceMode();
   }
@@ -605,8 +623,15 @@ tpCancelBtn.addEventListener('click', hidePlaceForm);
 
 tpConfirmBtn.addEventListener('click', () => {
   const name = tpNameInput.value.trim();
-  if (!name || !pendingPlacePos) return;
-  ws.send({ type: 'gm_token:place', name, tokenType: pendingTokenType, x: pendingPlacePos.x, y: pendingPlacePos.y });
+  if (!name || !pendingPlacePos || !selectedImageId) return;
+  ws.send({
+    type: 'gm_token:place',
+    imageId: selectedImageId,
+    name,
+    tokenType: pendingTokenType,
+    x: pendingPlacePos.x,
+    y: pendingPlacePos.y,
+  });
   hidePlaceForm();
 });
 
@@ -753,12 +778,12 @@ function setMode(mode: 'reveal' | 'fog') {
 }
 
 function setArmed(armed: boolean) {
-  brushArmed = armed && !isPreparingOffLivePage();
+  brushArmed = armed && isPageReady();
   setMode(brushMode);
 }
 
 function toggleBrush(mode: 'reveal' | 'fog') {
-  if (isPreparingOffLivePage()) return;
+  if (!isPageReady()) return;
   if (brushArmed && brushMode === mode) {
     setArmed(false);
     return;
@@ -852,11 +877,17 @@ function updateUndoRedoButtons(canUndo: boolean, canRedo: boolean) {
   tbHistory.hidden = !canUndo && !canRedo;
 }
 
-function performUndo() { ws.send({ type: 'fog:undo' }); }
-function performRedo() { ws.send({ type: 'fog:redo' }); }
+// Undo steps the page the GM is working on, which is not always the page on the table. Each page
+// has its own stack on the server, so the two never interfere (#51).
+function performUndo() {
+  if (selectedImageId) ws.send({ type: 'fog:undo', imageId: selectedImageId });
+}
+function performRedo() {
+  if (selectedImageId) ws.send({ type: 'fog:redo', imageId: selectedImageId });
+}
 
 ws.on('fog:history', (msg) => {
-  if (msg.imageId !== activeImageId) return;
+  if (msg.imageId !== selectedImageId) return;
   updateUndoRedoButtons(msg.canUndo, msg.canRedo);
 });
 
@@ -877,6 +908,13 @@ document.addEventListener('keydown', (ev) => {
 
 // --- Brush painting ---
 let isDrawing = false;
+/**
+ * The page the stroke in progress belongs to, captured when it began.
+ *
+ * Read at send time instead, a selection that changed mid-gesture would land the tail of a stroke
+ * on another page — and with preparation that could be the page on the table.
+ */
+let drawingImageId: string | null = null;
 let isPinging = false;
 let activeDragCtrl: TokenController | null = null;
 const pending: FogStroke[] = [];
@@ -902,10 +940,14 @@ function makeStroke(clientX: number, clientY: number): FogStroke {
 
 function flushPending() {
   if (!pending.length) return;
+  if (!drawingImageId) {
+    pending.length = 0;
+    return;
+  }
   if (pending.length === 1) {
-    ws.send({ type: 'fog:stroke', stroke: pending[0] });
+    ws.send({ type: 'fog:stroke', imageId: drawingImageId, stroke: pending[0] });
   } else {
-    ws.send({ type: 'fog:stroke:batch', strokes: pending.slice() });
+    ws.send({ type: 'fog:stroke:batch', imageId: drawingImageId, strokes: pending.slice() });
   }
   pending.length = 0;
   lastFlush = Date.now();
@@ -944,33 +986,42 @@ viewport.onInteractStart((ev: PointerEvent) => {
     return;
   }
 
-  if (isPreparingOffLivePage()) return;
+  if (!isPageReady()) return;
 
-  // Check player tokens first, then GM tokens
-  tokenCtrl.handlePointerDown(ev);
-  if (tokenCtrl.isDragging()) { activeDragCtrl = tokenCtrl; return; }
+  // The party stands on the presented page, so they are only grabbable there. Monsters belong to
+  // whichever page is selected and are draggable while it is prepared.
+  if (isLivePageSelected()) {
+    tokenCtrl.handlePointerDown(ev);
+    if (tokenCtrl.isDragging()) { activeDragCtrl = tokenCtrl; return; }
+  }
   gmTokenCtrl.handlePointerDown(ev);
   if (gmTokenCtrl.isDragging()) { activeDragCtrl = gmTokenCtrl; return; }
   activeDragCtrl = null;
 
   toolbox.classList.add('painting');
 
-  longPressStartPos = { x: ev.clientX, y: ev.clientY };
-  longPressTimer = setTimeout(() => {
-    longPressTimer = null;
-    const now = Date.now();
-    if (now - lastPingTime >= PING_RATE_LIMIT) {
-      lastPingTime = now;
-      isDrawing = false;
-      actionHasStrokes = false;
-      pending.length = 0;
-      isPinging = true;
-      const pos = screenToPage(longPressStartPos!.x, longPressStartPos!.y);
-      ws.send({ type: 'ping:map', x: pos.x, y: pos.y, color: GM_PING_COLOR });
-    }
-  }, LONG_PRESS_DELAY);
+  // A ping is "look here", so it only means anything on the page the table is looking at. It
+  // carries no page of its own and stores nothing, so there is nothing for the server to file a
+  // ping on a page in preparation under — the gesture simply is not offered there.
+  if (isLivePageSelected()) {
+    longPressStartPos = { x: ev.clientX, y: ev.clientY };
+    longPressTimer = setTimeout(() => {
+      longPressTimer = null;
+      const now = Date.now();
+      if (now - lastPingTime >= PING_RATE_LIMIT) {
+        lastPingTime = now;
+        isDrawing = false;
+        actionHasStrokes = false;
+        pending.length = 0;
+        isPinging = true;
+        const pos = screenToPage(longPressStartPos!.x, longPressStartPos!.y);
+        ws.send({ type: 'ping:map', x: pos.x, y: pos.y, color: GM_PING_COLOR });
+      }
+    }, LONG_PRESS_DELAY);
+  }
 
   isDrawing = true;
+  drawingImageId = selectedImageId;
   const stroke = makeStroke(ev.clientX, ev.clientY);
   canvasCtrl.applyStroke(stroke);
   pending.push(stroke);
@@ -1097,11 +1148,14 @@ function finishAction() {
   if (activeDragCtrl) { activeDragCtrl.handlePointerUp(); activeDragCtrl = null; return; }
   if (!isDrawing) return;
   isDrawing = false;
+  const painted = drawingImageId;
   flushPending();
+  drawingImageId = null;
   if (actionHasStrokes) {
     actionHasStrokes = false;
-    // Ordered after flushPending, so the server snapshots the completed action.
-    ws.send({ type: 'fog:action:end' });
+    // Ordered after flushPending, so the server snapshots the completed action — on the page the
+    // stroke started on, which is the one whose undo stack it belongs to.
+    if (painted) ws.send({ type: 'fog:action:end', imageId: painted });
   }
 }
 

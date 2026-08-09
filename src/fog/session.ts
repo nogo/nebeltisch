@@ -11,6 +11,9 @@ import { saveFogMask, loadFogMask, serializeMask } from "./serialize";
  * connections carry an `adventureId`, and traversal between a village, its mill and
  * the cellar is the normal case, so a map the party may walk back into stays resident.
  *
+ * Resident *count* is capped on top of that, because preparation touches every page of a board in
+ * one sitting and idle disposal never fires during one — see `MAX_RESIDENT_MASKS`.
+ *
  * See docs/architecture.md, "Fog state is per map, its lifetime is per adventure".
  */
 
@@ -30,6 +33,24 @@ const MAX_FOG_HISTORY = 40;
  * covers those without pinning a finished session's memory for the week.
  */
 const IDLE_DISPOSE_MS = 10 * 60 * 1000;
+
+/**
+ * How many of an adventure's masks stay resident at once.
+ *
+ * Preparation changed what grows here (principle 8). Play touches one or two pages an evening, and
+ * idle disposal is per adventure — it frees nothing while a sitting is in progress. Preparing an
+ * adventure invites touching *every* page in that one sitting, so the count of resident masks is
+ * now bounded by the size of the board rather than by how many rooms the party walked through.
+ *
+ * Eight is chosen against the production adventures: six pages between 512×512 and 1536×1122, so a
+ * whole one stays resident and the cap never bites during play. A 4K page is 12 MB of mask before
+ * undo snapshots, which is where the ceiling matters — eight of those is the worst case, and a
+ * thirty-page board no longer has one.
+ *
+ * Eviction is least-recently-opened and always flushes first, so nothing is lost but that page's
+ * undo history, which is memory-only by design.
+ */
+const MAX_RESIDENT_MASKS = 8;
 
 export interface FogHistoryState {
   canUndo: boolean;
@@ -54,7 +75,10 @@ export interface FogSession {
 }
 
 export interface AdventureFog {
-  /** Loads or creates the session for a map, with its history baseline seeded. */
+  /**
+   * Loads or creates the session for a map, with its history baseline seeded.
+   * Opening past `MAX_RESIDENT_MASKS` flushes and drops the coldest map.
+   */
   open(imageId: string): Promise<FogSession>;
   /** The already-open session for a map, or undefined. Never loads. */
   peek(imageId: string): FogSession | undefined;
@@ -152,8 +176,10 @@ function createAdventureFog(
   db: Database,
   uploadsDir: string | undefined,
   idleDisposeMs: number,
+  maxResident: number,
   onDisposed: () => void
 ): AdventureFog {
+  // Insertion order is the LRU order: every hit re-inserts, so the oldest key is the coldest map.
   const ready = new Map<string, FogSession>();
   // Keyed on the in-flight promise, not the result: `load` awaits, so two callers
   // arriving together would otherwise each build a mask and one set of strokes
@@ -185,10 +211,26 @@ function createAdventureFog(
     }
   }
 
+  /** Re-inserts a session at the hot end of the LRU order. */
+  function touch(imageId: string, session: FogSession): FogSession {
+    ready.delete(imageId);
+    ready.set(imageId, session);
+    return session;
+  }
+
+  /** Flushes and drops the coldest maps until the resident count is back under the cap. */
+  function trimResident(): void {
+    while (ready.size > maxResident) {
+      const coldest = ready.keys().next();
+      if (coldest.done) return;
+      void self.evict(coldest.value).catch(() => {});
+    }
+  }
+
   const self: AdventureFog = {
     open(imageId) {
       const open = ready.get(imageId);
-      if (open) return Promise.resolve(open);
+      if (open) return Promise.resolve(touch(imageId, open));
 
       const inFlight = opening.get(imageId);
       if (inFlight) return inFlight;
@@ -197,6 +239,9 @@ function createAdventureFog(
         .then((session) => {
           opening.delete(imageId);
           ready.set(imageId, session);
+          // Bounded here rather than on release: preparation keeps opening maps without ever
+          // leaving the adventure, so idle disposal is not the eviction path that applies.
+          trimResident();
           return session;
         })
         .catch((err) => {
@@ -210,7 +255,8 @@ function createAdventureFog(
     },
 
     peek(imageId) {
-      return ready.get(imageId);
+      const session = ready.get(imageId);
+      return session ? touch(imageId, session) : undefined;
     },
 
     historyState(imageId) {
@@ -264,6 +310,8 @@ function createAdventureFog(
 export interface FogRegistryOptions {
   /** Overrides the idle grace period. Tests use a few milliseconds. */
   idleDisposeMs?: number;
+  /** Overrides how many masks per adventure stay resident. Tests use one or two. */
+  maxResidentMasks?: number;
 }
 
 export function createFogRegistry(
@@ -272,13 +320,14 @@ export function createFogRegistry(
   options: FogRegistryOptions = {}
 ): FogRegistry {
   const idleDisposeMs = options.idleDisposeMs ?? IDLE_DISPOSE_MS;
+  const maxResident = Math.max(1, options.maxResidentMasks ?? MAX_RESIDENT_MASKS);
   const adventures = new Map<string, AdventureFog>();
 
   return {
     forAdventure(adventureId) {
       let fog = adventures.get(adventureId);
       if (!fog) {
-        fog = createAdventureFog(db, uploadsDir, idleDisposeMs, () =>
+        fog = createAdventureFog(db, uploadsDir, idleDisposeMs, maxResident, () =>
           adventures.delete(adventureId)
         );
         adventures.set(adventureId, fog);

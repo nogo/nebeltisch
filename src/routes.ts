@@ -14,6 +14,7 @@ import {
   deleteImage,
   setBoardPosition,
 } from "./db/images";
+import { getGmTokensByImage } from "./db/tokens";
 import { nextFreeSpot } from "./board";
 import { parseImageDimensions } from "./images";
 import type { ServerDeps } from "./deps";
@@ -346,13 +347,15 @@ async function handleAdventureRoutes(
     }
 
     // GET /api/adventures/:id/images/:imageId/fog
-    // Lets the board show a page's stored fog once the GM zooms into it. Reads the stored blob
-    // rather than opening a `FogSession`: the blob is byte-for-byte what `toBase64()` produces
-    // (`fog/serialize.ts`), and opening a session per page the GM looks at would make every mask in
-    // the adventure resident at once, which principle 8 forbids.
+    // Lets the board show a page's fog once the GM selects it.
     //
-    // The blob is authoritative only because nothing writes fog to a page that is not presented.
-    // #51 changes that — when it lands, this must read through `deps.fog` instead.
+    // Reads through the fog registry rather than the stored blob, because #51 lets the GM paint a
+    // page the party is not looking at: a resident mask can be up to the save debounce ahead of
+    // `images.fog_mask`, and the board would show the GM their own work rolled back.
+    //
+    // `peek` never *loads* a mask — a page with no live session has nothing ahead of the blob,
+    // since both eviction and idle disposal flush first. So browsing the board still makes nothing
+    // resident, which is what principle 8 asks of this route.
     if (
       req.method === "GET" &&
       segments[3] === "images" &&
@@ -367,10 +370,41 @@ async function handleAdventureRoutes(
       const image = getImage(db, segments[4]);
       if (!image || image.adventure_id !== id) return error("Not found", 404);
 
-      const fogMask = image.fog_mask
-        ? Buffer.from(image.fog_mask).toString("base64")
-        : null;
+      // Same encoding either way: the blob is byte-for-byte what `toBase64()` produces
+      // (`fog/serialize.ts`).
+      const session = deps.fog.forAdventure(id).peek(image.id);
+      const fogMask = session
+        ? await session.toBase64()
+        : image.fog_mask
+          ? Buffer.from(image.fog_mask).toString("base64")
+          : null;
       return json({ fogMask });
+    }
+
+    // GET /api/adventures/:id/images/:imageId/tokens
+    // The monsters and NPCs standing on one page. GM only.
+    //
+    // REST for the same reason the board is: the wire only ever carries the presented page's GM
+    // tokens (`joined`, `map:switched`), and a page in preparation reaches nobody by design. This
+    // is the read that lets the GM see what they already placed there (#51).
+    //
+    // Player tokens are deliberately absent. They belong to the adventure and stand on whatever is
+    // presented — the party is not on a page the GM is preparing.
+    if (
+      req.method === "GET" &&
+      segments[3] === "images" &&
+      segments[5] === "tokens" &&
+      segments.length === 6
+    ) {
+      const adventure = getAdventure(db, id);
+      if (!adventure) return error("Not found", 404);
+      if (req.headers.get("X-GM-Password") !== adventure.gm_password)
+        return error("Unauthorized", 401);
+
+      const image = getImage(db, segments[4]);
+      if (!image || image.adventure_id !== id) return error("Not found", 404);
+
+      return json(getGmTokensByImage(db, id, image.id));
     }
   }
 

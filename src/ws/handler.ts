@@ -4,9 +4,9 @@ import type { WsData, Token } from "../types";
 import type { ServerDeps } from "../deps";
 import type { FogSession } from "../fog/session";
 import { getAdventure, getAdventureByPlayerLink, setActiveImage, setTokenSize } from "../db/adventures";
-import { getImage, setStartPoint, setStartLocked } from "../db/images";
+import { getImage, imageBelongsToAdventure, setStartPoint, setStartLocked } from "../db/images";
 import { repairImageDimensions } from "../images";
-import { findOrCreateToken, createToken, getTokensByAdventure, getPlayerTokensByAdventure, getGmTokensByImage, updateTokenPosition, rememberTokenPosition, getRememberedPositions, deleteToken } from "../db/tokens";
+import { findOrCreateToken, createToken, getToken, getTokensByAdventure, getPlayerTokensByAdventure, getGmTokensByImage, updateTokenPosition, rememberTokenPosition, getRememberedPositions, deleteToken } from "../db/tokens";
 import {
   registerConnection,
   unregisterConnection,
@@ -141,6 +141,33 @@ function sendRosterToGm(db: Database, adventureId: string): void {
 
 function sendToGms(adventureId: string, message: string): void {
   for (const gmWs of getGmSocketsForAdventure(adventureId)) gmWs.send(message);
+}
+
+// ---- Which page an edit targets, and who hears about it ----
+
+/**
+ * **Only the presented page reaches the players.**
+ *
+ * The GM prepares a page the party is not looking at, so every fog and token message names its
+ * page and the server decides the audience: applied to whichever page is named, published to the
+ * adventure topic *only* when that page is `active_image_id`. The GM's phase never reaches here —
+ * if it did, what the players see would depend on a browser's opinion (#51).
+ *
+ * Null means the id is not a page of this adventure. The wire is cast, not validated
+ * (`parseMessage`), so the type check is part of the job.
+ */
+function resolvePage(
+  db: Database,
+  adventureId: string,
+  imageId: unknown
+): { imageId: string; isLive: boolean } | null {
+  if (typeof imageId !== "string" || !imageBelongsToAdventure(db, imageId, adventureId)) {
+    return null;
+  }
+  return {
+    imageId,
+    isLive: getAdventure(db, adventureId)?.active_image_id === imageId,
+  };
 }
 
 // ---- WebSocket upgrade (called from fetch handler) ----
@@ -337,15 +364,14 @@ export function createWsHandlers(deps: ServerDeps) {
             ws.send(serializeMessage({ type: "error", message: "Only GM can send fog strokes" }));
             break;
           }
-          const adv = getAdventure(db, adventureId);
-          if (!adv?.active_image_id) {
-            ws.send(serializeMessage({ type: "error", message: "No active image" }));
+          const page = resolvePage(db, adventureId, msg.imageId);
+          if (!page) {
+            ws.send(serializeMessage({ type: "error", message: "No such page" }));
             break;
           }
-          const imageId = adv.active_image_id;
           let session: FogSession;
           try {
-            session = await fog.open(imageId);
+            session = await fog.open(page.imageId);
           } catch {
             // A map whose dimensions never parsed has no mask to paint on. Left
             // unguarded this rejection escapes the handler and exits the process.
@@ -353,7 +379,13 @@ export function createWsHandlers(deps: ServerDeps) {
             break;
           }
           session.applyStrokes([msg.stroke]);
-          ws.publish(topic, serializeMessage({ type: "fog:stroke", stroke: msg.stroke, imageId }));
+          // Stored on every page; heard on one. A page in preparation is silent.
+          if (page.isLive) {
+            ws.publish(
+              topic,
+              serializeMessage({ type: "fog:stroke", stroke: msg.stroke, imageId: page.imageId })
+            );
+          }
           break;
         }
 
@@ -362,21 +394,29 @@ export function createWsHandlers(deps: ServerDeps) {
             ws.send(serializeMessage({ type: "error", message: "Only GM can send fog strokes" }));
             break;
           }
-          const adv = getAdventure(db, adventureId);
-          if (!adv?.active_image_id) {
-            ws.send(serializeMessage({ type: "error", message: "No active image" }));
+          const page = resolvePage(db, adventureId, msg.imageId);
+          if (!page) {
+            ws.send(serializeMessage({ type: "error", message: "No such page" }));
             break;
           }
-          const imageId = adv.active_image_id;
           let session: FogSession;
           try {
-            session = await fog.open(imageId);
+            session = await fog.open(page.imageId);
           } catch {
             ws.send(serializeMessage({ type: "error", message: "Map dimensions unknown" }));
             break;
           }
           session.applyStrokes(msg.strokes);
-          ws.publish(topic, serializeMessage({ type: "fog:stroke:batch", strokes: msg.strokes, imageId }));
+          if (page.isLive) {
+            ws.publish(
+              topic,
+              serializeMessage({
+                type: "fog:stroke:batch",
+                strokes: msg.strokes,
+                imageId: page.imageId,
+              })
+            );
+          }
           break;
         }
 
@@ -385,12 +425,13 @@ export function createWsHandlers(deps: ServerDeps) {
             ws.send(serializeMessage({ type: "error", message: "You do not own this token" }));
             break;
           }
-          updateTokenPosition(db, msg.tokenId, msg.x, msg.y);
-          // Remember it per map, so switching away and back restores the party.
-          const activeImageId = getAdventure(db, adventureId)?.active_image_id;
-          if (activeImageId) {
-            rememberTokenPosition(db, msg.tokenId, activeImageId, msg.x, msg.y);
+          const token = getToken(db, msg.tokenId);
+          if (!token || token.adventure_id !== adventureId) {
+            ws.send(serializeMessage({ type: "error", message: "Token not found" }));
+            break;
           }
+          updateTokenPosition(db, msg.tokenId, msg.x, msg.y);
+          const activeImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
           const moved = serializeMessage({
             type: "token:moved",
             tokenId: msg.tokenId,
@@ -398,7 +439,19 @@ export function createWsHandlers(deps: ServerDeps) {
             y: msg.y,
           });
           ws.send(moved);
-          ws.publish(topic, moved);
+
+          if (token.image_id === null) {
+            // A player token belongs to the adventure and stands on whatever is presented, so its
+            // walk is remembered against that page — the only writer of `token_positions` (#46).
+            if (activeImageId) {
+              rememberTokenPosition(db, msg.tokenId, activeImageId, msg.x, msg.y);
+            }
+            ws.publish(topic, moved);
+          } else if (token.image_id === activeImageId) {
+            // A monster belongs to one page. Dragging one on a page in preparation is stored and
+            // silent, the same rule fog follows — and it is not a walk, so nothing is remembered.
+            ws.publish(topic, moved);
+          }
           break;
         }
 
@@ -594,13 +647,34 @@ export function createWsHandlers(deps: ServerDeps) {
 
         case "fog:action:end": {
           if (conn.role !== "gm") break;
-          const adv = getAdventure(db, adventureId);
-          if (!adv?.active_image_id) break;
-          const imageId = adv.active_image_id;
-          const session = fog.peek(imageId);
+          const page = resolvePage(db, adventureId, msg.imageId);
+          if (!page) break;
+          const session = fog.peek(page.imageId);
           if (!session) break;
           session.commit();
-          ws.send(serializeMessage({ type: "fog:history", imageId, ...fog.historyState(imageId) }));
+          ws.send(
+            serializeMessage({
+              type: "fog:history",
+              imageId: page.imageId,
+              ...fog.historyState(page.imageId),
+            })
+          );
+          break;
+        }
+
+        // History is per page and server-owned, so selecting a page on the board is when the GM's
+        // buttons need its state. `historyState` reads what is resident and never loads a mask.
+        case "fog:history:query": {
+          if (conn.role !== "gm") break;
+          const page = resolvePage(db, adventureId, msg.imageId);
+          if (!page) break;
+          ws.send(
+            serializeMessage({
+              type: "fog:history",
+              imageId: page.imageId,
+              ...fog.historyState(page.imageId),
+            })
+          );
           break;
         }
 
@@ -610,12 +684,12 @@ export function createWsHandlers(deps: ServerDeps) {
             ws.send(serializeMessage({ type: "error", message: "Only GM can undo fog strokes" }));
             break;
           }
-          const adv = getAdventure(db, adventureId);
-          if (!adv?.active_image_id) {
-            ws.send(serializeMessage({ type: "error", message: "No active image" }));
+          const page = resolvePage(db, adventureId, msg.imageId);
+          if (!page) {
+            ws.send(serializeMessage({ type: "error", message: "No such page" }));
             break;
           }
-          const imageId = adv.active_image_id;
+          const imageId = page.imageId;
           let session: FogSession;
           try {
             session = await fog.open(imageId);
@@ -636,8 +710,9 @@ export function createWsHandlers(deps: ServerDeps) {
             imageId,
             fogMask: await session.toBase64(),
           });
+          // The GM always sees their own step; the table only when it is the page on it.
           ws.send(resetMsg);
-          ws.publish(topic, resetMsg);
+          if (page.isLive) ws.publish(topic, resetMsg);
           ws.send(serializeMessage({ type: "fog:history", imageId, ...fog.historyState(imageId) }));
           break;
         }
@@ -647,9 +722,9 @@ export function createWsHandlers(deps: ServerDeps) {
             ws.send(serializeMessage({ type: "error", message: "Only GM can place tokens" }));
             break;
           }
-          const adv = getAdventure(db, adventureId);
-          if (!adv?.active_image_id) {
-            ws.send(serializeMessage({ type: "error", message: "No active map to place token on" }));
+          const page = resolvePage(db, adventureId, msg.imageId);
+          if (!page) {
+            ws.send(serializeMessage({ type: "error", message: "No such page to place token on" }));
             break;
           }
           const tokenType = msg.tokenType === 'npc' ? 'npc' : 'monster';
@@ -661,11 +736,12 @@ export function createWsHandlers(deps: ServerDeps) {
             tokenType,
             x: Number(msg.x) || 0,
             y: Number(msg.y) || 0,
-            imageId: adv.active_image_id,
+            imageId: page.imageId,
           });
           const placedMsg = serializeMessage({ type: 'gm_token:added', token: placed });
           ws.send(placedMsg);
-          ws.publish(topic, placedMsg);
+          // A monster prepared on a page nobody is looking at waits there in silence.
+          if (page.isLive) ws.publish(topic, placedMsg);
           break;
         }
 
@@ -683,7 +759,12 @@ export function createWsHandlers(deps: ServerDeps) {
           deleteToken(db, msg.tokenId);
           const removedMsg = serializeMessage({ type: "token:removed", tokenId: msg.tokenId });
           ws.send(removedMsg);
-          ws.publish(topic, removedMsg);
+          // A monster the players never received must not have its removal announced either. A row
+          // with no image predates per-map GM tokens and still belongs to whatever is presented.
+          const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
+          if (target.image_id === null || target.image_id === liveImageId) {
+            ws.publish(topic, removedMsg);
+          }
           break;
         }
 

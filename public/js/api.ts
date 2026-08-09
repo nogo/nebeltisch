@@ -1,3 +1,5 @@
+import type { TokenData } from './tokens';
+
 /**
  * These are **not** imported from `src/types.ts`, unlike the WebSocket contract and `Token`.
  *
@@ -132,6 +134,24 @@ export async function getImageFog(
   });
   const data = await (await checkOk(res)).json();
   return typeof data.fogMask === 'string' ? data.fogMask : null;
+}
+
+/**
+ * The monsters and NPCs standing on one page.
+ *
+ * The WebSocket only ever carries the presented page's GM tokens, and preparing a page the party is
+ * not looking at reaches nobody — so this is how the board shows the GM what they already placed
+ * there (#51). Player tokens are not included: the party stands on whatever is presented.
+ */
+export async function getImageGmTokens(
+  adventureId: string,
+  password: string,
+  imageId: string
+): Promise<TokenData[]> {
+  const res = await fetch(`/api/adventures/${adventureId}/images/${imageId}/tokens`, {
+    headers: gmHeaders(password),
+  });
+  return (await checkOk(res)).json();
 }
 
 export async function switchActiveImage(adventureId: string, password: string, imageId: string): Promise<void> {

@@ -184,6 +184,78 @@ describe("persistence", () => {
   });
 });
 
+describe("residency", () => {
+  // Preparation changed what grows here (principle 8). Idle disposal is per adventure and frees
+  // nothing while a sitting is in progress, and a GM preparing a board touches every page in one
+  // sitting — so the count of resident masks is capped on top of it (#51).
+
+  test("opening past the cap drops the coldest map, not the one just opened", async () => {
+    const fog = createFogRegistry(db, undefined, { maxResidentMasks: 2 }).forAdventure(
+      adventureId
+    );
+    const second = makeImage("second.png");
+    const third = makeImage("third.png");
+
+    await fog.open(imageId);
+    await fog.open(second);
+    await fog.open(third);
+
+    expect(fog.peek(imageId)).toBeUndefined();
+    expect(fog.peek(second)).toBeDefined();
+    expect(fog.peek(third)).toBeDefined();
+  });
+
+  test("using a map keeps it resident while a page merely visited once falls out", async () => {
+    const fog = createFogRegistry(db, undefined, { maxResidentMasks: 2 }).forAdventure(
+      adventureId
+    );
+    const second = makeImage("second.png");
+    const third = makeImage("third.png");
+
+    await fog.open(imageId);
+    await fog.open(second);
+    await fog.open(imageId); // the GM comes back to the first page
+    await fog.open(third);
+
+    // Least *recently used*, not least recently loaded: the live page is painted constantly and
+    // must never be the one evicted out from under an undo stack.
+    expect(fog.peek(second)).toBeUndefined();
+    expect(fog.peek(imageId)).toBeDefined();
+  });
+
+  test("the mask a full cache drops is written first", async () => {
+    const fog = createFogRegistry(db, undefined, { maxResidentMasks: 1 }).forAdventure(
+      adventureId
+    );
+    const second = makeImage("second.png");
+
+    (await fog.open(imageId)).applyStrokes(reveal(20, 15));
+    await fog.open(second);
+    // Eviction flushes, so the only thing the GM loses is that page's undo history.
+    await Bun.sleep(10);
+
+    expect(fog.peek(imageId)).toBeUndefined();
+    expect(isRevealed((await loadFogMask(db, imageId))!, 20, 15)).toBe(true);
+  });
+
+  test("the cap is per adventure, so one busy table cannot evict another's", async () => {
+    const registry = createFogRegistry(db, undefined, { maxResidentMasks: 1 });
+    const otherId = createAdventure(db, { name: "Other", gmPassword: "pw" }).id;
+    const otherImageId = createImageRecord(db, {
+      adventureId: otherId,
+      filename: "other.png",
+      originalName: "other.png",
+      width: 40,
+      height: 30,
+    }).id;
+
+    await registry.forAdventure(otherId).open(otherImageId);
+    await registry.forAdventure(adventureId).open(imageId);
+
+    expect(registry.forAdventure(otherId).peek(otherImageId)).toBeDefined();
+  });
+});
+
 describe("idle lifetime", () => {
   const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
