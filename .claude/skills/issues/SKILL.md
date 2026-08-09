@@ -1,6 +1,6 @@
 ---
 name: issues
-description: Manage the Nebeltisch backlog on the GitHub issue tracker — file a bug, story or idea, triage, groom, close, or report status. Use whenever work is captured, prioritised, split, or closed, and whenever someone says "file that", "open an issue", "what should I work on", "what's left", or asks about milestones, priorities or the backlog.
+description: Manage the Nebeltisch backlog across GitHub Issues and the "Nebeltisch" GitHub Project — file, triage, group, prioritise, move, split, close, or report status. Use whenever work is captured or changed, and whenever someone asks about milestones, project status, priorities, or the backlog.
 ---
 
 # Nebeltisch issue tracker
@@ -72,19 +72,41 @@ Exactly one, always set. It answers "when does this hurt", not "how hard is it".
 
 If a P0 exists, nothing else is being worked on.
 
-## Milestones
+## Milestones and larger work
 
-Exactly one, always set. The milestone is *when*; the priority is *how much it hurts*.
+A milestone answers **which larger outcome or delivery cycle this issue contributes to**. It is
+optional: standalone backlog items remain without one.
 
-| Milestone | Holds |
-|---|---|
-| `Next cycle` | P0/P1 defects and the stories being built now |
-| `Hardening` | P2/P3 correctness, security and cleanup — before other GMs get it |
-| `GM Account` | Everything blocked on there being accounts |
-| `Wishes` | Every idea |
-| `Session <date>` | Closed cycles. Historical; do not add to one |
+- Assign a milestone when an issue belongs to an established initiative, release, session, or other
+  bounded workstream. Check the open milestones before choosing one; do not infer from a similar
+  title alone.
+- Epics and their children normally share a milestone. Also record the native parent/sub-issue
+  relationship when one exists; the milestone groups the work but does not replace that relationship.
+- Create a milestone only when the larger outcome is agreed and needs tracking. Do not create one
+  merely to categorise a single issue.
+- Revisit the milestone when splitting, moving, or closing work. A child may differ from its parent
+  only when it genuinely ships with another outcome.
 
-A new dated milestone is created only when a cycle actually starts.
+Milestone is scope; Project Status is workflow; Priority is urgency. Never use one as a substitute
+for another.
+
+## GitHub Project "Nebeltisch"
+
+The Project is the working view of the tracker. Every open issue belongs on it unless the issue
+explicitly explains why it is excluded. After creating an issue, verify that automation added it and
+add it manually if it did not.
+
+Use the live Project fields rather than memorised IDs or options. In particular:
+
+- Move an item through `Backlog` → `Ready` → `In progress` → `In review` → `Done` as its real state
+  changes. `Ready` means specified and independently grabbable; closing an issue means `Done`.
+- Mirror the issue's priority label into the Project Priority field when a matching option exists.
+  If it does not, leave the Project field unset rather than inventing a mapping.
+- Set Size only after the work has been shaped, and only when there is evidence for the estimate.
+- Set milestones on the issue. GitHub exposes that value in the Project automatically.
+
+Discover the Project by its title on each run. Before reporting or changing it, query its current
+items and fields; do not persist Project, item, field, or option IDs in this skill.
 
 ## Writing the body
 
@@ -114,20 +136,34 @@ Write bodies to a file and pass `--body-file`. Heredocs mangle backticks and `$`
 ## Commands
 
 ```bash
-# Create — write the body to a scratch file first
+# Create — write the body to a scratch file first; add --milestone only for larger work
 gh issue create --title "…" --body-file /tmp/issue.md \
-  --label bug --label P1 --milestone "Next cycle"
+  --label bug --label P1
 
 # The backlog, most urgent first
 gh issue list --state open --json number,title,labels,milestone \
   --jq 'sort_by(.labels|map(.name)|map(select(startswith("P")))|first)
         | .[] | "\(.number)\t\(.labels|map(.name)|join(","))\t\(.title)"'
 
-# One milestone
-gh issue list --milestone "Next cycle" --state open
+# A milestone
+gh issue list --milestone "<milestone>" --state open
 
 # Retitle, relabel, remilestone
-gh issue edit 42 --title "…" --add-label P1 --remove-label P2 --milestone "Next cycle"
+gh issue edit 42 --title "…" --add-label P1 --remove-label P2 --milestone "<milestone>"
+
+# Discover the "Nebeltisch" Project and inspect its live schema and items
+tracker_owner=$(gh repo view --json owner --jq '.owner.login')
+tracker_project=$(gh project list --owner "$tracker_owner" --format json \
+  --jq '.projects[] | select(.title == "Nebeltisch") | .number')
+gh project field-list "$tracker_project" --owner "$tracker_owner" --format json
+gh project item-list "$tracker_project" --owner "$tracker_owner" --format json --limit 200
+
+# If the new issue is absent from the Project
+gh project item-add "$tracker_project" --owner "$tracker_owner" --url "<issue-url>"
+
+# Change a field by its live name and value
+gh project item-edit "$tracker_project" --owner "$tracker_owner" --url "<issue-url>" \
+  --field "Status" --value "In progress"
 
 # Close, always with the reason
 gh issue close 42 --comment "Fixed in <sha>. <what changed, one line>"
@@ -144,7 +180,9 @@ gh issue close 42 --reason "not planned" --comment "<why>"
 4. **One outcome, or several?** Several → open the story, then split. See below.
 5. **Small and unspecified?** A one-liner belongs in the idea backlog #41, not in its own issue.
    Split it out when it is taken seriously enough to specify.
-6. Label type + priority, set the milestone, write the body from the template.
+6. Label type + priority, write the body from the template, and assign a milestone only if the issue
+   belongs to larger work.
+7. Verify it is on the "Nebeltisch" Project and set its real Status and matching Priority.
 
 ## Splitting
 
@@ -152,7 +190,8 @@ A story that cannot be closed in one sitting becomes an `epic` plus children. Re
 spawned #35, #37, #38, #39 as its bugs surfaced in play.
 
 Each child is independently closable and carries its own priority — children are often more urgent
-than the parent. The epic closes when they do.
+than the parent. Link them as sub-issues, keep their milestone and Project state accurate, and close
+the epic when they are done.
 
 Split when the story is *taken*, not when it is filed. Splitting a P3 idea into five issues is five
 issues nobody reads.
@@ -160,6 +199,8 @@ issues nobody reads.
 ## Closing
 
 - Close from the commit that fixed it, and name the sha in the comment.
+- Move the Project item to `Done` when closing it; verify the result if automation is expected to do
+  that.
 - Tick the acceptance criteria first. Untickable criteria mean it is not closed.
 - **A story closes only when its acceptance criteria are ticked or explicitly dropped.** Dropped
   ones move to Out of scope with a sentence saying why.
