@@ -38,19 +38,45 @@ GM fog painting on a phone is not a goal. Tablet with stylus is.
 
 No mode toggle for pan vs draw. The gesture itself disambiguates. ~100ms grace period before committing to draw, so a second finger can arrive for pan/zoom.
 
+**One deliberate exception, in the Prep Phase only [not implemented].** On a board of pages, one finger drags a page and paints nothing until a tool is armed (#51). The rule above still governs play, where there is a single page under the finger; it cannot govern preparation, where a stray finger would paint fog onto whichever page happened to be underneath — a far worse failure than an extra tap. Two fingers pan and pinch zooms whatever is armed, or a large page cannot be reached mid-stroke.
+
 ---
 
 ## Phases **[not implemented]**
 
 No code distinguishes the two phases. Preparation currently happens before players join, which makes the distinction implicit rather than enforced — see the session model in [project.md](project.md).
 
-### Prep Phase
+**A phase is a mode, not a stage.** Earlier drafts of this section described preparation as temporal — "the GM has not started the session yet". That was wrong about the real use case: the party talks in the tavern while the GM sets up the cellar, and comes back to it three times an evening. The GM switches between the two phases freely, including mid-session.
 
-The GM has not started the session yet. All panels are expanded. Map management (upload, reorder, delete) happens here. Players see nothing — or a waiting screen — until the GM activates a map.
+**Switching phase changes nothing a player can see.** What the players see is decided by which page is presented and by nothing else. The phase is a GM affordance; it never reaches the server (#52).
 
-### Play Phase
+### The board **[not implemented]**
 
-Controls collapse to minimal state. The map strip shows prev/next arrows for quick switching during play. Full map management is not needed live.
+An adventure is a **board of pages**, and a page is either a *map* or a *card*. The board is the GM's home for an adventure — opening one opens its board, fitted to show every page at once (#48, #49).
+
+**Zoom is the navigation.** Pinch out for the whole adventure; pinch in until a page fills the screen, at which point it is the GM canvas described below. There is no map list, no thumbnail strip and no prev/next arrows — the maps sheet retires with this, and so does the map panel.
+
+A page's position on the board means only what the GM means by it — village here, mill to the right, cellar below. Nothing in the system reads an order, an adjacency or a geography into it.
+
+### Prep Phase **[not implemented]**
+
+All panels are expanded. Pages are uploaded, named, arranged and deleted here, and any page can be prepared — fog, monster and NPC tokens, start point — whether or not it is the one on the table (#51).
+
+**Preparation arms its tools.** The fog brush must be selected before one finger paints, the same idiom the start-point and place-token buttons already use. With nothing armed, one finger drags pages.
+
+Players see the presented page, or the waiting state, and nothing of this.
+
+### Play Phase **[not implemented]**
+
+Controls collapse to what is used live. The presented page is focused and one finger paints fog directly, with no arming — there is only one page to hit.
+
+**Presenting is deliberate, never a single tap.** Select a page, then present it: during play the tap that switches rooms sits next to the live page, and a mis-tap must not show the party somewhere they have not walked. The live page carries a visible badge at every zoom level, so the GM always knows what the table is looking at (#50).
+
+### Cards **[not implemented]**
+
+A card is an image page and nothing else — no fog, no tokens, no start point (#53). **A card is fitted, not explored:** it fills the viewport letterboxed, with no pan, no zoom and no pings. A card is a screen; a map is a space. Presenting one is how a session opens, and how the waiting state stops being a blank screen.
+
+Intro and outro are not types — they are where the GM puts the card on the board.
 
 ---
 
@@ -89,7 +115,7 @@ Left to right, separated into groups:
 
 The players sheet and the maps sheet slide over the canvas and never resize it. Tap the button again, or outside the sheet, to close.
 
-- **Maps sheet** — scrollable thumbnails, active map highlighted, upload button, and a flag button per map for setting that map's start point without activating it.
+- **Maps sheet** — scrollable thumbnails, active map highlighted, upload button, and a flag button per map for setting that map's start point without activating it. **This is what exists today and it retires with the board** (#49) — nothing new should be added to it.
 - **Players sheet** — the roster, and "Copy invite link".
 
 ### Player Presence (GM topbar)
@@ -193,4 +219,4 @@ No player accounts. The share link is the session key, and a player can open the
 
 ## Open Questions
 
-- **Map stack icon** — could the collapsed map panel icon show a tiny visual stack of the actual map thumbnails? Worth exploring as a polish item.
+- ~~**Map stack icon** — could the collapsed map panel icon show a tiny visual stack of the actual map thumbnails?~~ Moot as of 2026-08-09: the board (#48) shows the actual pages at actual size, and the map panel it would have decorated retires with the maps sheet.

@@ -152,16 +152,27 @@ Map → GM tokens → fog → player tokens → pings, stacked in an image-sized
 The GM is the only writer of fog. Each player writes only their own token. The server rejects anything else.
 **Implication:** no conflict resolution anywhere. Preserve this invariant — shared write access to one object would invalidate the whole synchronisation model.
 
-### One canvas, shared by GM and players
+### One canvas, shared by GM and players **[superseded — #48, not yet built]**
 
 The GM's canvas *is* the players' canvas. There is no separate editing context.
 **Why:** preparation happens before players join, so mid-session editing of an unseen map is not a requirement. Two contexts would let the GM paint fog onto the wrong map, unnoticed, mid-session.
 **Implication:** GM edit operations target `adventures.active_image_id`. The per-map start point is the deliberate exception, since it must be settable during preparation without showing the map.
 
+**What replaces it.** #48 makes an adventure a board of pages the GM pans and zooms, where preparing a page the party is not looking at is the point rather than the hazard. The decision above still describes the running code and still binds until that lands; it is recorded here as superseded rather than rewritten, because a decision that describes an unbuilt system is worse than one that names its own expiry.
+
+The guard survives in a stronger form, and it is a server rule rather than a UI convention: **only the presented page reaches the players.** Fog and tokens on `active_image_id` broadcast as they do today; the same operations on any other page are stored and never leave the server. The GM's phase is client state and the server never asks what it is — otherwise the two could disagree and the players' view would depend on a browser's opinion.
+
 ### Lightweight auth
 
 The GM password travels in a URL fragment and is stored in plaintext; players authenticate with an invite link. No accounts.
 **Implication:** this is adequate for a self-hosted group and insufficient for anything public. A GM account is planned and will not change how players join.
+
+**Two things about that account are already settled** (#26, decided 2026-08-09), because the migration rule below makes them permanent the moment the table exists:
+
+- **The identity table is `users`, never `gm_users`.** GM is not a property of an account — it is a relation to an adventure: you own it, so you are its GM. Additive migrations may not rename a table, so a role baked into the name could never be taken out again.
+- **Registration is open, and the deployment stays behind HTTP basic auth** until Nebeltisch is opened publicly. That gate decides who reaches the form; it does not isolate accounts from each other, which is why #4 and #5 become cross-tenant disclosure at public launch rather than at accounts.
+
+Passwords hash with `Bun.password` (argon2id) and session ids come from `crypto`, so accounts add no runtime dependency.
 
 ### Additive, idempotent migrations
 

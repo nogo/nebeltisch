@@ -5,3 +5,5 @@ public/dist/
 .DS_Store
 
 .claude/settings.local.json
+data.tar.gz
+data-*/

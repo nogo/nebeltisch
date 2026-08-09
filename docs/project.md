@@ -52,17 +52,23 @@ One GM and roughly three players, self-hosted by the GM, German-language RPG gro
 
 ### Session model
 
-- **Preparation happens before players join.** Upload a map, set its start point, place monster and NPC tokens, reveal an area around the start point.
+- **Preparation is a mode, not a stage.** Upload a page, set its start point, place monster and NPC tokens, reveal an area around the start point. Most of it happens before players join, but not all: the party talks in the tavern while the GM sets up the cellar, and comes back to it several times an evening.
 - **Switching maps during play is traversal, not preparation.** Maps are connected spaces — a village, a mill, its floors, a cellar — and the party walks between them and back.
-- Therefore the GM's canvas and the players' canvas are the same thing. There is no separate GM editing view.
+- **The GM prepares on a board; the players see one page.** An adventure is a canvas of pages the GM pans and zooms, and the live table is a state of that board rather than a separate place. What bounds the two apart is a single rule: **only the presented page reaches the players.** Everything else the GM does is stored and never leaves the server.
+
+An earlier version of this document concluded the opposite — that the GM's canvas and the players' canvas are the same thing, and that no separate GM editing view should exist. That was protecting against the GM painting fog onto a map nobody is watching. The rule above protects against it better, because it is enforced by the server instead of by the absence of a screen. Superseded 2026-08-09; see #48 and the `One canvas` decision in [architecture.md](architecture.md).
 
 ### Authentication
 
 No accounts today. The GM holds a password in a URL fragment; players hold an invite link. A GM account is planned so adventures can be managed across devices, and will not change how players join.
 
+**GM is a relation, not a role.** There is one kind of account — a user — and you are the GM of an adventure because you own it. Registration is open, and the deployment stays behind HTTP basic auth until Nebeltisch is opened publicly; that gate decides who reaches the sign-up form.
+
+**Player identity is untouched by this, deliberately.** Players keep joining by link with a name and a colour, with no account of any kind. GM authentication and player identity are separate problems, and only the first is needed to manage adventures — that seam is what keeps the project bounded, and community accounts stay out of scope behind it.
+
 ### Scope
 
-**In:** maps, fog brush, undo/redo, player tokens, GM monster/NPC tokens, per-map start points, pings, pan/zoom, GM and player interfaces, Docker deployment.
+**In:** maps, fog brush, undo/redo, player tokens, GM monster/NPC tokens, per-map start points, pings, pan/zoom, GM and player interfaces, Docker deployment. Committed on 2026-08-09 and not yet built: GM accounts and an adventure dashboard (#26), the preparation board (#48), and card pages carrying an image with no fog or tokens (#53).
 
 **Out:** dice rolling, character sheets, initiative tracking, audio, rules automation, public/community hosting. Deferred ideas are tracked as GitHub issues.
 
