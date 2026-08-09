@@ -1,4 +1,5 @@
 import type { ImageRecord } from './api';
+import type { WorldBounds } from './viewport';
 
 /**
  * The adventure's board: every page laid out on one canvas, in board coordinates.
@@ -21,8 +22,11 @@ export interface PageRect {
 export interface BoardController {
   element: HTMLElement;
   setPages(images: ImageRecord[]): void;
-  /** The world the viewport fits and clamps to. */
-  getWorldSize(): { w: number; h: number };
+  /**
+   * What "fit the board" frames. The board is an infinite canvas — this bounds the *content*, not
+   * the world, and nothing clamps to it.
+   */
+  getWorldBounds(): WorldBounds;
   rectOf(id: string): PageRect | null;
   pageAt(boardX: number, boardY: number): string | null;
   setSelected(id: string | null): void;
@@ -136,15 +140,25 @@ export function initBoard(container: HTMLElement): BoardController {
       this.applyScale(scale);
     },
 
-    getWorldSize() {
-      if (pages.length === 0) return { w: 0, h: 0 };
-      let w = 0;
-      let h = 0;
+    getWorldBounds() {
+      if (pages.length === 0) return { x: 0, y: 0, w: 0, h: 0 };
+      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
       for (const page of pages) {
-        w = Math.max(w, page.x + page.width);
-        h = Math.max(h, page.y + page.height);
+        minX = Math.min(minX, page.x);
+        minY = Math.min(minY, page.y);
+        maxX = Math.max(maxX, page.x + page.width);
+        maxY = Math.max(maxY, page.y + page.height);
       }
-      return { w, h };
+      // Margin, so fitting does not press the outermost pages against the screen edges. It also
+      // keeps the name labels in frame: they hang above their page and counter-scale, so at fit
+      // they stand `13px / scale` tall in world units — taller the larger the pages are.
+      const margin = Math.max(120, Math.round(Math.max(maxX - minX, maxY - minY) * 0.06));
+      return {
+        x: minX - margin,
+        y: minY - margin,
+        w: maxX - minX + margin * 2,
+        h: maxY - minY + margin * 2,
+      };
     },
 
     rectOf(id) {
@@ -198,10 +212,10 @@ export function initBoard(container: HTMLElement): BoardController {
 
     dragTo(boardX, boardY) {
       if (!drag) return;
-      // Clamped at the origin: the viewport's world runs from (0,0), so a page dragged negative
-      // would sit outside every pan limit and become unreachable.
-      drag.page.x = Math.max(0, boardX - drag.offsetX);
-      drag.page.y = Math.max(0, boardY - drag.offsetY);
+      // Unclamped. The canvas is infinite in every direction, so a page may sit at a negative
+      // board coordinate; `board_x`/`board_y` are REAL and store one happily.
+      drag.page.x = boardX - drag.offsetX;
+      drag.page.y = boardY - drag.offsetY;
       drag.moved = true;
       position(drag.page);
     },

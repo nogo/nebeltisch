@@ -1,3 +1,21 @@
+/**
+ * What is worth looking at, in world coordinates. A player's is their page, at the origin. The
+ * GM's is the bounding box of every page on the board, which can start at a negative coordinate.
+ */
+export interface WorldBounds {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+
+/**
+ * An unbounded viewport is a canvas, not a page: zoom is an absolute range and panning is free, so
+ * what happens to be on it never decides how far the GM can pull back. Roughly Miro's range.
+ */
+const MIN_SCALE = 0.02;
+const MAX_SCALE = 4;
+
 export interface Viewport {
   readonly scale: number;
   readonly panX: number;
@@ -7,12 +25,16 @@ export interface Viewport {
   attach(
     container: HTMLElement,
     wrapper: HTMLElement,
-    /**
-     * The size of the world being panned over — one page for a player, the bounding box of every
-     * page for the GM's board (#49). Fitting, clamping and `resetView` all derive from it.
-     */
-    getWorldSize: () => { w: number; h: number }
+    getWorldBounds: () => WorldBounds,
+    options?: {
+      /**
+       * Bounded (the default) is the player's map: you cannot zoom out past it filling the screen,
+       * and you cannot pan it off the edge. Unbounded is the GM's board — see `MIN_SCALE` above.
+       */
+      bounded?: boolean;
+    }
   ): void;
+  /** Frames the world bounds. On an unbounded viewport this is the only way back to the content. */
   resetView(): void;
   onChange(callback: () => void): void;
   // Fires for all single-pointer moves (hover + drag). Caller checks own state.
@@ -31,7 +53,8 @@ export function createViewport(): Viewport {
   let _panY = 0;
   let _container: HTMLElement | null = null;
   let _wrapper: HTMLElement | null = null;
-  let _getWorldSize: (() => { w: number; h: number }) | null = null;
+  let _getWorldBounds: (() => WorldBounds) | null = null;
+  let _bounded = true;
 
   const changeCbs: Array<() => void> = [];
   const moveCbs: Array<(ev: PointerEvent) => void> = [];
@@ -46,9 +69,10 @@ export function createViewport(): Viewport {
     for (const cb of changeCbs) cb();
   }
 
-  function computeBaseScale(): number {
-    if (!_container || !_getWorldSize) return 1;
-    const { w, h } = _getWorldSize();
+  /** The scale at which the whole world fits the container. A limit only when bounded. */
+  function computeFitScale(): number {
+    if (!_container || !_getWorldBounds) return 1;
+    const { w, h } = _getWorldBounds();
     if (w === 0 || h === 0) return 1;
     const cw = _container.clientWidth || 800;
     const ch = _container.clientHeight || 600;
@@ -56,23 +80,20 @@ export function createViewport(): Viewport {
   }
 
   function clampScale(s: number): number {
-    const bs = computeBaseScale();
-    // The ceiling is relative to the world, which is the whole board rather than one page (#49).
-    // On a six-page board `bs * 10` can stop short of filling the screen with a single page, so it
-    // is floored at 2: scale 1 is one image pixel per screen pixel, and any page reaches the edges
-    // well before that.
-    return Math.min(Math.max(bs, s), Math.max(bs * 10, 2));
+    if (!_bounded) return Math.min(Math.max(MIN_SCALE, s), MAX_SCALE);
+    const fit = computeFitScale();
+    return Math.min(Math.max(fit, s), fit * 10);
   }
 
   function clampPan() {
-    if (!_container || !_getWorldSize) return;
-    const { w, h } = _getWorldSize();
+    // A canvas does not push back. `resetView` is what brings the GM home instead.
+    if (!_bounded || !_container || !_getWorldBounds) return;
+    const { x, y, w, h } = _getWorldBounds();
     const cw = _container.clientWidth;
     const ch = _container.clientHeight;
-    const iw = w * _scale;
-    const ih = h * _scale;
-    _panX = Math.min(cw / 2, Math.max(cw / 2 - iw, _panX));
-    _panY = Math.min(ch / 2, Math.max(ch / 2 - ih, _panY));
+    // Never let more than half the container sit past either edge of the world.
+    _panX = Math.min(cw / 2 - x * _scale, Math.max(cw / 2 - (x + w) * _scale, _panX));
+    _panY = Math.min(ch / 2 - y * _scale, Math.max(ch / 2 - (y + h) * _scale, _panY));
   }
 
   // --- Pointer state ---
@@ -259,10 +280,11 @@ export function createViewport(): Viewport {
       };
     },
 
-    attach(container, wrapper, getWorldSize) {
+    attach(container, wrapper, getWorldBounds, options) {
       _container = container;
       _wrapper = wrapper;
-      _getWorldSize = getWorldSize;
+      _getWorldBounds = getWorldBounds;
+      _bounded = options?.bounded !== false;
       wrapper.style.transformOrigin = '0 0';
       wrapper.style.willChange = 'transform';
 
@@ -292,15 +314,16 @@ export function createViewport(): Viewport {
     },
 
     resetView() {
-      if (!_container || !_getWorldSize) return;
-      const { w, h } = _getWorldSize();
+      if (!_container || !_getWorldBounds) return;
+      const { x, y, w, h } = _getWorldBounds();
       if (w === 0 || h === 0) return;
       const cw = _container.clientWidth || 800;
       const ch = _container.clientHeight || 600;
-      const bs = Math.min(cw / w, ch / h);
-      _scale = bs;
-      _panX = (cw - w * bs) / 2;
-      _panY = (ch - h * bs) / 2;
+      // Clamped, so a board too large to fit at MIN_SCALE still lands somewhere legal.
+      const fit = clampScale(Math.min(cw / w, ch / h));
+      _scale = fit;
+      _panX = (cw - w * fit) / 2 - x * fit;
+      _panY = (ch - h * fit) / 2 - y * fit;
       applyTransform();
     },
 

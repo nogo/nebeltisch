@@ -32,9 +32,10 @@ GM fog painting on a phone is not a goal. Tablet with stylus is.
 
 | Gesture | Action |
 |---------|--------|
-| 1 finger / stylus | Interact — GM: paint fog; Player: drag token |
-| 2-finger drag | Pan the map |
+| 1 finger / stylus | Interact — GM: drag a page, or paint fog once the brush is armed; Player: drag token |
+| 2-finger drag | Pan |
 | Pinch | Zoom in/out |
+| Double-tap empty canvas | GM only: fit the board |
 
 No mode toggle for pan vs draw. The gesture itself disambiguates. ~100ms grace period before committing to draw, so a second finger can arrive for pan/zoom.
 
@@ -58,7 +59,13 @@ An adventure is a **board of pages**, and a page is either a *map* or a *card* (
 
 **Zoom is the navigation.** Pinch out for the whole adventure; pinch in until a page fills the screen, at which point it is the GM canvas described below. There is no map list, no thumbnail strip and no prev/next arrows — the maps sheet has retired, and so has the map panel.
 
+**The board is an infinite canvas, not a fitted page.** Pages float on it; they do not define it. Zoom runs a fixed 2%–400% whatever is on the board, and panning is unbounded in every direction, so adding a large page never changes how far the GM can pull back. A page may sit at a negative coordinate — the origin is not a corner.
+
+The cost of no edges is that the GM can lose the pages, so **Fit** frames all of them: a toolbar button, and a double-tap on empty canvas. Empty canvas has no other meaning, and on a page the double-tap still belongs to the token layer.
+
 A page's position on the board means only what the GM means by it — village here, mill to the right, cellar below. Nothing in the system reads an order, an adjacency or a geography into it. One finger drags a page; the arrangement is saved on release and is the same on the next device.
+
+**A player's viewport is bounded, and stays that way.** One page, no zooming out past it filling the screen, no panning it off the edge. There is nothing beyond it to find, so the freedom would only buy them a way to lose the map.
 
 **Selecting and presenting are different acts.** A tap selects: the page gains the canvas stack, its stored fog is drawn, and the start-point tool acts on it. Nobody else sees any of that. Presenting is the second, explicit action — see Play Phase below.
 
@@ -118,6 +125,7 @@ Left to right, separated into groups:
 | Upload | Adds a page; it lands on a free spot on the board |
 | Start point | Arms a mode: the next tap sets the party start point for the *selected* page |
 | Place token | Arms a mode: the next tap opens a small form to place a monster or NPC |
+| Fit | Frames every page. Same as double-tapping empty canvas |
 | Present | Shows the selected page to the table. Disabled when it is already live |
 
 The fog and token controls dim while a page that is not presented is selected — see Prep Phase.

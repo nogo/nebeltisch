@@ -142,7 +142,11 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
   const canvasCtrl = initCanvas(canvasArea, { mode: 'player' });
 
   const viewport = createViewport();
-  viewport.attach(canvasArea, canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize());
+  // Bounded, unlike the GM's board: a player has one page and nothing to find beyond it.
+  viewport.attach(canvasArea, canvasCtrl.getWrapper(), () => {
+    const { w, h } = canvasCtrl.getImageSize();
+    return { x: 0, y: 0, w, h };
+  });
 
   // GM token layer below fog — hidden unless fog is revealed above them
   const gmTokenCtrl = initTokenLayer(

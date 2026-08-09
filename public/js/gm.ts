@@ -74,6 +74,7 @@ const tokenSizeLabel = document.getElementById('token-size-label')!;
 const playersBt = document.getElementById('players-btn')!;
 const playerCount = document.getElementById('player-count')!;
 const presentBtn = document.getElementById('present-btn') as HTMLButtonElement;
+const fitBtn = document.getElementById('fit-btn')!;
 const placeTokenBtn = document.getElementById('place-token-btn')!;
 const startPointBtn = document.getElementById('start-point-btn')!;
 const flagIconTemplate = document.getElementById('flag-icon') as HTMLTemplateElement;
@@ -120,8 +121,17 @@ canvasWrapper.hidden = true;
 
 // --- Viewport ---
 const viewport = createViewport();
-viewport.attach(canvasArea, board.element, () => board.getWorldSize());
+// Unbounded: the board is a canvas the pages float on, not a page. What is on it never decides how
+// far the GM can pull back, and panning is free — `fitBoard` is what brings them home.
+viewport.attach(canvasArea, board.element, () => board.getWorldBounds(), { bounded: false });
 viewport.onChange(() => board.applyScale(viewport.scale));
+
+/** Frames every page. On a canvas with no edges this is the only way back to the content. */
+function fitBoard() {
+  viewport.resetView();
+}
+
+fitBtn.addEventListener('click', fitBoard);
 
 /**
  * Screen coordinates to coordinates *within the focused page*.
@@ -165,6 +175,13 @@ gmTokenCtrl.enableDragAll((tokenId, x, y) => {
 
 // dblclick on canvasArea routes to gmTokenCtrl (its canvas has pointer-events:none, can't listen directly)
 canvasArea.addEventListener('dblclick', (ev) => {
+  // Empty canvas has no other meaning, so a double-tap there fits the board. Checked first: on a
+  // page it must still reach the token layer, which removes a monster.
+  const world = viewport.screenToImage(ev.clientX, ev.clientY);
+  if (board.pageAt(world.x, world.y) === null) {
+    fitBoard();
+    return;
+  }
   gmTokenCtrl.handleDoubleClick(ev);
 });
 
@@ -203,8 +220,7 @@ ws.on('joined', async (msg) => {
   renderPages();
 
   // The board opens fitted to the whole adventure — the GM sees the story, not one room.
-  viewport.resetView();
-  board.applyScale(viewport.scale);
+  fitBoard();
   await focusPage(activeImageId ?? imageList[0]?.id ?? null);
 
   const tokens = msg.tokens;

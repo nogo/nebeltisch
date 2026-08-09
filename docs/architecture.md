@@ -47,7 +47,7 @@ Client — `public/js/`
 | `gm.ts`, `player.ts` | Entry points; own all UI state for their role |
 | `board.ts` | The GM's board: page elements, live badge, selection, dragging. Board coordinates only |
 | `canvas.ts` | Map, fog and brush-preview canvases; fog compositing and mask decoding |
-| `viewport.ts` | Pan, zoom, and pointer gesture disambiguation over a world — one page for a player, the whole board for the GM |
+| `viewport.ts` | Pan, zoom, and pointer gesture disambiguation. Bounded to its content for a player; unbounded for the GM's board |
 | `tokens.ts` | A token layer; hit testing and dragging |
 | `ping.ts` | Ping layer; owns its own animation loop |
 | `api.ts` | REST client |
@@ -163,6 +163,9 @@ An adventure is a board of pages the GM pans and zooms; the players see one page
 **Superseded on 2026-08-09** (#48, #49, #50). The rule was previously *"the GM's canvas is the players' canvas; there is no separate editing context"*, and GM edit operations targeted `active_image_id` with the per-map start point as the deliberate exception.
 
 **Half-built, deliberately.** The board, presenting and per-page start points exist. Fog strokes and token placement still carry no image id, so they still apply to `active_image_id` and those tools are disabled while a page that is not presented is selected. Making them target any page — and broadcasting only for the presented one — is #51. Until it lands, `GET /api/adventures/:id/images/:imageId/fog` may read `images.fog_mask` directly, because no in-memory mask can be ahead of it for a page nobody can paint.
+
+**The board is an infinite canvas; a player's map is not.** `viewport.ts` takes a `bounded` flag. Bounded derives its zoom floor and pan limits from the content — correct for one page, where there is nothing beyond it. Unbounded uses an absolute 2%–400% and does not clamp panning at all, so what happens to be on the board never decides how far the GM can pull back, and pages may hold negative coordinates. The content bounds survive only to answer "what frames everything", for the initial view and the Fit control.
+**Why it matters:** the first version of the board reused the bounded viewport, which made the page bounding box the world. Zooming out stopped exactly where the outermost pages touched the screen edges, name labels hung outside that box and were clipped, and there was no visible empty space to drag a page into. The larger the maps, the worse it got — labels counter-scale, so their world height is `13px / scale`.
 
 **Rendering.** Only the selected page gets the canvas stack; every other page is a plain `<img>` of the original upload. Measured against the production adventures on 2026-08-09, a six-page board is ~41 MB of decoded bitmap, which is why no thumbnail is stored. Past ten pages, or at 4K, the escape hatch is `createImageBitmap(blob, { resizeWidth })` — no schema change, no stored files. Related: #20.
 
