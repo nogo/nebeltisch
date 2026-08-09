@@ -1049,6 +1049,56 @@ describe("WebSocket handler", () => {
     expect(image.start_y).toBe(40);
   });
 
+  it("Start point updates sync to every GM socket, and never to players", async () => {
+    const firstGm = track(
+      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+    );
+    await waitForMessage(firstGm, "joined");
+    const secondGm = track(
+      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+    );
+    await waitForMessage(secondGm, "joined");
+    const player = track(
+      await connectWS(ts.wsUrl, {
+        adventureId,
+        role: "player",
+        playerLink,
+        playerName: "Bob",
+        playerColor: "#00ff00",
+      })
+    );
+    await waitForMessage(player, "joined");
+
+    const firstMoved = waitForMessage(firstGm, "map:start_point:set");
+    const secondMoved = waitForMessage(secondGm, "map:start_point:set");
+    const playerSawMove = waitForMessage(player, "map:start_point:set", 150).then(
+      () => true,
+      () => false
+    );
+    firstGm.send(JSON.stringify({ type: "map:start_point", imageId, x: 30, y: 40 }));
+
+    expect((await firstMoved).x).toBe(30);
+    const movedOnSecondGm = await secondMoved;
+    expect(movedOnSecondGm.x).toBe(30);
+    expect(movedOnSecondGm.y).toBe(40);
+    expect(await playerSawMove).toBe(false);
+
+    const firstLocked = waitForMessage(firstGm, "map:start_point:set");
+    const secondLocked = waitForMessage(secondGm, "map:start_point:set");
+    const playerSawLock = waitForMessage(player, "map:start_point:set", 150).then(
+      () => true,
+      () => false
+    );
+    secondGm.send(JSON.stringify({ type: "map:start_point:lock", imageId, locked: true }));
+
+    expect((await firstLocked).locked).toBe(true);
+    const lockedOnSecondGm = await secondLocked;
+    expect(lockedOnSecondGm.locked).toBe(true);
+    expect(lockedOnSecondGm.x).toBe(30);
+    expect(lockedOnSecondGm.y).toBe(40);
+    expect(await playerSawLock).toBe(false);
+  });
+
   it("Unlocking lets the start point move again", async () => {
     const { gm } = await connectGmAndPlayer();
 

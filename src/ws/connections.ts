@@ -61,3 +61,13 @@ export function getGmWsForAdventure(
   }
   return undefined;
 }
+
+export function getGmSocketsForAdventure(
+  adventureId: string
+): ServerWebSocket<WsData>[] {
+  const result: ServerWebSocket<WsData>[] = [];
+  for (const [ws, info] of connections) {
+    if (info.adventureId === adventureId && info.role === "gm") result.push(ws);
+  }
+  return result;
+}

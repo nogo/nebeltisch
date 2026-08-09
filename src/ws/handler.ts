@@ -14,6 +14,7 @@ import {
   getConnectionsForAdventure,
   getWsForToken,
   getGmWsForAdventure,
+  getGmSocketsForAdventure,
 } from "./connections";
 import { parseMessage, serializeMessage } from "./messages";
 
@@ -136,6 +137,10 @@ function sendRosterToGm(db: Database, adventureId: string): void {
   gmWs.send(
     serializeMessage({ type: "player:roster", players: buildRoster(db, adventureId) })
   );
+}
+
+function sendToGms(adventureId: string, message: string): void {
+  for (const gmWs of getGmSocketsForAdventure(adventureId)) gmWs.send(message);
 }
 
 // ---- WebSocket upgrade (called from fetch handler) ----
@@ -519,8 +524,10 @@ export function createWsHandlers(deps: ServerDeps) {
           // Remembered positions are left alone. They mean a token walked there, and the flag
           // governs first entry while walking governs return — moving one must not erase the other
           // (#57). The clear that used to live here compensated for #46 and retires with it.
-          // GM-only: players must never learn where the party will appear.
-          ws.send(
+          // GM-only: players must never learn where the party will appear. A GM may have the board
+          // open on two devices, so this fans out to GM sockets only — never the adventure topic.
+          sendToGms(
+            adventureId,
             serializeMessage({
               type: "map:start_point:set",
               imageId: msg.imageId,
@@ -543,9 +550,10 @@ export function createWsHandlers(deps: ServerDeps) {
             break;
           }
           setStartLocked(db, msg.imageId, msg.locked);
-          // Same GM-only path, and the same message, so the client has one place to read the
-          // start point's whole state from.
-          ws.send(
+          // Same GM-only path, and the same message, so the client has one place to read the start
+          // point's whole state from. This must not use the player-visible adventure topic.
+          sendToGms(
+            adventureId,
             serializeMessage({
               type: "map:start_point:set",
               imageId: msg.imageId,
