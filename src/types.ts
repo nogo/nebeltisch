@@ -37,6 +37,9 @@ export interface ImageRecord {
   sort_order: number;
   start_x: number | null;
   start_y: number | null;
+  /** Where the page sits on the adventure's board. Null only until the migration backfills it. */
+  board_x: number | null;
+  board_y: number | null;
   created_at: string;
 }
 

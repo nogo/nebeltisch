@@ -56,7 +56,7 @@ One GM and roughly three players, self-hosted by the GM, German-language RPG gro
 - **Switching maps during play is traversal, not preparation.** Maps are connected spaces — a village, a mill, its floors, a cellar — and the party walks between them and back.
 - **The GM prepares on a board; the players see one page.** An adventure is a canvas of pages the GM pans and zooms, and the live table is a state of that board rather than a separate place. What bounds the two apart is a single rule: **only the presented page reaches the players.** Everything else the GM does is stored and never leaves the server.
 
-An earlier version of this document concluded the opposite — that the GM's canvas and the players' canvas are the same thing, and that no separate GM editing view should exist. That was protecting against the GM painting fog onto a map nobody is watching. The rule above protects against it better, because it is enforced by the server instead of by the absence of a screen. Superseded 2026-08-09; see #48 and the `One canvas` decision in [architecture.md](architecture.md).
+An earlier version of this document concluded the opposite — that the GM's canvas and the players' canvas are the same thing, and that no separate GM editing view should exist. That was protecting against the GM painting fog onto a map nobody is watching. The rule above protects against it better, because it is enforced by the server instead of by the absence of a screen. Superseded 2026-08-09; the board and presenting shipped the same day (#49, #50), and preparing an unpresented page is #51. See the `Only the presented page reaches the players` decision in [architecture.md](architecture.md).
 
 ### Authentication
 
@@ -68,7 +68,7 @@ No accounts today. The GM holds a password in a URL fragment; players hold an in
 
 ### Scope
 
-**In:** maps, fog brush, undo/redo, player tokens, GM monster/NPC tokens, per-map start points, pings, pan/zoom, GM and player interfaces, Docker deployment. Committed on 2026-08-09 and not yet built: GM accounts and an adventure dashboard (#26), the preparation board (#48), and card pages carrying an image with no fog or tokens (#53).
+**In:** maps, fog brush, undo/redo, player tokens, GM monster/NPC tokens, per-map start points, pings, pan/zoom, the preparation board and presenting a page from it (#49, #50), GM and player interfaces, Docker deployment. Committed on 2026-08-09 and not yet built: preparing a page the party is not looking at (#51), preparation and presentation phases (#52), GM accounts and an adventure dashboard (#26), and card pages carrying an image with no fog or tokens (#53).
 
 **Out:** dice rolling, character sheets, initiative tracking, audio, rules automation, public/community hosting. Deferred ideas are tracked as GitHub issues.
 

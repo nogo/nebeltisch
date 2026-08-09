@@ -27,6 +27,9 @@ export interface ImageRecord {
   sort_order: number;
   start_x: number | null;
   start_y: number | null;
+  /** Where the page sits on the board. Null only for a row the migration has not reached yet. */
+  board_x: number | null;
+  board_y: number | null;
 }
 
 function gmHeaders(password: string): HeadersInit {
@@ -93,6 +96,40 @@ export async function listImagesAsPlayer(adventureId: string, playerLink: string
     headers: { 'X-Player-Link': playerLink },
   });
   return (await checkOk(res)).json();
+}
+
+/** Board layout is REST: players never see the board, so none of it belongs on the wire. */
+export async function setBoardPosition(
+  adventureId: string,
+  password: string,
+  imageId: string,
+  x: number,
+  y: number
+): Promise<void> {
+  const res = await fetch(`/api/adventures/${adventureId}/images/${imageId}/position`, {
+    method: 'PUT',
+    headers: { ...gmHeaders(password), 'Content-Type': 'application/json' },
+    body: JSON.stringify({ x, y }),
+  });
+  await checkOk(res);
+}
+
+/**
+ * The stored fog of any page, in the same encoding `map:switched` carries.
+ *
+ * Needed because the WebSocket only ever sends the presented page's mask, and the board has to show
+ * a page's fog as it is stored once the GM zooms into it.
+ */
+export async function getImageFog(
+  adventureId: string,
+  password: string,
+  imageId: string
+): Promise<string | null> {
+  const res = await fetch(`/api/adventures/${adventureId}/images/${imageId}/fog`, {
+    headers: gmHeaders(password),
+  });
+  const data = await (await checkOk(res)).json();
+  return typeof data.fogMask === 'string' ? data.fogMask : null;
 }
 
 export async function switchActiveImage(adventureId: string, password: string, imageId: string): Promise<void> {

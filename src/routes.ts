@@ -12,7 +12,9 @@ import {
   getImagesByAdventure,
   getImage,
   deleteImage,
+  setBoardPosition,
 } from "./db/images";
+import { nextFreeSpot } from "./board";
 import { parseImageDimensions } from "./images";
 import type { ServerDeps } from "./deps";
 
@@ -227,12 +229,24 @@ async function handleAdventureRoutes(
 
       const { width, height } = parseImageDimensions(buf);
 
+      // A new page lands on the board at a free spot, ready to be dragged where it belongs —
+      // never on top of one that is already there.
+      const existing = getImagesByAdventure(db, id).map((img) => ({
+        x: img.board_x ?? 0,
+        y: img.board_y ?? 0,
+        width: img.width,
+        height: img.height,
+      }));
+      const spot = nextFreeSpot(existing, width, height);
+
       const imageRecord = createImageRecord(db, {
         adventureId: id,
         filename,
         originalName: file.name,
         width,
         height,
+        boardX: spot.x,
+        boardY: spot.y,
       });
       return json(imageRecord, 201);
     }
@@ -283,6 +297,70 @@ async function handleAdventureRoutes(
       // its fog resident until the adventure idles out.
       await deps.fog.forAdventure(id).evict(imageId);
       return new Response(null, { status: 204 });
+    }
+
+    // PUT /api/adventures/:id/images/:imageId/position
+    // Board layout is REST, not WebSocket: players never see the board and the GM is the only
+    // writer, so nothing here belongs on the wire (#48).
+    if (
+      req.method === "PUT" &&
+      segments[3] === "images" &&
+      segments[5] === "position" &&
+      segments.length === 6
+    ) {
+      const adventure = getAdventure(db, id);
+      if (!adventure) return error("Not found", 404);
+      if (req.headers.get("X-GM-Password") !== adventure.gm_password)
+        return error("Unauthorized", 401);
+
+      const image = getImage(db, segments[4]);
+      if (!image || image.adventure_id !== id) return error("Not found", 404);
+
+      let body: { x?: unknown; y?: unknown };
+      try {
+        body = await req.json();
+      } catch {
+        return error("Invalid JSON", 400);
+      }
+      if (
+        typeof body.x !== "number" ||
+        typeof body.y !== "number" ||
+        !Number.isFinite(body.x) ||
+        !Number.isFinite(body.y)
+      ) {
+        return error("x and y must be finite numbers", 400);
+      }
+
+      setBoardPosition(db, image.id, body.x, body.y);
+      return json({ id: image.id, board_x: body.x, board_y: body.y });
+    }
+
+    // GET /api/adventures/:id/images/:imageId/fog
+    // Lets the board show a page's stored fog once the GM zooms into it. Reads the stored blob
+    // rather than opening a `FogSession`: the blob is byte-for-byte what `toBase64()` produces
+    // (`fog/serialize.ts`), and opening a session per page the GM looks at would make every mask in
+    // the adventure resident at once, which principle 8 forbids.
+    //
+    // The blob is authoritative only because nothing writes fog to a page that is not presented.
+    // #51 changes that — when it lands, this must read through `deps.fog` instead.
+    if (
+      req.method === "GET" &&
+      segments[3] === "images" &&
+      segments[5] === "fog" &&
+      segments.length === 6
+    ) {
+      const adventure = getAdventure(db, id);
+      if (!adventure) return error("Not found", 404);
+      if (req.headers.get("X-GM-Password") !== adventure.gm_password)
+        return error("Unauthorized", 401);
+
+      const image = getImage(db, segments[4]);
+      if (!image || image.adventure_id !== id) return error("Not found", 404);
+
+      const fogMask = image.fog_mask
+        ? Buffer.from(image.fog_mask).toString("base64")
+        : null;
+      return json({ fogMask });
     }
   }
 

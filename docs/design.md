@@ -38,39 +38,47 @@ GM fog painting on a phone is not a goal. Tablet with stylus is.
 
 No mode toggle for pan vs draw. The gesture itself disambiguates. ~100ms grace period before committing to draw, so a second finger can arrive for pan/zoom.
 
-**One deliberate exception, in the Prep Phase only [not implemented].** On a board of pages, one finger drags a page and paints nothing until a tool is armed (#51). The rule above still governs play, where there is a single page under the finger; it cannot govern preparation, where a stray finger would paint fog onto whichever page happened to be underneath — a far worse failure than an extra tap. Two fingers pan and pinch zooms whatever is armed, or a large page cannot be reached mid-stroke.
+**One deliberate exception, on the board.** One finger drags a page and paints nothing until a tool is armed. The rule above still governs a single page under the finger; it cannot govern a board, where a stray finger would paint fog onto whichever page happened to be underneath — a far worse failure than an extra tap. Two fingers pan and pinch zooms whatever is armed, or a large page cannot be reached mid-stroke.
+
+**The brush is armed by picking Reveal or Re-fog**, and disarmed by tapping the armed segment again — the same idiom the start-point and place-token buttons use. Neither segment is active on load. A tap must travel five screen pixels before it counts as a drag, or no finger would ever select a page.
 
 ---
 
-## Phases **[not implemented]**
+## Phases **[not implemented — #52]**
 
-No code distinguishes the two phases. Preparation currently happens before players join, which makes the distinction implicit rather than enforced — see the session model in [project.md](project.md).
+No code distinguishes the two phases; the board below exists and the phases over it do not. The controls do not collapse, and nothing is remembered about which phase the GM was in — see the session model in [project.md](project.md).
 
 **A phase is a mode, not a stage.** Earlier drafts of this section described preparation as temporal — "the GM has not started the session yet". That was wrong about the real use case: the party talks in the tavern while the GM sets up the cellar, and comes back to it three times an evening. The GM switches between the two phases freely, including mid-session.
 
 **Switching phase changes nothing a player can see.** What the players see is decided by which page is presented and by nothing else. The phase is a GM affordance; it never reaches the server (#52).
 
-### The board **[not implemented]**
+### The board
 
-An adventure is a **board of pages**, and a page is either a *map* or a *card*. The board is the GM's home for an adventure — opening one opens its board, fitted to show every page at once (#48, #49).
+An adventure is a **board of pages**, and a page is either a *map* or a *card* (cards are #53, not built). The board is the GM's home for an adventure — opening one opens its board, fitted to show every page at once.
 
-**Zoom is the navigation.** Pinch out for the whole adventure; pinch in until a page fills the screen, at which point it is the GM canvas described below. There is no map list, no thumbnail strip and no prev/next arrows — the maps sheet retires with this, and so does the map panel.
+**Zoom is the navigation.** Pinch out for the whole adventure; pinch in until a page fills the screen, at which point it is the GM canvas described below. There is no map list, no thumbnail strip and no prev/next arrows — the maps sheet has retired, and so has the map panel.
 
-A page's position on the board means only what the GM means by it — village here, mill to the right, cellar below. Nothing in the system reads an order, an adjacency or a geography into it.
+A page's position on the board means only what the GM means by it — village here, mill to the right, cellar below. Nothing in the system reads an order, an adjacency or a geography into it. One finger drags a page; the arrangement is saved on release and is the same on the next device.
+
+**Selecting and presenting are different acts.** A tap selects: the page gains the canvas stack, its stored fog is drawn, and the start-point tool acts on it. Nobody else sees any of that. Presenting is the second, explicit action — see Play Phase below.
+
+Only the selected page carries the canvas stack; every other page is the plain uploaded image, with no fog drawn over it.
 
 ### Prep Phase **[not implemented]**
 
-All panels are expanded. Pages are uploaded, named, arranged and deleted here, and any page can be prepared — fog, monster and NPC tokens, start point — whether or not it is the one on the table (#51).
+All panels are expanded. Pages are uploaded, named and arranged here, and any page can be prepared — fog, monster and NPC tokens, start point — whether or not it is the one on the table (#51).
 
-**Preparation arms its tools.** The fog brush must be selected before one finger paints, the same idiom the start-point and place-token buttons already use. With nothing armed, one finger drags pages.
+**Setting a start point already works on any page**, presented or not, and is done by selecting the page and arming the flag. **Fog and tokens do not yet**: everything that writes them targets the presented page, so those tools are disabled while a page that is not live is selected. Lifting that is exactly #51, and the phases themselves are #52.
 
 Players see the presented page, or the waiting state, and nothing of this.
 
-### Play Phase **[not implemented]**
+### Play Phase
 
-Controls collapse to what is used live. The presented page is focused and one finger paints fog directly, with no arming — there is only one page to hit.
+Controls collapse to what is used live **[not implemented — #52]**. The presented page carries the canvas stack and the fog brush paints it directly.
 
-**Presenting is deliberate, never a single tap.** Select a page, then present it: during play the tap that switches rooms sits next to the live page, and a mis-tap must not show the party somewhere they have not walked. The live page carries a visible badge at every zoom level, so the GM always knows what the table is looking at (#50).
+**Presenting is deliberate, never a single tap.** Select a page, then press Present: during play the tap that switches rooms sits next to the live page, and a mis-tap must not show the party somewhere they have not walked. The live page carries a visible badge that stays the same size at every zoom level, so the GM always knows what the table is looking at.
+
+When no page has been presented, the board says so and the players wait on a blank screen. Replacing that blank screen with an opening card is #53.
 
 ### Cards **[not implemented]**
 
@@ -102,21 +110,23 @@ Left to right, separated into groups:
 
 | Control | Behaviour |
 |---|---|
-| Undo / redo | Hidden entirely when there is no history for the active map |
-| Reveal / Re-fog | Segmented pill. The active segment is the mode indicator |
+| Undo / redo | Hidden entirely when there is no history for the presented page |
+| Reveal / Re-fog | Segmented pill. Picking a segment arms the brush; tapping the armed one disarms it |
 | Brush size | Button showing the current radius; opens a popup slider. Also `Shift`+scroll on the canvas |
 | Token size | Button showing the current radius; opens a popup slider. Applies to every token, for everyone |
 | Players | Button showing the count; opens the players sheet |
-| Maps | Opens the maps sheet |
-| Start point | Arms a mode: the next tap on the canvas sets the party start point for the active map |
+| Upload | Adds a page; it lands on a free spot on the board |
+| Start point | Arms a mode: the next tap sets the party start point for the *selected* page |
 | Place token | Arms a mode: the next tap opens a small form to place a monster or NPC |
+| Present | Shows the selected page to the table. Disabled when it is already live |
+
+The fog and token controls dim while a page that is not presented is selected — see Prep Phase.
 
 ### Sheets
 
-The players sheet and the maps sheet slide over the canvas and never resize it. Tap the button again, or outside the sheet, to close.
+The players sheet slides over the canvas and never resizes it. Tap the button again, or outside the sheet, to close. It holds the roster and "Copy invite link".
 
-- **Maps sheet** — scrollable thumbnails, active map highlighted, upload button, and a flag button per map for setting that map's start point without activating it. **This is what exists today and it retires with the board** (#49) — nothing new should be added to it.
-- **Players sheet** — the roster, and "Copy invite link".
+The maps sheet is gone. It listed maps, activated one on tap, and carried a flag button per map for setting a start point without activating it; the board does all three, and nothing should reintroduce a list of pages beside it.
 
 ### Player Presence (GM topbar)
 
@@ -143,7 +153,7 @@ Controls are collapsible, and collapsing is user-initiated. No timers, no idle f
 One exception, and it is deliberate: **the toolbar dims to 15% while a brush stroke is in progress** and returns the instant the stroke ends or the pointer moves over it. That is not auto-hide — it is caused directly by the user's own gesture, lasts exactly as long as that gesture, and keeps the toolbar from competing with the stroke being painted at the bottom of the map.
 
 - **Always visible:** toolbar, brush preview
-- **Opened and closed explicitly:** maps sheet, players sheet, brush and token size popups
+- **Opened and closed explicitly:** players sheet, brush and token size popups
 - **Conditional:** undo/redo, hidden when there is no history
 
 ---
@@ -219,4 +229,4 @@ No player accounts. The share link is the session key, and a player can open the
 
 ## Open Questions
 
-- ~~**Map stack icon** — could the collapsed map panel icon show a tiny visual stack of the actual map thumbnails?~~ Moot as of 2026-08-09: the board (#48) shows the actual pages at actual size, and the map panel it would have decorated retires with the maps sheet.
+- ~~**Map stack icon** — could the collapsed map panel icon show a tiny visual stack of the actual map thumbnails?~~ Moot as of 2026-08-09: the board shows the actual pages at actual size, and the map panel it would have decorated retired with the maps sheet.

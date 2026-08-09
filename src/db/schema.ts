@@ -1,4 +1,5 @@
 import type { Database } from "bun:sqlite";
+import { gapFor, nextFreeSpot, type Rect } from "../board";
 
 export function createSchema(db: Database): void {
   db.exec(`
@@ -96,4 +97,60 @@ export function createSchema(db: Database): void {
       ON tokens(adventure_id, player_link)
       WHERE player_link IS NOT NULL
   `);
+
+  // Migration: where each page sits on the adventure's board (#49)
+  try {
+    db.run(`ALTER TABLE images ADD COLUMN board_x REAL NULL`);
+  } catch {
+    // Column already exists — ignore
+  }
+  try {
+    db.run(`ALTER TABLE images ADD COLUMN board_y REAL NULL`);
+  } catch {
+    // Column already exists — ignore
+  }
+
+  placeUnarrangedPages(db);
+}
+
+/**
+ * Gives a board position to every page that predates the board, so an existing adventure opens in a
+ * readable layout instead of a pile at the origin.
+ *
+ * Idempotent, and never moves a page the GM has already dragged: it only writes rows where
+ * `board_x IS NULL`, and it packs them around the ones that are already placed.
+ */
+function placeUnarrangedPages(db: Database): void {
+  const adventures = db
+    .query<{ adventure_id: string }, []>(
+      `SELECT DISTINCT adventure_id FROM images WHERE board_x IS NULL OR board_y IS NULL`
+    )
+    .all();
+
+  for (const { adventure_id } of adventures) {
+    const pages = db
+      .query<
+        { id: string; width: number; height: number; board_x: number | null; board_y: number | null },
+        string
+      >(
+        `SELECT id, width, height, board_x, board_y FROM images
+         WHERE adventure_id = ? ORDER BY sort_order, created_at`
+      )
+      .all(adventure_id);
+
+    const gap = gapFor(pages);
+    const placed: Rect[] = [];
+    for (const page of pages) {
+      if (page.board_x !== null && page.board_y !== null) {
+        placed.push({ x: page.board_x, y: page.board_y, width: page.width, height: page.height });
+      }
+    }
+
+    for (const page of pages) {
+      if (page.board_x !== null && page.board_y !== null) continue;
+      const spot = nextFreeSpot(placed, page.width, page.height, gap);
+      db.run(`UPDATE images SET board_x = ?, board_y = ? WHERE id = ?`, [spot.x, spot.y, page.id]);
+      placed.push({ x: spot.x, y: spot.y, width: page.width, height: page.height });
+    }
+  }
 }

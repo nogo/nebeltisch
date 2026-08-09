@@ -11,6 +11,8 @@ interface Ping {
 }
 
 export interface PingController {
+  /** The layer's own canvas, so a caller can hide it without cancelling live pings. */
+  element: HTMLCanvasElement;
   addPing(x: number, y: number, color: string): void;
   clear(): void;
 }
@@ -92,6 +94,8 @@ export function initPingLayer(
   }
 
   return {
+    element: canvas,
+
     addPing(x, y, color) {
       pings.push({ x, y, color, startTime: performance.now() });
       if (rafId === null) rafId = requestAnimationFrame(loop);

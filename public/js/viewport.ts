@@ -2,11 +2,16 @@ export interface Viewport {
   readonly scale: number;
   readonly panX: number;
   readonly panY: number;
+  /** Screen coordinates to world coordinates. The GM's world is the board; the player's is a page. */
   screenToImage(clientX: number, clientY: number): { x: number; y: number };
   attach(
     container: HTMLElement,
     wrapper: HTMLElement,
-    getImageSize: () => { w: number; h: number }
+    /**
+     * The size of the world being panned over — one page for a player, the bounding box of every
+     * page for the GM's board (#49). Fitting, clamping and `resetView` all derive from it.
+     */
+    getWorldSize: () => { w: number; h: number }
   ): void;
   resetView(): void;
   onChange(callback: () => void): void;
@@ -26,7 +31,7 @@ export function createViewport(): Viewport {
   let _panY = 0;
   let _container: HTMLElement | null = null;
   let _wrapper: HTMLElement | null = null;
-  let _getImageSize: (() => { w: number; h: number }) | null = null;
+  let _getWorldSize: (() => { w: number; h: number }) | null = null;
 
   const changeCbs: Array<() => void> = [];
   const moveCbs: Array<(ev: PointerEvent) => void> = [];
@@ -42,8 +47,8 @@ export function createViewport(): Viewport {
   }
 
   function computeBaseScale(): number {
-    if (!_container || !_getImageSize) return 1;
-    const { w, h } = _getImageSize();
+    if (!_container || !_getWorldSize) return 1;
+    const { w, h } = _getWorldSize();
     if (w === 0 || h === 0) return 1;
     const cw = _container.clientWidth || 800;
     const ch = _container.clientHeight || 600;
@@ -52,12 +57,16 @@ export function createViewport(): Viewport {
 
   function clampScale(s: number): number {
     const bs = computeBaseScale();
-    return Math.min(Math.max(bs, s), bs * 10);
+    // The ceiling is relative to the world, which is the whole board rather than one page (#49).
+    // On a six-page board `bs * 10` can stop short of filling the screen with a single page, so it
+    // is floored at 2: scale 1 is one image pixel per screen pixel, and any page reaches the edges
+    // well before that.
+    return Math.min(Math.max(bs, s), Math.max(bs * 10, 2));
   }
 
   function clampPan() {
-    if (!_container || !_getImageSize) return;
-    const { w, h } = _getImageSize();
+    if (!_container || !_getWorldSize) return;
+    const { w, h } = _getWorldSize();
     const cw = _container.clientWidth;
     const ch = _container.clientHeight;
     const iw = w * _scale;
@@ -250,10 +259,10 @@ export function createViewport(): Viewport {
       };
     },
 
-    attach(container, wrapper, getImageSize) {
+    attach(container, wrapper, getWorldSize) {
       _container = container;
       _wrapper = wrapper;
-      _getImageSize = getImageSize;
+      _getWorldSize = getWorldSize;
       wrapper.style.transformOrigin = '0 0';
       wrapper.style.willChange = 'transform';
 
@@ -283,8 +292,8 @@ export function createViewport(): Viewport {
     },
 
     resetView() {
-      if (!_container || !_getImageSize) return;
-      const { w, h } = _getImageSize();
+      if (!_container || !_getWorldSize) return;
+      const { w, h } = _getWorldSize();
       if (w === 0 || h === 0) return;
       const cw = _container.clientWidth || 800;
       const ch = _container.clientHeight || 600;

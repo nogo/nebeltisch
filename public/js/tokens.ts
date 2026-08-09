@@ -9,6 +9,8 @@ export type TokenData = Pick<Token, 'id' | 'name' | 'color' | 'x' | 'y'> & {
 };
 
 export interface TokenController {
+  /** The layer's own canvas, so a caller can hide it without clearing the tokens it holds. */
+  element: HTMLCanvasElement;
   addToken(token: TokenData): void;
   removeToken(tokenId: string): void;
   moveToken(tokenId: string, x: number, y: number): void;
@@ -133,6 +135,8 @@ export function initTokenLayer(
   const MOVE_INTERVAL = 1000 / 30;
 
   return {
+    element: canvas,
+
     addToken(token: TokenData) {
       tokens.set(token.id, { ...token });
       render();

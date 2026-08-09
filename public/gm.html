@@ -24,9 +24,12 @@
 
   <!-- Empty state -->
   <div id="empty-state" hidden>
-    <p>No map loaded</p>
-    <button id="empty-upload-btn">Upload your first map</button>
+    <p>No pages yet</p>
+    <button id="empty-upload-btn">Upload your first page</button>
   </div>
+
+  <!-- Pages exist but nothing has been presented: mirrors the players' waiting state -->
+  <div id="board-hint" hidden>Nothing is on the table — select a page and press Present.</div>
 
   <!-- Bottom toolbox -->
   <div id="toolbox" class="floating-control">
@@ -36,7 +39,8 @@
       <div class="tb-sep"></div>
     </div>
     <div class="tb-group">
-      <button id="mode-reveal" class="active">Reveal</button>
+      <!-- Neither segment starts active: the brush is armed by picking one (#51's arming rule). -->
+      <button id="mode-reveal">Reveal</button>
       <button id="mode-fog">Re-fog</button>
     </div>
     <div class="tb-sep"></div>
@@ -55,17 +59,20 @@
       <span id="player-count"></span>
     </button>
     <div class="tb-sep"></div>
-    <button id="maps-btn" class="tb-icon-btn" title="Maps">
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
-    </button>
+    <label id="upload-btn" class="tb-icon-btn" title="Upload a page">
+      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      <input type="file" id="upload-input" accept="image/*" hidden>
+    </label>
     <div class="tb-sep"></div>
-    <button id="start-point-btn" class="tb-icon-btn" title="Set party start point for this map">
+    <button id="start-point-btn" class="tb-icon-btn" title="Set the party start point for the selected page">
       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
     </button>
     <div class="tb-sep"></div>
     <button id="place-token-btn" class="tb-icon-btn" title="Place monster / NPC">
       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="11" r="3"/><path d="M12 2a7 7 0 0 1 7 7c0 5-7 13-7 13S5 14 5 9a7 7 0 0 1 7-7z"/><line x1="12" y1="8" x2="12" y2="8"/></svg>
     </button>
+    <div class="tb-sep"></div>
+    <button id="present-btn" disabled title="Show the selected page to the table">Present</button>
   </div>
 
   <!-- Token placement form -->
@@ -95,24 +102,6 @@
     <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
   </template>
 
-  <!-- Start point picker: set a map's start point without showing it to players -->
-  <div id="start-picker" hidden>
-    <div id="start-picker-inner">
-      <div id="start-picker-header">
-        <span id="start-picker-title">Start point</span>
-        <button id="start-picker-close" aria-label="Close">✕</button>
-      </div>
-      <div id="start-picker-stage">
-        <img id="start-picker-img" alt="">
-        <div id="start-picker-dot" hidden></div>
-      </div>
-      <div id="start-picker-footer">
-        <span id="start-picker-hint">Tap the map to place the party start point</span>
-        <button id="start-picker-clear">Clear</button>
-      </div>
-    </div>
-  </div>
-
   <!-- Sheet backdrop -->
   <div id="sheet-backdrop" hidden></div>
 
@@ -125,21 +114,6 @@
     <div id="players-list"></div>
     <div class="sheet-footer">
       <button id="copy-invite-btn">Copy invite link</button>
-    </div>
-  </div>
-
-  <!-- Maps sheet -->
-  <div id="maps-sheet" class="sheet" hidden>
-    <div class="sheet-header">
-      <span>Maps</span>
-      <button class="sheet-close" id="maps-close">✕</button>
-    </div>
-    <div id="gallery"></div>
-    <div class="sheet-footer">
-      <label class="upload-btn">
-        Upload map
-        <input type="file" id="upload-input" accept="image/*" hidden>
-      </label>
     </div>
   </div>
 

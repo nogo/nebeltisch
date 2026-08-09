@@ -1,5 +1,6 @@
 import { connectGM } from './websocket';
 import { initCanvas } from './canvas';
+import { initBoard } from './board';
 import { initTokenLayer } from './tokens';
 import type { TokenController } from './tokens';
 import { initPingLayer } from './ping';
@@ -32,7 +33,23 @@ if (!adventureId || !password) {
 let brushRadius = 50;
 let brushMode: 'reveal' | 'fog' = 'reveal';
 let tokenRadius = 20;
+
+/**
+ * `activeImageId` is what the players are looking at; `selectedImageId` is what the GM is working
+ * on. They are deliberately separate — selecting a page on the board reaches nobody, and only
+ * Present changes what the table sees (#50).
+ */
 let activeImageId: string | null = null;
+let selectedImageId: string | null = null;
+
+/**
+ * On a board of pages, one finger drags a page and paints nothing until the fog tool is armed.
+ * `docs/design.md` records this as the one deliberate exception to "the gesture disambiguates":
+ * a stray finger painting fog onto whichever page happened to be underneath is far worse than an
+ * extra tap. Two fingers still pan and pinch whatever is armed.
+ */
+let brushArmed = false;
+
 let imageList: api.ImageRecord[] = [];
 let playerRoster: Array<{ tokenId: string; name: string; color: string; online: boolean }> = [];
 let inviteUrl = '';
@@ -56,7 +73,7 @@ const tokenBtn = document.getElementById('token-btn')!;
 const tokenSizeLabel = document.getElementById('token-size-label')!;
 const playersBt = document.getElementById('players-btn')!;
 const playerCount = document.getElementById('player-count')!;
-const mapsBtn = document.getElementById('maps-btn')!;
+const presentBtn = document.getElementById('present-btn') as HTMLButtonElement;
 const placeTokenBtn = document.getElementById('place-token-btn')!;
 const startPointBtn = document.getElementById('start-point-btn')!;
 const flagIconTemplate = document.getElementById('flag-icon') as HTMLTemplateElement;
@@ -80,21 +97,45 @@ const sheetBackdrop = document.getElementById('sheet-backdrop')!;
 const playersSheet = document.getElementById('players-sheet')!;
 const playersList = document.getElementById('players-list')!;
 const copyInviteBtn = document.getElementById('copy-invite-btn')!;
-const mapsSheet = document.getElementById('maps-sheet')!;
-const gallery = document.getElementById('gallery')!;
 const uploadInput = document.getElementById('upload-input') as HTMLInputElement;
 
 // Share + empty state
 const shareBtn = document.getElementById('share-btn')!;
 const emptyState = document.getElementById('empty-state')!;
 const emptyUploadBtn = document.getElementById('empty-upload-btn')!;
+const boardHint = document.getElementById('board-hint')!;
+
+// --- Board ---
+// The board is the world; the canvas stack sits on one page of it. Everything downstream still
+// works in page coordinates, which is what `screenToPage` below preserves.
+const board = initBoard(canvasArea);
 
 // --- Canvas ---
-const canvasCtrl = initCanvas(canvasArea);
+const canvasCtrl = initCanvas(board.element);
+const canvasWrapper = canvasCtrl.getWrapper();
+canvasWrapper.style.position = 'absolute';
+// The stack is created before any page and would otherwise be painted over by every one of them.
+canvasWrapper.style.zIndex = '1';
+canvasWrapper.hidden = true;
 
 // --- Viewport ---
 const viewport = createViewport();
-viewport.attach(canvasArea, canvasCtrl.getWrapper(), () => canvasCtrl.getImageSize());
+viewport.attach(canvasArea, board.element, () => board.getWorldSize());
+viewport.onChange(() => board.applyScale(viewport.scale));
+
+/**
+ * Screen coordinates to coordinates *within the focused page*.
+ *
+ * The viewport's world is the board, so its own conversion returns board coordinates. Subtracting
+ * the focused page's origin here is the single change that keeps every fog, token, ping and
+ * start-marker path working in page coordinates exactly as before.
+ */
+function screenToPage(clientX: number, clientY: number): { x: number; y: number } {
+  const world = viewport.screenToImage(clientX, clientY);
+  const rect = selectedImageId ? board.rectOf(selectedImageId) : null;
+  if (!rect) return world;
+  return { x: world.x - rect.x, y: world.y - rect.y };
+}
 
 // --- Ping layer ---
 const pingCtrl = initPingLayer(
@@ -107,7 +148,7 @@ const pingCtrl = initPingLayer(
 const gmTokenCtrl = initTokenLayer(
   canvasCtrl.getWrapper(),
   () => canvasCtrl.getImageSize(),
-  (x, y) => viewport.screenToImage(x, y),
+  (x, y) => screenToPage(x, y),
   {
     interactive: false,
     insertBefore: canvasCtrl.getFogCanvas(),
@@ -131,7 +172,7 @@ canvasArea.addEventListener('dblclick', (ev) => {
 const tokenCtrl = initTokenLayer(
   canvasCtrl.getWrapper(),
   () => canvasCtrl.getImageSize(),
-  (x, y) => viewport.screenToImage(x, y),
+  (x, y) => screenToPage(x, y),
   { interactive: true, getRadius: () => tokenRadius, getScale: () => viewport.scale }
 );
 tokenCtrl.enableDragAll((tokenId, x, y) => {
@@ -157,18 +198,14 @@ ws.on('joined', async (msg) => {
   } catch {}
 
   activeImageId = adv.activeImageId;
+  liveFogMask = typeof msg.fogMask === 'string' ? msg.fogMask : null;
   imageList = await api.listImages(adventureId, password);
-  renderGallery();
-  updateEmptyState();
+  renderPages();
 
-  if (activeImageId) {
-    const img = imageList.find(i => i.id === activeImageId);
-    if (img) {
-      await canvasCtrl.loadImage(`/uploads/${img.filename}`);
-      viewport.resetView();
-      if (typeof msg.fogMask === 'string') await canvasCtrl.applyFogMask(msg.fogMask);
-    }
-  }
+  // The board opens fitted to the whole adventure — the GM sees the story, not one room.
+  viewport.resetView();
+  board.applyScale(viewport.scale);
+  await focusPage(activeImageId ?? imageList[0]?.id ?? null);
 
   const tokens = msg.tokens;
   for (const token of tokens) {
@@ -184,11 +221,11 @@ ws.on('joined', async (msg) => {
 });
 
 ws.on('fog:stroke', (msg) => {
-  if (msg.imageId === activeImageId) canvasCtrl.applyStroke(msg.stroke);
+  if (msg.imageId === selectedImageId) canvasCtrl.applyStroke(msg.stroke);
 });
 
 ws.on('fog:stroke:batch', (msg) => {
-  if (msg.imageId === activeImageId) {
+  if (msg.imageId === selectedImageId) {
     for (const stroke of msg.strokes) canvasCtrl.applyStroke(stroke);
   }
 });
@@ -240,22 +277,21 @@ function deactivatePlaceMode() {
 
 ws.on('map:switched', async (msg) => {
   activeImageId = msg.imageId;
+  liveFogMask = typeof msg.fogMask === 'string' ? msg.fogMask : null;
   pingCtrl.clear();
 
   imageList = await api.listImages(adventureId, password);
-  const img = imageList.find(i => i.id === activeImageId);
-  if (img) {
-    await canvasCtrl.loadImage(`/uploads/${img.filename}`);
-    viewport.resetView();
-    if (typeof msg.fogMask === 'string') await canvasCtrl.applyFogMask(msg.fogMask);
-  }
-  renderGallery();
-  updateEmptyState();
+  renderPages();
+
+  // Presenting follows the page to the table. The GM stays on whatever they were preparing only
+  // if it was not the previously live page — otherwise focus tracks the switch, as it did before
+  // the board existed.
+  await focusPage(activeImageId);
+
   // The server moves the party onto the new map's start point.
   const movedPlayers = msg.playerTokens;
   for (const t of movedPlayers ?? []) tokenCtrl.moveToken(t.id, t.x, t.y);
   tokenCtrl.render();
-  syncStartPointFromImageList();
   // Swap GM tokens for the new map
   gmTokenCtrl.clear();
   const newGmTokens = msg.gmTokens;
@@ -263,9 +299,99 @@ ws.on('map:switched', async (msg) => {
 });
 
 ws.on('fog:reset', (msg) => {
-  if (msg.imageId === activeImageId && typeof msg.fogMask === 'string') {
+  if (msg.imageId === selectedImageId && typeof msg.fogMask === 'string') {
     canvasCtrl.applyFogMask(msg.fogMask);
   }
+});
+
+// --- The board ---
+/** The presented page's mask, as the server last sent it. Any other page's comes over REST. */
+let liveFogMask: string | null = null;
+
+function renderPages() {
+  board.setPages(imageList);
+  board.setLive(activeImageId);
+  board.setSelected(selectedImageId);
+  board.setFocused(selectedImageId);
+  board.applyScale(viewport.scale);
+  updateEmptyState();
+  updatePresentButton();
+}
+
+/**
+ * Puts the canvas stack on one page of the board.
+ *
+ * Selection is local and reaches nobody — presenting is the only thing on the board that does
+ * (#50). Fog for the presented page arrives over the WebSocket; any other page's is read from the
+ * server, because the board has to show a page's fog as it is stored (#49).
+ */
+async function focusPage(id: string | null) {
+  selectedImageId = id;
+  board.setSelected(id);
+  board.setFocused(id);
+  updatePresentButton();
+  updateToolAvailability();
+
+  const record = id === null ? undefined : imageList.find(i => i.id === id);
+  const rect = id === null ? null : board.rectOf(id);
+  if (id === null || !record || !rect) {
+    canvasWrapper.hidden = true;
+    return;
+  }
+
+  canvasWrapper.style.left = `${rect.x}px`;
+  canvasWrapper.style.top = `${rect.y}px`;
+  canvasWrapper.hidden = false;
+
+  await canvasCtrl.loadImage(`/uploads/${record.filename}`);
+
+  let mask = id === activeImageId ? liveFogMask : null;
+  if (id !== activeImageId) {
+    try {
+      mask = await api.getImageFog(adventureId, password, id);
+    } catch (e) {
+      console.error('Could not read this page\'s fog', e);
+    }
+  }
+  // Guard against a second focus landing while this one awaited.
+  if (selectedImageId !== id) return;
+  if (mask) await canvasCtrl.applyFogMask(mask);
+
+  syncStartPointFromImageList();
+}
+
+/**
+ * Everything that writes to a page targets the presented one: `fog:stroke` and `gm_token:place`
+ * carry no image id, so the server applies them to `active_image_id`. Painting a page the party is
+ * not looking at is #51, and until it lands these tools are off rather than silently wrong.
+ */
+function isPreparingOffLivePage(): boolean {
+  return selectedImageId !== null && selectedImageId !== activeImageId;
+}
+
+function updateToolAvailability() {
+  const off = isPreparingOffLivePage();
+  toolbox.classList.toggle('off-live', off);
+  // The layers keep their tokens and pings; they simply belong to the presented page.
+  tokenCtrl.element.hidden = off;
+  gmTokenCtrl.element.hidden = off;
+  pingCtrl.element.hidden = off;
+  if (off) {
+    setArmed(false);
+    deactivatePlaceMode();
+  }
+}
+
+function updatePresentButton() {
+  presentBtn.disabled = selectedImageId === null || selectedImageId === activeImageId;
+  boardHint.hidden = imageList.length === 0 || activeImageId !== null;
+}
+
+// Presenting is deliberate, never a single tap: selecting a page arms this button, and pressing it
+// is the second, explicit action (#50).
+presentBtn.addEventListener('click', () => {
+  if (!selectedImageId || selectedImageId === activeImageId) return;
+  ws.send({ type: 'map:switch', imageId: selectedImageId });
 });
 
 // --- Empty state ---
@@ -273,7 +399,7 @@ function updateEmptyState() {
   emptyState.hidden = imageList.length > 0;
 }
 
-emptyUploadBtn.addEventListener('click', () => openSheet(mapsSheet));
+emptyUploadBtn.addEventListener('click', () => uploadInput.click());
 
 // --- Share ---
 shareBtn.addEventListener('click', () => {
@@ -339,12 +465,17 @@ function deactivateStartPointMode() {
   document.body.classList.remove('setting-start');
 }
 
+// Targets the selected page, not the presented one: `map:start_point` has always carried an
+// explicit image id, which is how the retired picker set a start point without showing the map.
 startPointBtn.addEventListener('click', () => {
-  if (!activeImageId) return;
+  if (!selectedImageId) return;
   startPointModeActive = !startPointModeActive;
   startPointBtn.classList.toggle('active', startPointModeActive);
   document.body.classList.toggle('setting-start', startPointModeActive);
-  if (startPointModeActive) deactivatePlaceMode();
+  if (startPointModeActive) {
+    deactivatePlaceMode();
+    setArmed(false);
+  }
 });
 
 ws.on('map:start_point:set', (msg) => {
@@ -355,81 +486,15 @@ ws.on('map:start_point:set', (msg) => {
   const img = imageList.find(i => i.id === id);
   if (img) { img.start_x = x; img.start_y = y; }
 
-  if (id === activeImageId) {
+  if (id === selectedImageId) {
     startPoint = x != null && y != null ? { x, y } : null;
     renderStartMarker();
   }
-  if (id === pickerImageId) positionPickerDot();
-  renderGallery();
 });
 
-// --- Start point picker ---
-// Lets the GM set a start point on any map without activating it, which would
-// otherwise show that map to players and teleport the party onto it.
-const startPicker = document.getElementById('start-picker')!;
-const startPickerImg = document.getElementById('start-picker-img') as HTMLImageElement;
-const startPickerDot = document.getElementById('start-picker-dot')!;
-const startPickerTitle = document.getElementById('start-picker-title')!;
-const startPickerClose = document.getElementById('start-picker-close')!;
-const startPickerClear = document.getElementById('start-picker-clear')!;
-let pickerImageId: string | null = null;
-
-function positionPickerDot() {
-  const rec = imageList.find(i => i.id === pickerImageId);
-  const w = startPickerImg.naturalWidth;
-  const h = startPickerImg.naturalHeight;
-  if (!rec || rec.start_x == null || rec.start_y == null || !w || !h) {
-    startPickerDot.setAttribute('hidden', '');
-    return;
-  }
-  const rect = startPickerImg.getBoundingClientRect();
-  const stage = startPickerImg.parentElement!.getBoundingClientRect();
-  startPickerDot.style.left = `${(rec.start_x / w) * rect.width + (rect.left - stage.left)}px`;
-  startPickerDot.style.top = `${(rec.start_y / h) * rect.height + (rect.top - stage.top)}px`;
-  startPickerDot.removeAttribute('hidden');
-}
-
-function openStartPicker(img: api.ImageRecord) {
-  pickerImageId = img.id;
-  startPickerTitle.textContent = img.original_name;
-  startPickerDot.setAttribute('hidden', '');
-  startPickerImg.onload = positionPickerDot;
-  startPickerImg.src = `/uploads/${img.filename}`;
-  startPicker.removeAttribute('hidden');
-  if (startPickerImg.complete) positionPickerDot();
-}
-
-function closeStartPicker() {
-  startPicker.setAttribute('hidden', '');
-  pickerImageId = null;
-}
-
-startPickerImg.addEventListener('click', (ev) => {
-  const w = startPickerImg.naturalWidth;
-  const h = startPickerImg.naturalHeight;
-  if (!pickerImageId || !w || !h) return;
-  const rect = startPickerImg.getBoundingClientRect();
-  const x = Math.round(((ev.clientX - rect.left) / rect.width) * w);
-  const y = Math.round(((ev.clientY - rect.top) / rect.height) * h);
-  ws.send({ type: 'map:start_point', imageId: pickerImageId, x, y });
-});
-
-startPickerClear.addEventListener('click', () => {
-  if (!pickerImageId) return;
-  ws.send({ type: 'map:start_point', imageId: pickerImageId, x: null, y: null });
-});
-
-startPickerClose.addEventListener('click', closeStartPicker);
-startPicker.addEventListener('click', (ev) => {
-  if (ev.target === startPicker) closeStartPicker();
-});
-document.addEventListener('keydown', (ev) => {
-  if (ev.key === 'Escape' && !startPicker.hasAttribute('hidden')) closeStartPicker();
-});
-
-/** Restores the marker for whichever map is active. */
+/** Restores the marker for whichever page the GM is on. */
 function syncStartPointFromImageList() {
-  const img = imageList.find(i => i.id === activeImageId);
+  const img = imageList.find(i => i.id === selectedImageId);
   startPoint = img && img.start_x != null && img.start_y != null
     ? { x: img.start_x, y: img.start_y }
     : null;
@@ -570,79 +635,66 @@ function openSheet(sheet: HTMLElement) {
 
 function closeSheet(sheet: HTMLElement) {
   sheet.setAttribute('hidden', '');
-  if (playersSheet.hasAttribute('hidden') && mapsSheet.hasAttribute('hidden')) {
+  if (playersSheet.hasAttribute('hidden')) {
     sheetBackdrop.setAttribute('hidden', '');
   }
 }
 
 sheetBackdrop.addEventListener('click', () => {
   closeSheet(playersSheet);
-  closeSheet(mapsSheet);
   sheetBackdrop.setAttribute('hidden', '');
 });
 
 document.getElementById('players-close')!.addEventListener('click', () => closeSheet(playersSheet));
-document.getElementById('maps-close')!.addEventListener('click', () => closeSheet(mapsSheet));
 
 playersBt.addEventListener('click', () => openSheet(playersSheet));
-mapsBtn.addEventListener('click', () => openSheet(mapsSheet));
-
-// --- Gallery ---
-function renderGallery() {
-  gallery.replaceChildren();
-  for (const img of imageList) {
-    const item = document.createElement('div');
-    item.className = 'gallery-item' + (img.id === activeImageId ? ' active' : '');
-
-    const thumb = document.createElement('img');
-    thumb.src = `/uploads/${img.filename}`;
-    thumb.alt = img.original_name;
-    thumb.title = img.original_name;
-    item.appendChild(thumb);
-
-    const startBtn = document.createElement('button');
-    startBtn.className = 'gallery-start-btn' + (img.start_x != null ? ' has-point' : '');
-    startBtn.title = img.start_x != null ? 'Change party start point' : 'Set party start point';
-    startBtn.appendChild(flagIconTemplate.content.cloneNode(true));
-    // Must not fall through to the item handler, which would activate the map.
-    startBtn.addEventListener('click', (ev) => {
-      ev.stopPropagation();
-      openStartPicker(img);
-    });
-    item.appendChild(startBtn);
-
-    item.addEventListener('click', () => {
-      ws.send({ type: 'map:switch', imageId: img.id });
-      closeSheet(mapsSheet);
-    });
-    gallery.appendChild(item);
-  }
-}
 
 // --- Upload ---
+// The server puts a new page on a free spot, so it never lands on top of one already there.
 uploadInput.addEventListener('change', async () => {
   const file = uploadInput.files?.[0];
   if (!file) return;
   try {
-    await api.uploadImage(adventureId, password, file);
+    const uploaded = await api.uploadImage(adventureId, password, file);
     imageList = await api.listImages(adventureId, password);
-    renderGallery();
-    updateEmptyState();
+    renderPages();
+    // A board that had nothing on it now has something to work on.
+    if (!selectedImageId) await focusPage(uploaded.id);
   } catch (e) {
     console.error('Upload failed', e);
   }
   uploadInput.value = '';
 });
 
-// --- Mode ---
+// --- Mode, and arming the brush ---
+// Picking Reveal or Re-fog arms the brush; tapping the armed segment disarms it. The board needs
+// the distinction because one finger has two jobs: dragging pages, and painting.
 function setMode(mode: 'reveal' | 'fog') {
   brushMode = mode;
-  modeRevealBtn.classList.toggle('active', mode === 'reveal');
-  modeFogBtn.classList.toggle('active', mode === 'fog');
+  modeRevealBtn.classList.toggle('active', brushArmed && mode === 'reveal');
+  modeFogBtn.classList.toggle('active', brushArmed && mode === 'fog');
+  document.body.classList.toggle('painting-armed', brushArmed);
 }
 
-modeRevealBtn.addEventListener('click', () => setMode('reveal'));
-modeFogBtn.addEventListener('click', () => setMode('fog'));
+function setArmed(armed: boolean) {
+  brushArmed = armed && !isPreparingOffLivePage();
+  setMode(brushMode);
+}
+
+function toggleBrush(mode: 'reveal' | 'fog') {
+  if (isPreparingOffLivePage()) return;
+  if (brushArmed && brushMode === mode) {
+    setArmed(false);
+    return;
+  }
+  brushMode = mode;
+  deactivatePlaceMode();
+  deactivateStartPointMode();
+  setArmed(true);
+}
+
+modeRevealBtn.addEventListener('click', () => toggleBrush('reveal'));
+modeFogBtn.addEventListener('click', () => toggleBrush('fog'));
 
 // --- Brush size ---
 function updateBrushLabel() {
@@ -768,7 +820,7 @@ function cancelLongPress() {
 }
 
 function makeStroke(clientX: number, clientY: number): FogStroke {
-  const pos = viewport.screenToImage(clientX, clientY);
+  const pos = screenToPage(clientX, clientY);
   return { x: pos.x, y: pos.y, radius: brushRadius, mode: brushMode };
 }
 
@@ -784,23 +836,37 @@ function flushPending() {
 }
 
 viewport.onInteractStart((ev: PointerEvent) => {
-  if (!activeImageId) return;
+  if (imageList.length === 0) return;
   closeAllPopups();
 
   // Start point mode — one click sets it, then exits
-  if (startPointModeActive) {
-    const pos = viewport.screenToImage(ev.clientX, ev.clientY);
-    ws.send({ type: 'map:start_point', imageId: activeImageId, x: pos.x, y: pos.y });
+  if (startPointModeActive && selectedImageId) {
+    const pos = screenToPage(ev.clientX, ev.clientY);
+    ws.send({ type: 'map:start_point', imageId: selectedImageId, x: pos.x, y: pos.y });
     deactivateStartPointMode();
     return;
   }
 
   // Place token mode — show form on click, skip painting
   if (placeModeActive) {
-    const pos = viewport.screenToImage(ev.clientX, ev.clientY);
+    const pos = screenToPage(ev.clientX, ev.clientY);
     showPlaceForm(ev.clientX, ev.clientY, pos.x, pos.y);
     return;
   }
+
+  // Nothing armed: one finger works the board. A tap selects the page under it, a drag moves it,
+  // and neither reaches the players (#49, #50). With the brush armed, pages hold still instead.
+  if (!brushArmed) {
+    const world = viewport.screenToImage(ev.clientX, ev.clientY);
+    const hit = board.pageAt(world.x, world.y);
+    if (hit) board.beginDrag(hit, world.x, world.y);
+    boardPointerTarget = hit;
+    boardPointerStart = { x: ev.clientX, y: ev.clientY };
+    boardDragStarted = false;
+    return;
+  }
+
+  if (isPreparingOffLivePage()) return;
 
   // Check player tokens first, then GM tokens
   tokenCtrl.handlePointerDown(ev);
@@ -821,7 +887,7 @@ viewport.onInteractStart((ev: PointerEvent) => {
       actionHasStrokes = false;
       pending.length = 0;
       isPinging = true;
-      const pos = viewport.screenToImage(longPressStartPos!.x, longPressStartPos!.y);
+      const pos = screenToPage(longPressStartPos!.x, longPressStartPos!.y);
       ws.send({ type: 'ping:map', x: pos.x, y: pos.y, color: GM_PING_COLOR });
     }
   }, LONG_PRESS_DELAY);
@@ -835,9 +901,26 @@ viewport.onInteractStart((ev: PointerEvent) => {
 });
 
 viewport.onPointerMove((ev: PointerEvent) => {
+  if (board.isDragging()) {
+    // A finger never lands perfectly still. Without a threshold every tap would count as a drag
+    // and nothing on the board could be selected by touch.
+    if (!boardDragStarted && boardPointerStart) {
+      const dx = ev.clientX - boardPointerStart.x;
+      const dy = ev.clientY - boardPointerStart.y;
+      if (dx * dx + dy * dy < DRAG_THRESHOLD_PX * DRAG_THRESHOLD_PX) return;
+      boardDragStarted = true;
+    }
+    const world = viewport.screenToImage(ev.clientX, ev.clientY);
+    board.dragTo(world.x, world.y);
+    // The canvas stack rides along with the page it is drawn on.
+    if (boardPointerTarget === selectedImageId) syncCanvasToSelectedPage();
+    return;
+  }
   if (activeDragCtrl) { activeDragCtrl.handlePointerMove(ev); return; }
 
-  const pos = viewport.screenToImage(ev.clientX, ev.clientY);
+  if (!brushArmed) return;
+
+  const pos = screenToPage(ev.clientX, ev.clientY);
   canvasCtrl.drawBrushPreview(pos.x, pos.y, brushRadius, viewport.scale);
 
   if (longPressTimer !== null && longPressStartPos !== null) {
@@ -854,7 +937,44 @@ viewport.onPointerMove((ev: PointerEvent) => {
   if (Date.now() - lastFlush >= FLUSH_INTERVAL) flushPending();
 });
 
+/** The page a board gesture started on, so a tap that never moved can be read as a selection. */
+let boardPointerTarget: string | null = null;
+let boardPointerStart: { x: number; y: number } | null = null;
+let boardDragStarted = false;
+/** Screen pixels a pointer must travel before a tap becomes a drag. */
+const DRAG_THRESHOLD_PX = 5;
+
+function syncCanvasToSelectedPage() {
+  if (!selectedImageId) return;
+  const rect = board.rectOf(selectedImageId);
+  if (!rect) return;
+  canvasWrapper.style.left = `${rect.x}px`;
+  canvasWrapper.style.top = `${rect.y}px`;
+}
+
+function finishBoardGesture() {
+  const dragged = boardDragStarted;
+  const dropped = board.endDrag();
+  const tapped = boardPointerTarget;
+  boardPointerTarget = null;
+  boardPointerStart = null;
+  boardDragStarted = false;
+
+  if (dragged && dropped) {
+    // One write per drag, on release. The arrangement is the GM's alone and never goes on the wire.
+    api.setBoardPosition(adventureId, password, dropped.id, dropped.x, dropped.y)
+      .catch((e) => console.error('Could not save the page position', e));
+    const record = imageList.find(i => i.id === dropped.id);
+    if (record) { record.board_x = dropped.x; record.board_y = dropped.y; }
+    return;
+  }
+
+  // A tap that moved nothing selects. Selection is local: the players see no change (#50).
+  if (tapped && tapped !== selectedImageId) void focusPage(tapped);
+}
+
 function finishAction() {
+  if (boardPointerTarget !== null || board.isDragging()) { finishBoardGesture(); return; }
   toolbox.classList.remove('painting');
   if (activeDragCtrl) { activeDragCtrl.handlePointerUp(); activeDragCtrl = null; return; }
   if (!isDrawing) return;

@@ -28,6 +28,7 @@ Server — `src/`
 | `deps.ts` | `ServerDeps` — the database, uploads directory and fog registry, built once and passed down |
 | `routes.ts` | HTTP routing by path segments, static files, REST endpoints |
 | `images.ts` | Image dimensions from file headers (PNG/JPEG/WebP). Pure parsing plus a repair path; used by both `routes.ts` and `fog/` |
+| `board.ts` | Where a page lands on the board when nobody has arranged it. Pure geometry; used by the upload route and the migration |
 | `types.ts` | Shared domain types: `FogMask`, `FogStroke`, `Adventure`, `ImageRecord`, `Token`, `WsData` |
 | `db/database.ts` | Opens the database and applies the schema |
 | `db/schema.ts` | DDL plus additive migrations |
@@ -44,8 +45,9 @@ Client — `public/js/`
 | Path | Responsibility |
 |---|---|
 | `gm.ts`, `player.ts` | Entry points; own all UI state for their role |
+| `board.ts` | The GM's board: page elements, live badge, selection, dragging. Board coordinates only |
 | `canvas.ts` | Map, fog and brush-preview canvases; fog compositing and mask decoding |
-| `viewport.ts` | Pan, zoom, and pointer gesture disambiguation |
+| `viewport.ts` | Pan, zoom, and pointer gesture disambiguation over a world — one page for a player, the whole board for the GM |
 | `tokens.ts` | A token layer; hit testing and dragging |
 | `ping.ts` | Ping layer; owns its own animation loop |
 | `api.ts` | REST client |
@@ -63,7 +65,7 @@ adventures ──< images ──< token_positions >── tokens
 | Table | Key columns | Notes |
 |---|---|---|
 | `adventures` | `gm_password`, `player_link`, `active_image_id`, `token_size` | `active_image_id` is what players see |
-| `images` | `filename`, `width`, `height`, `fog_mask` BLOB, `sort_order`, `start_x`, `start_y` | One fog mask per map. `start_*` null means "use map centre" |
+| `images` | `filename`, `width`, `height`, `fog_mask` BLOB, `sort_order`, `start_x`, `start_y`, `board_x`, `board_y` | One fog mask per map. `start_*` null means "use map centre". `board_*` is layout on the GM's board and means nothing else — no order, no adjacency, no geography |
 | `tokens` | `token_type`, `player_link`, `image_id`, `x`, `y` | See token rules below |
 | `token_positions` | `(token_id, image_id)` PK, `x`, `y` | Where each token last stood on each map |
 
@@ -152,15 +154,17 @@ Map → GM tokens → fog → player tokens → pings, stacked in an image-sized
 The GM is the only writer of fog. Each player writes only their own token. The server rejects anything else.
 **Implication:** no conflict resolution anywhere. Preserve this invariant — shared write access to one object would invalidate the whole synchronisation model.
 
-### One canvas, shared by GM and players **[superseded — #48, not yet built]**
+### Only the presented page reaches the players
 
-The GM's canvas *is* the players' canvas. There is no separate editing context.
-**Why:** preparation happens before players join, so mid-session editing of an unseen map is not a requirement. Two contexts would let the GM paint fog onto the wrong map, unnoticed, mid-session.
-**Implication:** GM edit operations target `adventures.active_image_id`. The per-map start point is the deliberate exception, since it must be settable during preparation without showing the map.
+An adventure is a board of pages the GM pans and zooms; the players see one page, `adventures.active_image_id`, and nothing else. The GM's board is a separate editing context and preparing a page the party is not looking at is the point of it.
+**Why:** the hazard this guards against is the GM painting fog onto a map nobody is watching, unnoticed. The guard is a **server rule** — what broadcasts is decided by `active_image_id` — plus a badge on the live page, which binds harder than the previous version of this decision, which relied on the absence of a second screen.
+**Implication:** the board itself is REST only. Players never see it, the GM is the only writer, and nothing on it outlives a tab that is not already in SQLite, so `ClientMessage`/`ServerMessage` are untouched by it. The GM's phase is client state and the server never asks what it is — otherwise the two could disagree and the players' view would depend on a browser's opinion.
 
-**What replaces it.** #48 makes an adventure a board of pages the GM pans and zooms, where preparing a page the party is not looking at is the point rather than the hazard. The decision above still describes the running code and still binds until that lands; it is recorded here as superseded rather than rewritten, because a decision that describes an unbuilt system is worse than one that names its own expiry.
+**Superseded on 2026-08-09** (#48, #49, #50). The rule was previously *"the GM's canvas is the players' canvas; there is no separate editing context"*, and GM edit operations targeted `active_image_id` with the per-map start point as the deliberate exception.
 
-The guard survives in a stronger form, and it is a server rule rather than a UI convention: **only the presented page reaches the players.** Fog and tokens on `active_image_id` broadcast as they do today; the same operations on any other page are stored and never leave the server. The GM's phase is client state and the server never asks what it is — otherwise the two could disagree and the players' view would depend on a browser's opinion.
+**Half-built, deliberately.** The board, presenting and per-page start points exist. Fog strokes and token placement still carry no image id, so they still apply to `active_image_id` and those tools are disabled while a page that is not presented is selected. Making them target any page — and broadcasting only for the presented one — is #51. Until it lands, `GET /api/adventures/:id/images/:imageId/fog` may read `images.fog_mask` directly, because no in-memory mask can be ahead of it for a page nobody can paint.
+
+**Rendering.** Only the selected page gets the canvas stack; every other page is a plain `<img>` of the original upload. Measured against the production adventures on 2026-08-09, a six-page board is ~41 MB of decoded bitmap, which is why no thumbnail is stored. Past ten pages, or at 4K, the escape hatch is `createImageBitmap(blob, { resizeWidth })` — no schema change, no stored files. Related: #20.
 
 ### Lightweight auth
 

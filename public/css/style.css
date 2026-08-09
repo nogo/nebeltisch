@@ -320,94 +320,91 @@ body.home {
 /* ── Canvas crosshair in place mode ── */
 body.placing #canvas-area { cursor: crosshair !important; }
 body.setting-start #canvas-area { cursor: crosshair !important; }
+/* With nothing armed the finger belongs to the board; armed, it belongs to the fog. */
+body.gm .board-page { cursor: grab; }
+body.gm .board-page.dragging { cursor: grabbing; }
+body.painting-armed #canvas-area { cursor: crosshair; }
+body.painting-armed .board-page { cursor: crosshair; }
 
-/* Start point picker — full-screen overlay over the maps sheet. */
-#start-picker {
-  position: fixed;
-  inset: 0;
-  z-index: 60;
-  background: rgba(0, 0, 0, 0.65);
-  backdrop-filter: blur(4px);
+/* ── The board: every page of the adventure on one canvas (#49) ──
+   `#board` is the world the viewport transforms; each page sits at its board position in page
+   pixels. Only the focused page carries the canvas stack — the rest are plain images. */
+#board {
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.board-page {
+  position: absolute;
+  outline: 2px solid rgba(255, 255, 255, 0.14);
+  outline-offset: 0;
+  background: #05050c;
+}
+.board-page img {
+  width: 100%;
+  height: 100%;
+  display: block;
+  user-select: none;
+  -webkit-user-drag: none;
+}
+.board-page.selected { outline-color: #4a4aff; }
+.board-page.live { outline-color: #ffb020; }
+.board-page.live.selected { outline-color: #4a4aff; }
+.board-page.dragging { opacity: 0.75; }
+
+/* The focused page is covered by the canvas stack; its frame and labels stay. */
+.board-page.focused img { visibility: hidden; }
+
+/* Names and badges counter-scale in JS, so they stay the same size at every zoom (#50). */
+.board-page-chrome {
+  position: absolute;
+  left: 0;
+  bottom: 100%;
+  transform-origin: bottom left;
   display: flex;
   align-items: center;
-  justify-content: center;
-  padding: 20px;
-}
-#start-picker[hidden] { display: none; }
-#start-picker-inner {
-  background: rgba(20, 20, 38, 0.96);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 12px;
-  max-width: min(90vw, 900px);
-  max-height: 90vh;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
-}
-#start-picker-header,
-#start-picker-footer {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 10px 14px;
+  gap: 6px;
+  padding-bottom: 4px;
+  white-space: nowrap;
+  pointer-events: none;
   font-size: 13px;
 }
-#start-picker-header { border-bottom: 1px solid rgba(255, 255, 255, 0.1); }
-#start-picker-footer { border-top: 1px solid rgba(255, 255, 255, 0.1); }
-#start-picker-hint { opacity: 0.65; }
-#start-picker-close,
-#start-picker-clear {
-  background: rgba(255, 255, 255, 0.08);
-  border: none;
-  color: inherit;
-  border-radius: 6px;
-  padding: 8px 12px;
-  min-height: 36px;
-  cursor: pointer;
+.board-page-name {
+  color: rgba(255, 255, 255, 0.75);
+  text-shadow: 0 1px 3px #000;
 }
-#start-picker-stage {
-  position: relative;
-  overflow: auto;
-  line-height: 0;
+.board-page.selected .board-page-name { color: #fff; }
+
+.board-page-live {
+  display: none;
+  background: #ffb020;
+  color: #1a1a2e;
+  font-weight: 600;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  border-radius: 4px;
+  padding: 1px 6px;
 }
-#start-picker-img {
-  display: block;
-  max-width: 100%;
-  max-height: calc(90vh - 110px);
-  cursor: crosshair;
-}
-#start-picker-dot {
-  position: absolute;
-  width: 28px;
-  height: 28px;
-  margin: -14px 0 0 -14px;
-  border: 2px dashed #4a4aff;
-  border-radius: 50%;
-  background: rgba(74, 74, 255, 0.2);
+.board-page.live .board-page-live { display: inline-block; }
+
+/* Pages exist but nothing has been presented — the GM's half of the players' waiting state. */
+#board-hint {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 5;
+  padding: 10px 16px;
+  border-radius: 8px;
+  background: rgba(26, 26, 46, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.8);
+  font-size: 14px;
   pointer-events: none;
 }
-#start-picker-dot[hidden] { display: none; }
-
-/* Flag affordance on each gallery item. */
-.gallery-item { position: relative; }
-.gallery-start-btn {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  border-radius: 6px;
-  background: rgba(0, 0, 0, 0.55);
-  color: #fff;
-  cursor: pointer;
-  opacity: 0.85;
-}
-.gallery-start-btn.has-point { color: #8b8bff; background: rgba(74, 74, 255, 0.35); }
+#board-hint[hidden] { display: none; }
 
 /* Party start point — GM only, never rendered for players.
    Sits in the image-sized wrapper, so it pans and zooms with the map. */
@@ -484,7 +481,8 @@ body.setting-start #canvas-area { cursor: crosshair !important; }
   flex-shrink: 0;
 }
 
-#toolbox button {
+#toolbox button,
+#toolbox label.tb-icon-btn {
   height: 38px;
   padding: 0 11px;
   background: transparent;
@@ -500,9 +498,29 @@ body.setting-start #canvas-area { cursor: crosshair !important; }
   white-space: nowrap;
   touch-action: auto;
 }
-#toolbox button:hover:not(:disabled) { background: rgba(255,255,255,0.07); color: #fff; }
+#toolbox button:hover:not(:disabled),
+#toolbox label.tb-icon-btn:hover { background: rgba(255,255,255,0.07); color: #fff; }
 #toolbox button.active { background: #4a4aff; color: #fff; }
 #toolbox button:disabled { opacity: 0.3; cursor: default; }
+
+/* Present is the publish action — the only control on the board that reaches the players (#50). */
+#present-btn {
+  background: rgba(255, 176, 32, 0.15);
+  color: #ffb020;
+  font-weight: 600;
+}
+#present-btn:hover:not(:disabled) { background: rgba(255, 176, 32, 0.3); color: #ffd080; }
+
+/* Preparing a page the party is not looking at is #51. Until it lands, everything that would
+   write to a page targets the presented one, so those tools are off rather than silently wrong. */
+#toolbox.off-live #mode-reveal,
+#toolbox.off-live #mode-fog,
+#toolbox.off-live #brush-btn,
+#toolbox.off-live #place-token-btn,
+#toolbox.off-live #tb-history {
+  opacity: 0.3;
+  pointer-events: none;
+}
 
 /* ── Toolbox popups (brush / token size) ── */
 .tb-popup {
@@ -588,7 +606,7 @@ body.setting-start #canvas-area { cursor: crosshair !important; }
   padding: 12px 16px;
   border-top: 1px solid rgba(255,255,255,0.06);
 }
-.sheet-footer button, .sheet-footer .upload-btn {
+.sheet-footer button {
   display: block;
   width: 100%;
   padding: 10px;
@@ -601,35 +619,10 @@ body.setting-start #canvas-area { cursor: crosshair !important; }
   text-align: center;
   transition: background 150ms, color 150ms;
 }
-.sheet-footer button:hover, .sheet-footer .upload-btn:hover {
+.sheet-footer button:hover {
   background: rgba(74, 74, 255, 0.2);
   color: #fff;
 }
-.upload-btn { display: block; }
-
-/* ── Maps sheet gallery ── */
-#gallery {
-  display: flex;
-  flex-direction: row;
-  gap: 8px;
-  padding: 12px 16px;
-  overflow-x: auto;
-}
-.gallery-item {
-  flex-shrink: 0;
-  width: 120px;
-  height: 80px;
-  border: 2px solid transparent;
-  border-radius: 8px;
-  cursor: pointer;
-  overflow: hidden;
-  background: #0d0d1a;
-  touch-action: auto;
-  transition: border-color 150ms;
-}
-.gallery-item:hover { border-color: rgba(74,74,255,0.5); }
-.gallery-item.active { border-color: #4a4aff; }
-.gallery-item img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
 /* ── Players sheet rows ── */
 .player-row {

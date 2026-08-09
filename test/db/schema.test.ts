@@ -23,6 +23,79 @@ describe("schema", () => {
     }).not.toThrow();
   });
 
+  describe("board position migration", () => {
+    function seedAdventureWithPages(db: Database, count: number): string[] {
+      db.run(
+        `INSERT INTO adventures (id, name, gm_password, player_link) VALUES ('adv', 'A', 'pw', 'link')`
+      );
+      const ids: string[] = [];
+      for (let i = 0; i < count; i++) {
+        const id = `img-${i}`;
+        db.run(
+          `INSERT INTO images (id, adventure_id, filename, original_name, width, height, sort_order)
+           VALUES (?, 'adv', ?, ?, 800, 600, ?)`,
+          [id, `${id}.png`, `${id}.png`, i]
+        );
+        ids.push(id);
+      }
+      return ids;
+    }
+
+    function positions(db: Database) {
+      return db
+        .query<{ id: string; board_x: number | null; board_y: number | null }, []>(
+          `SELECT id, board_x, board_y FROM images ORDER BY id`
+        )
+        .all();
+    }
+
+    test("gives every page that predates the board a position", () => {
+      const db = new Database(":memory:");
+      createSchema(db);
+      seedAdventureWithPages(db, 5);
+      // The pages were inserted after the columns existed, so run the migration again.
+      createSchema(db);
+
+      const placed = positions(db);
+      expect(placed).toHaveLength(5);
+      for (const p of placed) {
+        expect(p.board_x).not.toBeNull();
+        expect(p.board_y).not.toBeNull();
+      }
+      expect(new Set(placed.map((p) => `${p.board_x},${p.board_y}`)).size).toBe(5);
+    });
+
+    test("never moves a page the GM has already arranged", () => {
+      const db = new Database(":memory:");
+      createSchema(db);
+      seedAdventureWithPages(db, 3);
+      createSchema(db);
+
+      const before = positions(db);
+      db.run(`UPDATE images SET board_x = 5000, board_y = 5000 WHERE id = 'img-1'`);
+      createSchema(db);
+
+      const after = positions(db);
+      expect(after.find((p) => p.id === "img-1")).toEqual({
+        id: "img-1",
+        board_x: 5000,
+        board_y: 5000,
+      });
+      expect(after.find((p) => p.id === "img-0")).toEqual(before.find((p) => p.id === "img-0")!);
+    });
+
+    test("is a no-op once every page is placed", () => {
+      const db = new Database(":memory:");
+      createSchema(db);
+      seedAdventureWithPages(db, 4);
+      createSchema(db);
+
+      const first = positions(db);
+      createSchema(db);
+      expect(positions(db)).toEqual(first);
+    });
+  });
+
   test("WAL mode is enabled", () => {
     const db = new Database(":memory:");
     createSchema(db);

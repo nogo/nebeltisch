@@ -9,18 +9,27 @@ export function createImageRecord(
     originalName,
     width,
     height,
+    boardX,
+    boardY,
   }: {
     adventureId: string;
     filename: string;
     originalName: string;
     width: number;
     height: number;
+    /**
+     * Omitted means unarranged, which is what a page created outside an upload is. The migration in
+     * `schema.ts` places anything still null on the next start.
+     */
+    boardX?: number;
+    boardY?: number;
   }
 ): ImageRecord {
   const id = crypto.randomUUID();
   db.run(
-    `INSERT INTO images (id, adventure_id, filename, original_name, width, height) VALUES (?, ?, ?, ?, ?, ?)`,
-    [id, adventureId, filename, originalName, width, height]
+    `INSERT INTO images (id, adventure_id, filename, original_name, width, height, board_x, board_y)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, adventureId, filename, originalName, width, height, boardX ?? null, boardY ?? null]
   );
   return getImage(db, id)!;
 }
@@ -44,6 +53,11 @@ export function updateFogMask(db: Database, imageId: string, mask: Buffer | null
 /** Where player tokens are placed when this map becomes active. Null = map centre. */
 export function setStartPoint(db: Database, id: string, x: number | null, y: number | null): void {
   db.run(`UPDATE images SET start_x = ?, start_y = ? WHERE id = ?`, [x, y, id]);
+}
+
+/** Where the page sits on the adventure's board. Layout only — nothing reads geography into it. */
+export function setBoardPosition(db: Database, id: string, x: number, y: number): void {
+  db.run(`UPDATE images SET board_x = ?, board_y = ? WHERE id = ?`, [x, y, id]);
 }
 
 export function updateImageDimensions(db: Database, id: string, width: number, height: number): void {
