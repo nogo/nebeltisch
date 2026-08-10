@@ -80,7 +80,7 @@ Players see the presented page, or the waiting screen, and nothing of this.
 
 ### The waiting screen
 
-Until a page is presented — and again whenever the GM takes one off — a player sees the **adventure's name** over drifting fog, and one line: *The fog has not lifted yet.* The GM sees the same state from the other side, as a hint on the board.
+Until a page is presented — and again whenever the GM takes one off — a player sees the **adventure's name** over drifting fog, and one line: *The fog has not lifted yet.* The GM sees the same state from the other side, as an unlit on-air lamp in the topbar.
 
 **Naming the adventure is the whole point.** A blank screen cannot tell a player who joined too early apart from a player whose connection is broken; the adventure's own name answers that without the GM having to say anything. The name carries it alone — a greeting above it would only compete with the one word that answers the question.
 

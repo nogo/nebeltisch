@@ -207,6 +207,35 @@ body.home {
   text-overflow: ellipsis;
 }
 
+/* ── On-air lamp ──
+   The GM's half of the players' waiting state, in the corner instead of over the middle of the
+   map. Lit in the live page's own gold so the board and the topbar agree. */
+#live-lamp {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.3);
+  transition: color 200ms ease-out;
+}
+#live-lamp::before {
+  content: '';
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #555;
+  transition: background 200ms ease-out, box-shadow 200ms ease-out;
+}
+#live-lamp.on { color: #ffb020; }
+#live-lamp.on::before {
+  background: #ffb020;
+  box-shadow: 0 0 6px rgba(255, 176, 32, 0.85);
+}
+
 /* ── Connection status dot ── */
 .status-dot {
   width: 8px;
@@ -387,23 +416,6 @@ body.painting-armed .board-page { cursor: crosshair; }
   padding: 1px 6px;
 }
 .board-page.live .board-page-live { display: inline-block; }
-
-/* Pages exist but nothing has been presented — the GM's half of the players' waiting state. */
-#board-hint {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  z-index: 5;
-  padding: 10px 16px;
-  border-radius: 8px;
-  background: rgba(26, 26, 46, 0.85);
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  color: rgba(255, 255, 255, 0.8);
-  font-size: 14px;
-  pointer-events: none;
-}
-#board-hint[hidden] { display: none; }
 
 /* ── Player waiting screen ──
    Nothing presented is a state, not a failure — the GM is still preparing. Naming the adventure is

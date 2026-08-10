@@ -62,6 +62,7 @@ let inviteUrl = '';
 // --- DOM ---
 const adventureNameEl = document.getElementById('adventure-name')!;
 const connectionStatusEl = document.getElementById('connection-status')!;
+const liveLamp = document.getElementById('live-lamp')!;
 const playerPresenceEl = document.getElementById('player-presence')!;
 const canvasArea = document.getElementById('canvas-area')!;
 
@@ -109,7 +110,6 @@ const uploadInput = document.getElementById('upload-input') as HTMLInputElement;
 const shareBtn = document.getElementById('share-btn')!;
 const emptyState = document.getElementById('empty-state')!;
 const emptyUploadBtn = document.getElementById('empty-upload-btn')!;
-const boardHint = document.getElementById('board-hint')!;
 
 // --- Board ---
 // The board is the world; the canvas stack sits on one page of it. Everything downstream still
@@ -345,7 +345,7 @@ ws.on('map:unpresented', () => {
   liveFogMask = null;
   pingCtrl.clear();
   // The GM keeps the page they were working on and the view they were at. Only the table emptied,
-  // and the badge, the hint and the button are what say so.
+  // and the badge, the lamp and the button are what say so.
   board.setLive(null);
   renderPageControls();
   updateToolAvailability();
@@ -485,7 +485,13 @@ let deleteArmed = false;
  * where the eye is. Reverted 2026-08-10, after use.
  */
 function renderPageControls() {
-  boardHint.hidden = imageList.length === 0 || activeImageId !== null;
+  // The lamp answers "is anything on the table", which is about the table and not about whichever
+  // page is selected — it stays lit while the GM prepares a page the party cannot see.
+  const onAir = activeImageId !== null;
+  liveLamp.classList.toggle('on', onAir);
+  liveLamp.title = onAir
+    ? 'A page is on the table'
+    : 'Nothing is on the table — select a page and press Present';
 
   const live = selectedImageId !== null && selectedImageId === activeImageId;
   presentBtn.disabled = selectedImageId === null;

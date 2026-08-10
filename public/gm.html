@@ -19,17 +19,16 @@
         <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
       </svg>
     </button>
+    <!-- Whether anything is on the table is a property of the table, so it is stated beside the
+         other table-wide indicator rather than over the map. -->
+    <span id="live-lamp">On air</span>
     <span id="connection-status" class="status-dot"></span>
   </header>
 
   <!-- Empty state -->
   <div id="empty-state" hidden>
-    <p>No pages yet</p>
-    <button id="empty-upload-btn">Upload your first page</button>
+    <button id="empty-upload-btn">Upload your first map</button>
   </div>
-
-  <!-- Pages exist but nothing has been presented: mirrors the players' waiting state -->
-  <div id="board-hint" hidden>Nothing is on the table — select a page and press Present.</div>
 
   <!-- Bottom toolbox -->
   <div id="toolbox" class="floating-control">
