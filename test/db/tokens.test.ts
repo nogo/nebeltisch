@@ -6,8 +6,11 @@ import {
   getTokensByAdventure,
   updateTokenPosition,
   deleteToken,
+  deleteTokensByImage,
+  getGmTokensByImage,
 } from "../../src/db/tokens";
 import { createAdventure, deleteAdventure } from "../../src/db/adventures";
+import { createImageRecord } from "../../src/db/images";
 
 function makeDb(): Database {
   const db = new Database(":memory:");
@@ -59,6 +62,26 @@ describe("tokens", () => {
     deleteToken(db, token.id);
     const tokens = getTokensByAdventure(db, adventureId);
     expect(tokens.find((t) => t.id === token.id)).toBeUndefined();
+  });
+
+  test("deleteTokensByImage takes one page's monsters and leaves the rest", () => {
+    const page = createImageRecord(db, {
+      adventureId, filename: "a.png", originalName: "a.png", width: 100, height: 100,
+    });
+    const other = createImageRecord(db, {
+      adventureId, filename: "b.png", originalName: "b.png", width: 100, height: 100,
+    });
+    createToken(db, { adventureId, name: "Ork", color: "#f00", tokenType: "monster", imageId: page.id });
+    createToken(db, { adventureId, name: "Wolf", color: "#f00", tokenType: "npc", imageId: page.id });
+    createToken(db, { adventureId, name: "Wirt", color: "#f00", tokenType: "npc", imageId: other.id });
+    // Player tokens are adventure-scoped and belong to no page.
+    const hero = createToken(db, { adventureId, name: "Imion", color: "#0f0" });
+
+    deleteTokensByImage(db, page.id);
+
+    expect(getGmTokensByImage(db, adventureId, page.id).length).toBe(0);
+    expect(getGmTokensByImage(db, adventureId, other.id).length).toBe(1);
+    expect(getTokensByAdventure(db, adventureId).find((t) => t.id === hero.id)).toBeDefined();
   });
 
   test("deleting adventure cascades to tokens", () => {

@@ -126,3 +126,12 @@ export function getRememberedPositions(
 export function deleteToken(db: Database, id: string): void {
   db.run(`DELETE FROM tokens WHERE id = ?`, [id]);
 }
+
+/**
+ * The monsters and NPCs that belong to one page. They die with it — `tokens.image_id` references
+ * `images(id)` with no `ON DELETE` clause, so without this the page cannot be deleted at all once
+ * anything has been placed on it. Player tokens are adventure-scoped and are never touched here.
+ */
+export function deleteTokensByImage(db: Database, imageId: string): void {
+  db.run(`DELETE FROM tokens WHERE image_id = ?`, [imageId]);
+}

@@ -38,6 +38,16 @@ A page's position means only what the GM means by it — village here, mill to t
 
 **Selecting and presenting are different acts.** A tap selects: the page gains the canvas stack and its stored fog is drawn, and nobody else sees any of that. Only the selected page carries the canvas stack; every other page is the plain uploaded image, with no fog drawn over it.
 
+### Acting on the selected page
+
+**Present and Delete act on whichever page is selected, and both live in the toolbar.**
+
+They were briefly a menu hanging over the page itself, which put each act next to the thing it acts on and read well on the fitted board. It broke the moment the GM zoomed in: a page's top edge is off screen exactly when the page fills it, so presenting meant zooming out first. **A control the GM needs regardless of where they are looking cannot be anchored to a place in the world** — anchoring it somewhere else on the page only changes which zoom level hides it, and clamping it into view would put a control over the middle of the map, which principle 2 forbids. Reverted 2026-08-10, after use.
+
+The start marker's menu is not the same case and stays on the map: it is reached by finding the marker, so it is already where the eye is.
+
+**Delete asks twice and never touches the live page.** The first press changes the button to *Delete page?*; only the second removes anything, and a page's fog, start point and monsters do not come back. Anything else the GM does puts it back to *Delete*. While the selected page is the one on the table the button is disabled and says *take it off the table first* — the server refuses it as well, so a second GM tab with a stale board cannot get around it.
+
 ### The start point
 
 **Every map shows where the party will land**, including one nobody has set up: the marker sits at the map centre, which is where the server sends them anyway. There is no button, nothing to create and nothing to clear.
@@ -64,7 +74,7 @@ Players see the presented page, or the waiting screen, and nothing of this.
 
 **Presenting frames the page on the GM's board.** They pressed Present on a page; landing on it is the answer to the gesture. It moves the camera and nothing else — no control changes, no page becomes unreachable, and zooming back out to prepare another page is the same gesture it always was.
 
-**A page can be taken off the table again.** Selecting the live page turns Present into Unpresent, and pressing it empties the table: the players return to the waiting screen and the GM keeps the page, the view and everything prepared on it. Selecting the live page is what reaches the control, so taking a page off is the same select-then-press that put it there.
+**A page can be taken off the table again.** With the live page selected the button reads Unpresent, and pressing it empties the table: the players return to the waiting screen and the GM keeps the page, the view and everything prepared on it. Selecting the live page is what reaches the control, so taking a page off is the same select-then-press that put it there.
 
 **Nothing moves when the table empties.** Player tokens stay where they stand, because `token_positions` is what decides where the party is when a page comes back — a token that walked somewhere returns there, and only a token that has never stood on that page arrives at the start point. Unpresenting is therefore free to undo: it is about what the table shows, not about where anyone is.
 
@@ -112,7 +122,8 @@ Left to right, separated into groups:
 | Upload | Adds a page; it lands on a free spot on the board |
 | Place token | Arms a mode: the next tap opens a small form to place a monster or NPC |
 | Fit | Frames every page. Same as double-tapping empty canvas |
-| Present | Puts the selected page on the table. Reads **Unpresent** when the selected page is already the live one, and takes it off. Disabled only when no page is selected |
+| Present | Puts the selected page on the table. Reads **Unpresent** when that page is already the live one, and takes it off. Disabled only when no page is selected |
+| Delete | Removes the selected page and everything on it, on a second press. Disabled while that page is the live one |
 
 The fog and token controls dim only while no page is loaded under the canvas stack. Selecting a page the party is not looking at leaves every one of them live — preparing that page is what the board is for.
 

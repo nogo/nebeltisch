@@ -5,6 +5,7 @@ import { initTokenLayer } from './tokens';
 import type { TokenController } from './tokens';
 import { initPingLayer } from './ping';
 import { createViewport } from './viewport';
+import { createAnchoredMenu } from './anchored-menu';
 import type { FogStroke } from './canvas';
 import * as api from './api';
 
@@ -78,6 +79,7 @@ const tokenSizeLabel = document.getElementById('token-size-label')!;
 const playersBt = document.getElementById('players-btn')!;
 const playerCount = document.getElementById('player-count')!;
 const presentBtn = document.getElementById('present-btn') as HTMLButtonElement;
+const deleteBtn = document.getElementById('delete-btn') as HTMLButtonElement;
 const fitBtn = document.getElementById('fit-btn')!;
 const placeTokenBtn = document.getElementById('place-token-btn')!;
 const flagIconTemplate = document.getElementById('flag-icon') as HTMLTemplateElement;
@@ -345,7 +347,7 @@ ws.on('map:unpresented', () => {
   // The GM keeps the page they were working on and the view they were at. Only the table emptied,
   // and the badge, the hint and the button are what say so.
   board.setLive(null);
-  updatePresentButton();
+  renderPageControls();
   updateToolAvailability();
 });
 
@@ -366,7 +368,7 @@ function renderPages() {
   board.setFocused(focusedImageId);
   board.applyScale(viewport.scale);
   updateEmptyState();
-  updatePresentButton();
+  renderPageControls();
 }
 
 /**
@@ -386,7 +388,7 @@ async function focusPage(id: string | null) {
   canvasWrapper.hidden = true;
   // The layer holds one page's monsters at a time; the next page's arrive below.
   gmTokenCtrl.clear();
-  updatePresentButton();
+  renderPageControls();
   updateToolAvailability();
 
   const record = id === null ? undefined : imageList.find(i => i.id === id);
@@ -463,30 +465,87 @@ function updateToolAvailability() {
 }
 
 /**
- * One button acting on the selected page: it puts it on the table, or takes it off again when it
- * is already there. Selecting the live page is therefore how the GM reaches Unpresent — the same
- * select-then-press the other direction takes.
+ * The selected page's own menu, hanging above it on the board. A page's actions live on the page:
+ * selecting it is the first step and pressing an item is the second, which is the same
+ * select-then-press presenting has always taken — the press simply happens next to the thing it
+ * acts on rather than in the toolbar (#32).
  */
-function updatePresentButton() {
+/** Set while Delete is waiting for its second press. Cleared by anything else that happens. */
+let deleteArmed = false;
+
+/**
+ * Present and Delete act on the selected page, and they live in the toolbar rather than on the
+ * page itself.
+ *
+ * They were briefly a menu hanging over the page, which put each act next to the thing it acts on
+ * — and broke the moment the GM zoomed in, because a page's edge is off screen exactly when the
+ * page fills it. **A control needed regardless of where the GM is looking cannot be anchored to a
+ * place in the world**, and anchoring it somewhere else only moves which zoom level hides it. The
+ * start marker's menu is not the same case: it is reached by finding the marker, so it is already
+ * where the eye is. Reverted 2026-08-10, after use.
+ */
+function renderPageControls() {
+  boardHint.hidden = imageList.length === 0 || activeImageId !== null;
+
   const live = selectedImageId !== null && selectedImageId === activeImageId;
   presentBtn.disabled = selectedImageId === null;
   presentBtn.textContent = live ? 'Unpresent' : 'Present';
   presentBtn.title = live
     ? 'Take this page off the table'
     : 'Show the selected page to the table';
-  boardHint.hidden = imageList.length === 0 || activeImageId !== null;
+
+  // A page on the table comes off it first. The server refuses this too — the button only says so
+  // early, and a second GM tab with a stale board cannot get around it.
+  deleteBtn.disabled = selectedImageId === null || live;
+  deleteBtn.textContent = deleteArmed ? 'Delete page?' : 'Delete';
+  deleteBtn.classList.toggle('armed', deleteArmed);
+  deleteBtn.title = live
+    ? 'Take it off the table first'
+    : 'Remove this page and everything on it';
 }
 
 // Presenting is deliberate, never a single tap: selecting a page arms this button, and pressing it
 // is the second, explicit action (#50).
 presentBtn.addEventListener('click', () => {
   if (!selectedImageId) return;
-  if (selectedImageId === activeImageId) {
-    ws.send({ type: 'map:unpresent' });
+  ws.send(
+    selectedImageId === activeImageId
+      ? { type: 'map:unpresent' }
+      : { type: 'map:switch', imageId: selectedImageId }
+  );
+});
+
+// Two presses, because a page and its fog, its start point and its monsters do not come back.
+deleteBtn.addEventListener('click', (ev) => {
+  // The document-level click that dismisses popups also disarms this one, and without stopping
+  // here it would see this very press as "the GM did something else" and undo the arming.
+  ev.stopPropagation();
+  if (!selectedImageId) return;
+  if (!deleteArmed) {
+    deleteArmed = true;
+    renderPageControls();
     return;
   }
-  ws.send({ type: 'map:switch', imageId: selectedImageId });
+  void confirmDelete();
 });
+
+async function confirmDelete() {
+  const id = selectedImageId;
+  if (!id) return;
+  deleteArmed = false;
+  try {
+    await api.deleteImage(adventureId, password, id);
+  } catch (e) {
+    console.error('Could not delete this page', e);
+    renderPageControls();
+    return;
+  }
+  imageList = imageList.filter((i) => i.id !== id);
+  // The canvas stack is drawn on the page that just left, so the selection has to go with it.
+  await focusPage(null);
+  renderPages();
+  if (imageList.length > 0) fitBoard();
+}
 
 // --- Empty state ---
 function updateEmptyState() {
@@ -542,16 +601,9 @@ startMarkerLabel.textContent = 'Start';
 startMarker.append(startMarkerFlag, startMarkerLabel);
 canvasCtrl.getWrapper().appendChild(startMarker);
 
-// Selecting the marker reveals its menu. Counter-scaled like the board's page labels, so it stays
-// one size on screen and pans and zooms with the marker without any repositioning code.
-const startMenu = document.createElement('div');
-startMenu.id = 'start-menu';
-startMenu.dataset.viewportControl = '';
-startMenu.hidden = true;
-const startLockBtn = document.createElement('button');
-startLockBtn.id = 'start-lock-btn';
-startMenu.appendChild(startLockBtn);
-canvasCtrl.getWrapper().appendChild(startMenu);
+// Selecting the marker reveals its menu — the same component the page menu uses, so the two cannot
+// be open at once and neither can forget the viewport opt-out that makes its buttons clickable.
+const startMenu = createAnchoredMenu(canvasCtrl.getWrapper(), 'start-menu');
 
 /** Mirrors gatherRingRadius on the server so the ring shows the real landing area. */
 function gatherRingRadius(count: number): number {
@@ -583,7 +635,7 @@ function isOnStartMarker(pageX: number, pageY: number): boolean {
 function renderStartMarker() {
   if (!startPoint) {
     startMarker.hidden = true;
-    startMenu.hidden = true;
+    startMenu.close();
     return;
   }
   const size = gatherRingRadius(playerRoster.length) * 2;
@@ -600,11 +652,23 @@ function renderStartMarker() {
   startMarker.classList.toggle('held', startHeld);
   startMarker.hidden = false;
 
-  startLockBtn.textContent = startLocked ? 'Unlock' : 'Lock';
-  startMenu.style.left = `${startPoint.x}px`;
-  startMenu.style.top = `${startPoint.y - size / 2}px`;
-  startMenu.style.transform = `translate(-50%, -100%) scale(${1 / (viewport.scale || 1)})`;
-  startMenu.hidden = !startSelected;
+  if (startSelected) {
+    // A locked marker still selects — otherwise there would be no way to unlock it.
+    startMenu.setItems([
+      {
+        label: startLocked ? 'Unlock' : 'Lock',
+        onSelect: () => {
+          if (!selectedImageId) return;
+          ws.send({ type: 'map:start_point:lock', imageId: selectedImageId, locked: !startLocked });
+        },
+      },
+    ]);
+    startMenu.anchorAt(startPoint.x, startPoint.y - size / 2);
+    startMenu.applyScale(viewport.scale);
+    startMenu.open();
+  } else {
+    startMenu.close();
+  }
 }
 
 function selectStartMarker(selected: boolean) {
@@ -613,12 +677,6 @@ function selectStartMarker(selected: boolean) {
   renderStartMarker();
 }
 
-// A locked marker still selects — otherwise there would be no way to unlock it.
-startLockBtn.addEventListener('click', (ev) => {
-  ev.stopPropagation();
-  if (!selectedImageId) return;
-  ws.send({ type: 'map:start_point:lock', imageId: selectedImageId, locked: !startLocked });
-});
 
 ws.on('map:start_point:set', (msg) => {
   const img = imageList.find(i => i.id === msg.imageId);
@@ -890,6 +948,12 @@ function closeAllPopups() {
   brushBtn.classList.remove('active');
   tokenPopup.setAttribute('hidden', '');
   tokenBtn.classList.remove('active');
+  // A half-pressed Delete does not survive the GM doing something else — the confirm means "yes,
+  // this page, now", and it should not still be waiting several gestures later.
+  if (deleteArmed) {
+    deleteArmed = false;
+    renderPageControls();
+  }
 }
 
 function togglePopup(popup: HTMLElement, anchorBtn: HTMLElement) {

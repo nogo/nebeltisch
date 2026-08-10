@@ -51,6 +51,7 @@ Client — `public/js/`
 | `tokens.ts` | A token layer; hit testing and dragging |
 | `ping.ts` | Ping layer; owns its own animation loop |
 | `veil.ts` | The waiting screen's fog. Bakes one seamless noise tile, then drifts it in layers; owns its loop and runs only while that screen is up |
+| `anchored-menu.ts` | A menu hanging above a point in the transformed world. Owns the viewport opt-out and the counter-scale; the start marker's menu is its one caller today, and the token menu (#60) is the next |
 | `api.ts` | REST client |
 | `websocket.ts` | WebSocket client with reconnect and backoff; typed against the server's message unions |
 
@@ -179,6 +180,13 @@ Two consequences worth stating. `GET /api/adventures/:id/images/:imageId/fog` re
 **The trap:** reusing the bounded viewport for the board makes the page bounding box the world. Zooming out then stops exactly where the outermost pages touch the screen edges, name labels hang outside that box and clip, and there is no visible empty space to drag a page into. The larger the maps, the worse it gets — labels counter-scale, so their world height is `13px / scale`.
 
 **Rendering.** Only the selected page gets the canvas stack; every other page is a plain `<img>` of the original upload. A six-page board measures around 41 MB of decoded bitmap, which is why no thumbnail is stored. Past ten pages, or at 4K, the escape hatch is `createImageBitmap(blob, { resizeWidth })` — no schema change, no stored files.
+
+### Deleting a page: rows before files, in one transaction
+
+The delete route removes the page's monsters and the page itself inside a single `db.transaction`, and unlinks the image **only after that commits**.
+**Why:** it used to unlink first and delete second, and the delete could throw — `PRAGMA foreign_keys = ON` with two references into `images(id)` that carry no `ON DELETE` clause. `adventures.active_image_id` is one; `tokens.image_id` is the other, so *any* page with a monster on it hit this, not only the presented one. Either way the file was already gone and the row survived, addressing nothing (#3).
+**Implication:** a failed delete now changes nothing at all. `token_positions` cascades on its own, so remembered positions need no handling. Deleting the presented page is refused with `409` rather than cascaded — the GM takes it off the table first, and the server owns that rule because a second GM tab with a stale board must not be able to delete what the party is looking at.
+**Not broadcast.** A second GM device keeps a stale board until it reloads, exactly as it already does for page positions. Publishing from the HTTP layer would mean putting the Bun server into `ServerDeps` for one message, and a stale tab that paints a deleted page already gets a clean `No such page` error.
 
 ### The waiting screen's fog is bounded by construction
 

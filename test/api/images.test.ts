@@ -2,7 +2,9 @@ import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { existsSync } from "fs";
 import { join } from "path";
 import { startTestServer, type TestServer } from "../helpers";
-import { createAdventure } from "../../src/db/adventures";
+import { createAdventure, getAdventure, setActiveImage } from "../../src/db/adventures";
+import { getImage } from "../../src/db/images";
+import { createToken, getGmTokensByImage } from "../../src/db/tokens";
 
 // Minimal valid 1x1 PNG
 const PNG_BYTES = Buffer.from([
@@ -111,6 +113,63 @@ describe("Image API", () => {
     );
     expect(deleteRes.status).toBe(204);
     expect(existsSync(filePath)).toBe(false);
+  });
+
+  it("DELETE takes the page's monsters with it", async () => {
+    const formData = new FormData();
+    formData.append("file", makeImageFile());
+    const uploadRes = await fetch(`${ts.url}/api/adventures/${adventureId}/images`, {
+      method: "POST",
+      headers: { "X-GM-Password": gmPassword },
+      body: formData,
+    });
+    const image = await uploadRes.json();
+
+    // `tokens.image_id` references `images(id)` with no ON DELETE clause, so before #3 was fixed
+    // this delete threw — after the file had already been unlinked.
+    createToken(ts.db, {
+      adventureId,
+      name: "Ork",
+      color: "#ff0000",
+      tokenType: "monster",
+      x: 5,
+      y: 5,
+      imageId: image.id,
+    });
+    expect(getGmTokensByImage(ts.db, adventureId, image.id).length).toBe(1);
+
+    const deleteRes = await fetch(
+      `${ts.url}/api/adventures/${adventureId}/images/${image.id}`,
+      { method: "DELETE", headers: { "X-GM-Password": gmPassword } }
+    );
+    expect(deleteRes.status).toBe(204);
+    expect(getImage(ts.db, image.id)).toBe(null);
+    expect(getGmTokensByImage(ts.db, adventureId, image.id).length).toBe(0);
+  });
+
+  it("DELETE refuses the presented page, and changes nothing", async () => {
+    const formData = new FormData();
+    formData.append("file", makeImageFile());
+    const uploadRes = await fetch(`${ts.url}/api/adventures/${adventureId}/images`, {
+      method: "POST",
+      headers: { "X-GM-Password": gmPassword },
+      body: formData,
+    });
+    const image = await uploadRes.json();
+    const filePath = join(ts.uploadsDir, image.filename);
+    setActiveImage(ts.db, adventureId, image.id);
+
+    const deleteRes = await fetch(
+      `${ts.url}/api/adventures/${adventureId}/images/${image.id}`,
+      { method: "DELETE", headers: { "X-GM-Password": gmPassword } }
+    );
+
+    expect(deleteRes.status).toBe(409);
+    // The row, the file and the pointer all survive. Before #3 was fixed this path unlinked the
+    // file first and then threw, leaving a row addressing nothing.
+    expect(getImage(ts.db, image.id)).not.toBe(null);
+    expect(existsSync(filePath)).toBe(true);
+    expect(getAdventure(ts.db, adventureId)?.active_image_id).toBe(image.id);
   });
 
   it("uploaded file is served at /uploads/:filename", async () => {

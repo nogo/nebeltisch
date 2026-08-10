@@ -504,28 +504,51 @@ body.painting-armed .board-page { cursor: crosshair; }
   filter: drop-shadow(0 0 3px rgba(255, 224, 160, 0.95));
 }
 
-/* The marker's menu. Counter-scaled in JS, so it stays one size on screen at any zoom. */
-#start-menu {
+/* ── Anchored menus ──
+   A menu hanging above a point inside the transformed world — a page on the board, the start
+   marker on a page. Counter-scaled in JS, so it stays one size on screen at any zoom. */
+.anchored-menu {
   position: absolute;
   transform-origin: bottom center;
   z-index: 2;
   padding-bottom: 6px;
+  display: flex;
+  gap: 4px;
   white-space: nowrap;
 }
-#start-menu[hidden] { display: none; }
-#start-lock-btn {
+.anchored-menu[hidden] { display: none; }
+.anchored-menu-item {
   background: rgba(18, 18, 36, 0.97);
-  border: 1px solid rgba(255, 176, 32, 0.5);
-  color: #ffb020;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  color: rgba(255, 255, 255, 0.85);
   border-radius: 8px;
   padding: 0 12px;
+  /* 44pt is the tap target; the counter-scale keeps this honest at every zoom (principle 7). */
   min-height: 32px;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
 }
-#start-lock-btn:hover { background: rgba(255, 176, 32, 0.2); color: #ffd080; }
+.anchored-menu-item:hover:not(:disabled) {
+  background: rgba(74, 74, 255, 0.25);
+  border-color: rgba(74, 74, 255, 0.6);
+  color: #fff;
+}
+.anchored-menu-item:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+/* The marker's menu keeps the start point's gold, so it reads as belonging to the flag. */
+.start-menu .anchored-menu-item {
+  border-color: rgba(255, 176, 32, 0.5);
+  color: #ffb020;
+}
+.start-menu .anchored-menu-item:hover:not(:disabled) {
+  background: rgba(255, 176, 32, 0.2);
+  border-color: #ffb020;
+  color: #ffd080;
+}
 #start-marker-label {
   color: #ffb020;
   font-weight: 700;
@@ -608,6 +631,15 @@ body.painting-armed .board-page { cursor: crosshair; }
   font-weight: 600;
 }
 #present-btn:hover:not(:disabled) { background: rgba(255, 176, 32, 0.3); color: #ffd080; }
+
+/* Delete is the only irreversible control in the interface, so it never looks like the others and
+   it says what it is about to do before it does it. */
+#delete-btn { color: #e88b80; font-weight: 600; }
+#delete-btn:hover:not(:disabled) { background: rgba(231, 76, 60, 0.2); color: #fff; }
+#delete-btn.armed {
+  background: rgba(231, 76, 60, 0.3);
+  color: #fff;
+}
 
 /* No page is loaded under the canvas stack, so there is nothing to paint on or place a token on.
    Not a "which page is live" state: preparing a page the party is not looking at is the point of

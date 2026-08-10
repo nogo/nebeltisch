@@ -14,7 +14,7 @@ import {
   deleteImage,
   setBoardPosition,
 } from "./db/images";
-import { getGmTokensByImage } from "./db/tokens";
+import { getGmTokensByImage, deleteTokensByImage } from "./db/tokens";
 import { nextFreeSpot } from "./board";
 import { parseImageDimensions } from "./images";
 import type { ServerDeps } from "./deps";
@@ -298,12 +298,33 @@ async function handleAdventureRoutes(
       const image = getImage(db, imageId);
       if (!image || image.adventure_id !== id) return error("Not found", 404);
 
+      // The page the party is looking at is not deletable; it comes off the table first. Enforced
+      // here rather than by the menu, because a second GM tab with a stale board must not be able
+      // to delete the page on screen (principle 1).
+      if (adventure.active_image_id === imageId) {
+        return error("This page is on the table — take it off first", 409);
+      }
+
+      // Rows before files, in one transaction. The previous order unlinked the image and *then*
+      // deleted the row, so a page with monsters on it — or the presented one — left an orphaned
+      // record pointing at a file that was already gone (#3). Monsters belong to this page and go
+      // with it; `token_positions` cascades on its own.
+      try {
+        db.transaction(() => {
+          deleteTokensByImage(db, imageId);
+          deleteImage(db, imageId);
+        })();
+      } catch (err) {
+        console.error("Could not delete the page", err);
+        return error("Could not delete this page", 500);
+      }
+
+      // Only now, with the database committed: a failed delete leaves the file intact.
       try {
         unlinkSync(join(uploadsDir, image.filename));
       } catch {
         // file may already be gone
       }
-      deleteImage(db, imageId);
       // Drop the cached mask and its pending save, or a deleted map would keep
       // its fog resident until the adventure idles out.
       await deps.fog.forAdventure(id).evict(imageId);
