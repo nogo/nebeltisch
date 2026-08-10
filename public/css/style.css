@@ -437,6 +437,17 @@ body.painting-armed .board-page { cursor: crosshair; }
   background: rgba(255, 176, 32, 0.22);
 }
 
+/* Held: the grab registered, and this is what is now under the finger. Brightening the whole
+   landing ring works at any zoom — the ring is far wider than a fingertip, so unlike a cue drawn on
+   the flag itself it is not hidden by the hand doing the dragging. Last, so it wins over locked. */
+#start-marker.held {
+  background: rgba(255, 176, 32, 0.32);
+  border-color: #ffd080;
+}
+#start-marker.held #start-marker-flag {
+  filter: drop-shadow(0 0 3px rgba(255, 224, 160, 0.95));
+}
+
 /* The marker's menu. Counter-scaled in JS, so it stays one size on screen at any zoom. */
 #start-menu {
   position: absolute;

@@ -474,6 +474,12 @@ copyInviteBtn.addEventListener('click', () => {
 let startPoint: { x: number; y: number } | null = null;
 let startLocked = false;
 let startSelected = false;
+/**
+ * Set the moment a gesture lands on the marker, not once it passes the drag threshold: what the
+ * GM needs to know is *what they picked up*, and by the time the thing has moved they know already.
+ * A locked marker shows it too — it says the grab registered and the lock is why nothing follows.
+ */
+let startHeld = false;
 
 // A plain circle reads as just another token next to prepared monsters and
 // NPCs. The marker is a flag on a pole with a labelled ring showing where the
@@ -545,6 +551,7 @@ function renderStartMarker() {
   startMarkerLabel.style.fontSize = `${Math.max(9, tokenRadius * 0.6)}px`;
   startMarker.classList.toggle('locked', startLocked);
   startMarker.classList.toggle('selected', startSelected);
+  startMarker.classList.toggle('held', startHeld);
   startMarker.hidden = false;
 
   startLockBtn.textContent = startLocked ? 'Unlock' : 'Lock';
@@ -953,6 +960,26 @@ function flushPending() {
   lastFlush = Date.now();
 }
 
+/**
+ * Picks up a token under the pointer, if one is there. Tokens outrank the page they stand on —
+ * the same precedence the start marker takes — so a monster can be dragged whether or not a tool
+ * is armed. Without this the board's page drag swallowed every attempt to move one (#51).
+ *
+ * The party stands on the presented page, so they are only grabbable there. Monsters belong to
+ * whichever page is selected and are draggable while it is prepared.
+ */
+function beginTokenDrag(ev: PointerEvent): boolean {
+  activeDragCtrl = null;
+  if (!isPageReady()) return false;
+  if (isLivePageSelected()) {
+    tokenCtrl.handlePointerDown(ev);
+    if (tokenCtrl.isDragging()) { activeDragCtrl = tokenCtrl; return true; }
+  }
+  gmTokenCtrl.handlePointerDown(ev);
+  if (gmTokenCtrl.isDragging()) { activeDragCtrl = gmTokenCtrl; return true; }
+  return false;
+}
+
 viewport.onInteractStart((ev: PointerEvent) => {
   if (imageList.length === 0) return;
   closeAllPopups();
@@ -973,9 +1000,13 @@ viewport.onInteractStart((ev: PointerEvent) => {
     if (isOnStartMarker(page.x, page.y)) {
       startPointerStart = { x: ev.clientX, y: ev.clientY };
       startDragging = false;
+      startHeld = true;
+      renderStartMarker();
       return;
     }
     selectStartMarker(false);
+
+    if (beginTokenDrag(ev)) return;
 
     const world = viewport.screenToImage(ev.clientX, ev.clientY);
     const hit = board.pageAt(world.x, world.y);
@@ -988,15 +1019,7 @@ viewport.onInteractStart((ev: PointerEvent) => {
 
   if (!isPageReady()) return;
 
-  // The party stands on the presented page, so they are only grabbable there. Monsters belong to
-  // whichever page is selected and are draggable while it is prepared.
-  if (isLivePageSelected()) {
-    tokenCtrl.handlePointerDown(ev);
-    if (tokenCtrl.isDragging()) { activeDragCtrl = tokenCtrl; return; }
-  }
-  gmTokenCtrl.handlePointerDown(ev);
-  if (gmTokenCtrl.isDragging()) { activeDragCtrl = gmTokenCtrl; return; }
-  activeDragCtrl = null;
+  if (beginTokenDrag(ev)) return;
 
   toolbox.classList.add('painting');
 
@@ -1126,6 +1149,8 @@ function finishStartGesture() {
   const dragged = startDragging;
   startPointerStart = null;
   startDragging = false;
+  startHeld = false;
+  renderStartMarker();
 
   if (dragged && startPoint && selectedImageId) {
     // One message on release, like a page position — not one per pointer move.

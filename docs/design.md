@@ -32,13 +32,13 @@ GM fog painting on a phone is not a goal. Tablet with stylus is.
 
 | Gesture | Action |
 |---------|--------|
-| 1 finger / stylus | Interact — GM: drag the start marker or a page, or paint fog once the brush is armed; Player: drag token |
+| 1 finger / stylus | Interact — GM: drag the start marker, a token or a page, or paint fog once the brush is armed; Player: drag token |
 | Tap the start marker | GM only: select it, revealing its lock menu |
 | 2-finger drag | Pan |
 | Pinch | Zoom in/out |
 | Double-tap empty canvas | GM only: fit the board |
 
-The start marker takes precedence over the page beneath it, the same order the token layers already take. Five screen pixels of travel separate a tap from a drag, so a tap that jitters still selects.
+**One finger picks up the topmost thing under it: start marker, then token, then page.** Arming a tool changes what an empty patch of page does, never what the things standing on it do — a monster is dragged the same way whether or not the brush is out. Five screen pixels of travel separate a tap from a drag, so a tap that jitters still selects.
 
 No mode toggle for pan vs draw. The gesture itself disambiguates. ~100ms grace period before committing to draw, so a second finger can arrive for pan/zoom.
 
@@ -169,6 +169,14 @@ The GM's fog layer is rendered at 85% opacity so the map is dimly readable under
 The active segment of the Reveal / Re-fog pill is currently the only mode indicator. The brush preview is a plain white circle.
 
 **[not implemented]** The preview should be colour-coded — green tint to reveal, red tint to re-fog — under the cursor or finger. On a tablet the toolbar is far from where the hand is working, so tinting the preview would put the mode where the eye already is. This remains the intent.
+
+### What you picked up
+
+A one-finger drag can land on the start marker, a token or a page, and until the thing moves, nothing else says which one you got. So **the grabbed object marks itself the moment it is grabbed**, before any movement: a token draws a white halo ring, the start marker brightens its landing ring, a page dims to 75%.
+
+The cue is placed to survive the hand making the gesture. A fingertip covers roughly 44pt, so anything drawn on the object itself is hidden by the finger holding it — the token's halo therefore sits 14 **screen** pixels outside the token at every zoom, and the marker brightens its whole landing ring rather than its flag. A halo, not a bigger token: the drawn radius is the party's footprint and must not appear to change while being moved.
+
+A locked start marker shows it too. The grab did register; the lock is why nothing follows.
 
 ### Collapse Behaviour
 

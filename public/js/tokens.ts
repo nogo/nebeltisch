@@ -29,6 +29,13 @@ const DEFAULT_RADIUS = 20;
 const FONT_SIZE = 12;
 /** Apple HIG asks for 44pt; half of that is the radius a fingertip can reliably land. */
 const MIN_TOUCH_PX = 22;
+/**
+ * How far outside the token the "held" halo sits, in *screen* pixels. A fingertip covers the token
+ * it just grabbed, so feedback drawn under it says nothing; the halo has to clear the finger. It is
+ * a ring rather than a larger token because the drawn radius is the party's footprint and must not
+ * appear to change while being moved.
+ */
+const HELD_HALO_PX = 14;
 
 export function initTokenLayer(
   wrapper: HTMLElement,
@@ -86,6 +93,17 @@ export function initTokenLayer(
     for (const token of tokens.values()) {
       const r = getRadius();
       const isGmToken = token.token_type === 'monster' || token.token_type === 'npc';
+
+      if (dragging && token.id === dragTokenId) {
+        const s = getScale() > 0 ? getScale() : 1;
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(token.x, token.y, r + HELD_HALO_PX / s, 0, Math.PI * 2);
+        ctx.strokeStyle = 'rgba(255,255,255,0.85)';
+        ctx.lineWidth = 2 / s;
+        ctx.stroke();
+        ctx.restore();
+      }
 
       ctx.save();
       ctx.beginPath();
@@ -172,6 +190,7 @@ export function initTokenLayer(
           if (Math.sqrt(dx * dx + dy * dy) < r) {
             dragging = true;
             dragTokenId = token.id;
+            render(); // The halo has to appear on the grab, not on the first movement.
             return;
           }
         }
@@ -185,6 +204,7 @@ export function initTokenLayer(
       if (Math.sqrt(dx * dx + dy * dy) < r) {
         dragging = true;
         dragTokenId = ownTokenId;
+        render();
       }
     },
 
