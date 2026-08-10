@@ -96,48 +96,73 @@ Until a page is presented — and again whenever the GM takes one off — a play
 
 ```
 ┌──────────────────────────────────────────────────────┐
-│ [Adventure Name]                    [●●] [link] [·]  │  ← topbar
+│ [Adventure Name ▾]            [●●●] [◉ ON AIR] [·]   │  ← topbar
 │                                                      │
 │                                                      │
 │              F U L L   C A N V A S                   │
 │                                                      │
 │                                                      │
-│      [↩ ↪ │ Reveal Re-fog │ ●50 │ 20 │ 1 │ ▣ ⚑ ◉]   │  ← one toolbar, bottom centre
+│  [↩ ↪ │ Reveal Re-fog ●50 │ ◈ │ ⬆ ⛶ │ ▣ ✕]         │  ← toolbar, bottom centre
 └──────────────────────────────────────────────────────┘
 ```
 
-Every GM control lives in a single floating toolbar at the bottom centre. The edges are otherwise empty and stay that way.
+**Two strips, split by scope** (principle 2). The toolbar holds every act on the map; the topbar holds the adventure and the people at it. The left and right edges are empty and stay that way.
 
 ### Toolbar
 
-Left to right, separated into groups:
+Left to right, grouped by **what each control acts on**:
+
+| Group | Control | Behaviour |
+|---|---|---|
+| The selected page | Undo / redo | Steps the *selected* page's history, which is not always the live one. Hidden entirely when that page has none |
+| | Reveal / Re-fog | Segmented pill. Picking a segment arms the brush; tapping the armed one disarms it |
+| | Brush size | Button showing the current radius; opens a popover slider. Also `Shift`+scroll on the canvas |
+| | Place token | Arms a mode: the next tap opens a small form to place a monster or NPC |
+| The board | Upload | Adds a page; it lands on a free spot on the board |
+| | Fit | Frames every page. Same as double-tapping empty canvas |
+| The table | Present | Puts the selected page on the table. Reads **Unpresent** when that page is already the live one, and takes it off. Disabled only when no page is selected |
+| | Delete | Removes the selected page and everything on it, on a second press. Disabled while that page is the live one |
+
+**Brush size sits inside the fog group, not behind its own separator.** It is a property of the armed brush and says nothing when no brush is armed.
+
+The fog and place-token controls dim only while no page is loaded under the canvas stack. Selecting a page the party is not looking at leaves every one of them live — preparing that page is what the board is for.
+
+### Topbar
 
 | Control | Behaviour |
 |---|---|
-| Undo / redo | Steps the *selected* page's history, which is not always the live one. Hidden entirely when that page has none |
-| Reveal / Re-fog | Segmented pill. Picking a segment arms the brush; tapping the armed one disarms it |
-| Brush size | Button showing the current radius; opens a popup slider. Also `Shift`+scroll on the canvas |
-| Token size | Button showing the current radius; opens a popup slider. Applies to every token, for everyone |
-| Players | Button showing the count; opens the players sheet |
-| Upload | Adds a page; it lands on a free spot on the board |
-| Place token | Arms a mode: the next tap opens a small form to place a monster or NPC |
-| Fit | Frames every page. Same as double-tapping empty canvas |
-| Present | Puts the selected page on the table. Reads **Unpresent** when that page is already the live one, and takes it off. Disabled only when no page is selected |
-| Delete | Removes the selected page and everything on it, on a second press. Disabled while that page is the live one |
+| Adventure name | Opens the settings popover, which holds the token size slider. Renaming belongs here and is not built yet |
+| Presence avatars | Open the players popover: the roster, remove-player, and "Copy invite link" |
+| On-air lamp | Display only. Lit while a page is on the table, dark while it is empty |
+| Connection dot | Display only |
 
-The fog and token controls dim only while no page is loaded under the canvas stack. Selecting a page the party is not looking at leaves every one of them live — preparing that page is what the board is for.
+**The on-air lamp is the GM's half of the waiting screen**, and it replaced a line of text in the middle of the board that covered the map exactly where the work happens. A lamp says the same thing from the corner and says it in both directions — dark is a state, not a missing thing — and it is lit in the same colour as the live page's own badge, so board and topbar agree. It is about the *table*, so it stays lit while the GM prepares a page the party cannot see.
 
-### Sheets
+**Token size is a setting, not a tool.** It is one value for the whole adventure — it applies to every token, monster and player alike, for everyone — and the GM sets it once while looking at a map. The server has always agreed: it lives on `adventures` and broadcasts as `settings:updated`.
 
-The players sheet slides over the canvas and never resizes it. Tap the button again, or outside the sheet, to close. It holds the roster and "Copy invite link".
+**There is no separate share button.** Copying the invite link is one item in the players popover, which is where the question "who is at this table" is already being answered. It costs one extra tap on an act performed once per player, ever.
 
-There is no sheet or panel that lists pages, and nothing should introduce one — zoom is the navigation.
+**Renaming is the settings popover's second item, and it is not built.** It needs a database write, a message and a broadcast — the adventure's name is on the players' waiting screen, so a rename that does not reach them leaves the old name sitting there — which makes it its own piece of work rather than part of moving controls around. When it lands it will exist here *and* on the coming adventure dashboard, and neither is a duplicate: the dashboard renames an adventure the GM is not inside, the popover renames the one they are looking at.
+
+### Popovers
+
+A panel hangs off the control that opened it — the settings and players popovers under the topbar, the brush size popover over the toolbar — and none of them covers the middle of the map. Tap the trigger again, or outside, to close.
+
+**They stay small enough to see past**, because each describes something on the map behind it. This replaced a full-width players sheet with a backdrop, which hid the roster's own map; see principle 2.
+
+Not to be confused with the anchored menus in `anchored-menu.ts`, which hang off a point in the *transformed world* — beside a page or the start marker — and therefore counter-scale and opt out of the viewport's pointer capture. Topbar and toolbar popovers are screen chrome and need neither.
+
+There is no popover or panel that lists pages, and nothing should introduce one — zoom is the navigation.
 
 ### Player presence (GM topbar)
 
 Coloured circles, right-aligned, showing each player's colour and first initial. Green ring = online; no ring = offline, meaning the token persists but the player is disconnected. Hovering shows the name.
 
-The avatars are **display only**. Player actions — copying the invite link, removing a player — live in the players sheet, not in a popover on the avatar.
+**The avatars are the players control.** Tapping them opens the roster popover directly beneath, where removing a player and copying the invite link live. They were previously display-only, with a separate players button in the toolbar carrying the count and a third button carrying the invite link — three controls for one question. The count is now the number of dots, which holds at the three-or-so players this is built for.
+
+**An empty roster still draws one avatar**, a dashed outline with a `+`, and the popover behind it reads *No players yet* above the invite link. The strip is the only way to that link, and nobody has joined at the moment the GM most wants it — an empty strip would be a control that disappears exactly when it is needed.
+
+In the popover, online is the row dot's green ring and offline dims it, the same way the avatars say it. The words *online* and *offline* were dropped with the sheet: they did not fit a narrow popover and stated in text what the dot beside them already showed.
 
 Tokens are persistent: they belong to the adventure, not the WebSocket session. Disconnecting never deletes a token. Only the GM can remove a player, which deletes their token and requires a new invite to rejoin.
 
@@ -163,8 +188,8 @@ Controls are collapsible, and collapsing is user-initiated. No timers, no idle f
 
 One exception, and it is deliberate: **the toolbar dims to 15% while a brush stroke is in progress** and returns the instant the stroke ends or the pointer moves over it. That is not auto-hide — it is caused directly by the user's own gesture, lasts exactly as long as that gesture, and keeps the toolbar from competing with the stroke being painted at the bottom of the map.
 
-- **Always visible:** toolbar, brush preview
-- **Opened and closed explicitly:** players sheet, brush and token size popups
+- **Always visible:** topbar, toolbar, brush preview
+- **Opened and closed explicitly:** the settings, players and brush size popovers
 - **Conditional:** undo/redo, hidden when there is no history
 
 ---

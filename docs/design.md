@@ -32,21 +32,27 @@ Rules for the next interface decision. Where a change conflicts with one, the co
 
 ### 1. The map dominates every pixel
 
-Full canvas. Chrome floats over the map; it never frames it, never resizes it, never takes a column beside it. A sheet slides over the canvas — it does not push it.
+Full canvas. Chrome floats over the map; it never frames it, never resizes it, never takes a column beside it. A panel opens over the canvas — it does not push it.
 
 *A surface that would shrink the map is the wrong surface.*
 
-### 2. Controls sit at the edges, in one place
+### 2. Controls sit at the edges, and a surface opens where its trigger is
 
-One floating toolbar, bottom centre, holding every control for the role. Nothing floats over the middle of the map, and no control opens a second permanent surface somewhere else.
+Two strips, and only two. The **toolbar**, bottom centre, holds every act on the map. The **topbar** holds the adventure and the people at it. Scope is what separates them, not convenience: if it changes during a session it is a toolbar control; if it is set once per adventure it is not.
 
-*A control that does not fit the toolbar is a control whose job has not been thought through.*
+Nothing floats over the middle of the map, and no panel opens away from the control that opened it — a panel hangs off its own button and stays small enough that what it describes is still visible behind it.
+
+*A control that fits neither strip is a control whose job has not been thought through.*
+
+**The admission rule is the point.** "The topbar is for adventure things" is a mood, and the next control lands there because the toolbar was full. Scope is testable: token size is one value for the whole adventure and the GM sets it once, so it goes up; brush size changes between strokes, so it stays down.
+
+**Small enough to see past is not a size preference.** Token size is judged by looking at tokens, brush size by looking at the map — a panel that covers the thing it describes makes the GM close it to see the effect of what they just did. The full-width players sheet was replaced for that reason, not for a tidier layout.
 
 ### 3. Subtract before adding
 
 **Minimal here means subtracted, not styled to look sparse.** A new control must displace one, absorb one, or justify the pixel it costs. Before adding a surface, ask which existing gesture could carry the job instead.
 
-*Every control this interface has lost was lost that way: zoom replaced the map list, the board replaced the thumbnail strip, dragging the marker replaced the button that created one. Brush size came off a left-edge slider and the map panel off the right edge, and the edges are now empty.*
+*Every control this interface has lost was lost that way: zoom replaced the map list, the board replaced the thumbnail strip, dragging the marker replaced the button that created one. Brush size came off a left-edge slider and the map panel off the right edge. The presence avatars absorbed both the players button and the share button, which had been three controls answering "who is at this table".*
 
 ### 4. Zoom is the navigation
 

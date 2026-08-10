@@ -9,16 +9,16 @@
 <body class="gm">
   <main id="canvas-area"></main>
 
-  <!-- Topbar -->
+  <!-- Topbar: the adventure and the people at it. Every act on the map lives in the toolbox. -->
   <header id="topbar" class="floating-control">
-    <span id="adventure-name">Loading…</span>
-    <div id="player-presence"></div>
-    <button id="share-btn" class="topbar-btn" aria-label="Copy invite link" title="Copy invite link">
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
-        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
-      </svg>
+    <button id="settings-btn" title="Adventure settings" aria-expanded="false">
+      <span id="adventure-name">Loading…</span>
+      <svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"/></svg>
     </button>
+    <!-- The avatars are the players control, not a display: they open the roster and the invite
+         link. Nobody has joined when the GM wants that link, so renderPresence draws a ghost
+         avatar rather than leaving an empty strip with nothing to press. -->
+    <button id="player-presence" title="Players and invite link" aria-expanded="false"></button>
     <!-- Whether anything is on the table is a property of the table, so it is stated beside the
          other table-wide indicator rather than over the map. -->
     <span id="live-lamp">On air</span>
@@ -37,40 +37,33 @@
       <button id="redo-btn" aria-label="Redo" disabled>↪</button>
       <div class="tb-sep"></div>
     </div>
+    <!-- The fog group. Brush size is a property of the armed brush, so it sits inside the group
+         rather than behind a separator of its own. -->
     <div class="tb-group">
       <!-- Neither segment starts active: the brush is armed by picking one (#51's arming rule). -->
       <button id="mode-reveal">Reveal</button>
       <button id="mode-fog">Re-fog</button>
+      <button id="brush-btn" class="tb-icon-btn" title="Brush size (Shift+scroll)">
+        <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
+        <span id="brush-size-label">50</span>
+      </button>
     </div>
-    <div class="tb-sep"></div>
-    <button id="brush-btn" class="tb-icon-btn" title="Brush size (Shift+scroll)">
-      <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24" fill="currentColor"><circle cx="12" cy="12" r="10"/></svg>
-      <span id="brush-size-label">50</span>
-    </button>
-    <div class="tb-sep"></div>
-    <button id="token-btn" class="tb-icon-btn" title="Token size">
-      <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M6 20v-2a6 6 0 0 1 12 0v2"/></svg>
-      <span id="token-size-label">20</span>
-    </button>
-    <div class="tb-sep"></div>
-    <button id="players-btn" class="tb-icon-btn" title="Players">
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-      <span id="player-count"></span>
-    </button>
-    <div class="tb-sep"></div>
-    <label id="upload-btn" class="tb-icon-btn" title="Upload a page">
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-      <input type="file" id="upload-input" accept="image/*" hidden>
-    </label>
     <div class="tb-sep"></div>
     <!-- No start-point button: the marker is always on the map and is moved by dragging it (#57). -->
     <button id="place-token-btn" class="tb-icon-btn" title="Place monster / NPC">
       <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="11" r="3"/><path d="M12 2a7 7 0 0 1 7 7c0 5-7 13-7 13S5 14 5 9a7 7 0 0 1 7-7z"/><line x1="12" y1="8" x2="12" y2="8"/></svg>
     </button>
     <div class="tb-sep"></div>
-    <button id="fit-btn" class="tb-icon-btn" title="Fit the whole board (or double-tap the canvas)">
-      <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
-    </button>
+    <!-- The board group: what these two act on is the board, not the selected page. -->
+    <div class="tb-group">
+      <label id="upload-btn" class="tb-icon-btn" title="Upload a page">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        <input type="file" id="upload-input" accept="image/*" hidden>
+      </label>
+      <button id="fit-btn" class="tb-icon-btn" title="Fit the whole board (or double-tap the canvas)">
+        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
+      </button>
+    </div>
     <div class="tb-sep"></div>
     <button id="present-btn" disabled title="Show the selected page to the table">Present</button>
     <button id="delete-btn" disabled title="Remove this page and everything on it">Delete</button>
@@ -89,13 +82,18 @@
     </div>
   </div>
 
-  <!-- Brush size popup -->
-  <div id="brush-popup" class="tb-popup" hidden>
+  <!-- Brush size popover -->
+  <div id="brush-popup" class="popover" hidden>
     <input type="range" id="brush-size" min="10" max="200" value="50">
   </div>
 
-  <!-- Token size popup -->
-  <div id="token-popup" class="tb-popup" hidden>
+  <!-- Adventure settings popover. Token size is one value for the whole adventure, set once while
+       looking at a map — which is why the popover stays small enough to see the map past it. -->
+  <div id="settings-popup" class="popover popover-panel" hidden>
+    <div class="popover-row">
+      <span class="popover-label">Token size</span>
+      <span id="token-size-label">20</span>
+    </div>
     <input type="range" id="token-size" min="5" max="100" value="20">
   </div>
 
@@ -103,19 +101,10 @@
     <svg xmlns="http://www.w3.org/2000/svg" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z"/><line x1="4" y1="22" x2="4" y2="15"/></svg>
   </template>
 
-  <!-- Sheet backdrop -->
-  <div id="sheet-backdrop" hidden></div>
-
-  <!-- Players sheet -->
-  <div id="players-sheet" class="sheet" hidden>
-    <div class="sheet-header">
-      <span>Players</span>
-      <button class="sheet-close" id="players-close">✕</button>
-    </div>
+  <!-- Players popover: the roster, removing a player, and the one path to the invite link. -->
+  <div id="players-popup" class="popover popover-panel" hidden>
     <div id="players-list"></div>
-    <div class="sheet-footer">
-      <button id="copy-invite-btn">Copy invite link</button>
-    </div>
+    <button id="copy-invite-btn">Copy invite link</button>
   </div>
 
   <script type="module" src="/dist/gm.js"></script>

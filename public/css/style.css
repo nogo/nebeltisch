@@ -198,18 +198,45 @@ body.home {
   gap: 0.75rem;
   padding: 0 0.75rem;
 }
+/* The adventure's name is the trigger for its settings, so it is a button that still reads as a
+   title — no border, no fill, until it is hovered or its popover is open. */
+#settings-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* Hugs the name rather than filling the bar: stretched, its hover and open states would read as
+     the topbar changing colour instead of a button being pressed. `auto` margin still pushes the
+     avatars and the lamp to the right. */
+  flex: 0 1 auto;
+  margin-right: auto;
+  min-width: 0;
+  height: 34px;
+  padding: 0 8px;
+  margin-left: -8px;
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: background 150ms, color 150ms;
+}
+#settings-btn:hover { background: rgba(255,255,255,0.07); color: #fff; }
+#settings-btn.active { background: rgba(74, 74, 255, 0.18); color: #fff; }
+#settings-btn svg { flex-shrink: 0; opacity: 0.5; }
 #adventure-name {
   font-weight: 600;
   white-space: nowrap;
-  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 /* ── On-air lamp ──
-   The GM's half of the players' waiting state, in the corner instead of over the middle of the
-   map. Lit in the live page's own gold so the board and the topbar agree. */
+   Whether a page is on the table was once said in the middle of the board, which put a sentence
+   over the map exactly where the GM was working. A studio lamp says the same thing in the corner
+   and says it in both directions: dark is a state, not an absence. Lit matches the page's own LIVE
+   badge, so the board and the topbar speak with one colour. */
 #live-lamp {
   display: inline-flex;
   align-items: center;
@@ -247,12 +274,23 @@ body.home {
 .status-dot.connected { background: #22c55e; }
 .status-dot.disconnected { background: #e74c3c; }
 
-/* ── Player presence avatar stack ── */
+/* ── Player presence avatar stack ──
+   Also the players control. The avatars are 32px, so the button pads out to the 44pt floor
+   principle 7 sets for a touch target. */
 #player-presence {
   display: flex;
   align-items: center;
   flex-shrink: 0;
+  min-height: 44px;
+  padding: 0 6px;
+  background: transparent;
+  border: none;
+  border-radius: 10px;
+  cursor: pointer;
+  transition: background 150ms;
 }
+#player-presence:hover { background: rgba(255,255,255,0.07); }
+#player-presence.active { background: rgba(74, 74, 255, 0.18); }
 .presence-avatar {
   width: 32px;
   height: 32px;
@@ -276,6 +314,14 @@ body.home {
 .presence-avatar.offline { opacity: 0.5; }
 .presence-avatar:hover { transform: scale(1.15); z-index: 1; }
 .presence-overflow { background: #444 !important; }
+/* Nobody has joined yet. The strip still needs something to press, because the invite link is
+   behind it and inviting is precisely what the GM is doing at that moment. */
+.presence-empty {
+  background: transparent !important;
+  border: 1px dashed #444;
+  color: #666;
+  font-weight: 400;
+}
 
 /* ── Token placement form ── */
 #token-place-form {
@@ -570,22 +616,6 @@ body.painting-armed .board-page { cursor: crosshair; }
   line-height: 1.1;
 }
 
-/* ── Topbar share/action button ── */
-.topbar-btn {
-  background: transparent;
-  border: none;
-  color: #888;
-  cursor: pointer;
-  padding: 4px 6px;
-  border-radius: 6px;
-  display: flex;
-  align-items: center;
-  transition: color 150ms, background 150ms;
-  flex-shrink: 0;
-}
-.topbar-btn:hover { color: #fff; background: rgba(255,255,255,0.07); }
-.topbar-btn.active { color: #4a4aff; }
-
 /* ── Bottom toolbox ── */
 #toolbox {
   position: fixed;
@@ -665,8 +695,11 @@ body.painting-armed .board-page { cursor: crosshair; }
   pointer-events: none;
 }
 
-/* ── Toolbox popups (brush / token size) ── */
-.tb-popup {
+/* ── Popovers ──
+   A panel hangs off the control that opened it and stays small enough to see the map past it —
+   each of them describes something drawn on that map. Not the anchored menus in anchored-menu.ts,
+   which hang off a point in the transformed world and counter-scale; these are screen chrome. */
+.popover {
   position: fixed;
   z-index: 20;
   background: rgba(18, 18, 36, 0.97);
@@ -680,107 +713,71 @@ body.painting-armed .board-page { cursor: crosshair; }
   -webkit-backdrop-filter: blur(8px);
   box-shadow: 0 4px 20px rgba(0,0,0,0.4);
 }
-.tb-popup[hidden] { display: none; }
-.tb-popup input[type=range] {
+.popover[hidden] { display: none; }
+.popover input[type=range] {
   width: 160px;
   accent-color: #4a4aff;
   cursor: pointer;
   touch-action: auto;
 }
 
-/* ── Sheet backdrop ── */
-#sheet-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 35;
-  background: rgba(0,0,0,0.5);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
-}
-#sheet-backdrop[hidden] { display: none; }
-
-/* ── Bottom sheets ── */
-.sheet {
-  position: fixed;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  z-index: 40;
-  background: rgba(14, 14, 28, 0.98);
-  border-top: 1px solid rgba(74, 74, 255, 0.15);
-  border-radius: 16px 16px 0 0;
-  transform: translateY(0);
-  transition: transform 250ms ease-out, opacity 250ms ease-out;
-  max-height: 60vh;
+/* Popovers with stacked content rather than a single slider. */
+.popover-panel {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 240px;
+  max-width: min(320px, calc(100vw - 16px));
+  max-height: min(60vh, 420px);
   overflow-y: auto;
-  box-shadow: 0 -8px 40px rgba(0,0,0,0.5);
 }
-.sheet[hidden] {
-  transform: translateY(100%);
-  opacity: 0;
-  pointer-events: none;
-  display: block !important;
-}
-.sheet-header {
+.popover-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 14px 16px 12px;
-  font-weight: 600;
-  font-size: 0.95rem;
-  color: #ccc;
-  border-bottom: 1px solid rgba(255,255,255,0.06);
-  position: sticky;
-  top: 0;
-  background: rgba(14, 14, 28, 0.98);
+  gap: 10px;
 }
-.sheet-close {
-  background: none;
-  border: none;
-  color: #555;
-  cursor: pointer;
-  font-size: 1rem;
-  padding: 4px 8px;
-  border-radius: 4px;
-  transition: color 150ms;
+.popover-label { font-size: 0.85rem; color: #999; }
+/* A slider in a stacked panel takes the panel's width; the toolbar's lone slider sets its own. */
+.popover-panel input[type=range] { width: 100%; }
+.popover-empty {
+  font-size: 0.85rem;
+  color: #666;
+  padding: 2px 0 6px;
 }
-.sheet-close:hover { color: #fff; }
-.sheet-footer {
-  padding: 12px 16px;
-  border-top: 1px solid rgba(255,255,255,0.06);
-}
-.sheet-footer button {
-  display: block;
+#copy-invite-btn {
   width: 100%;
-  padding: 10px;
-  background: rgba(74, 74, 255, 0.1);
+  padding: 9px;
+  background: rgba(74, 74, 255, 0.12);
   border: 1px solid rgba(74, 74, 255, 0.25);
   border-radius: 8px;
   color: #aaa;
   cursor: pointer;
-  font-size: 0.9rem;
-  text-align: center;
+  font-size: 0.85rem;
   transition: background 150ms, color 150ms;
 }
-.sheet-footer button:hover {
-  background: rgba(74, 74, 255, 0.2);
-  color: #fff;
-}
+#copy-invite-btn:hover { background: rgba(74, 74, 255, 0.22); color: #fff; }
 
-/* ── Players sheet rows ── */
+/* ── Players popover rows ──
+   Online is carried by the dot, the way the avatars in the topbar already carry it, rather than by
+   a word — a narrow popover has no room for one, and state belongs on the object (principle 8). */
 .player-row {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 10px 16px;
+  padding: 8px 0;
   border-bottom: 1px solid rgba(255,255,255,0.04);
 }
+.player-row:last-child { border-bottom: none; }
 .player-row-dot {
   width: 10px;
   height: 10px;
   border-radius: 50%;
   flex-shrink: 0;
 }
+.player-row.offline .player-row-dot { opacity: 0.4; }
+.player-row.online .player-row-dot { box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.9); }
+.player-row.offline .player-row-name { color: #777; }
 .player-row-name {
   flex: 1;
   font-size: 0.9rem;
@@ -788,12 +785,6 @@ body.painting-armed .board-page { cursor: crosshair; }
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.player-row-status {
-  font-size: 0.75rem;
-  color: #555;
-  flex-shrink: 0;
-}
-.player-row-status.online { color: #22c55e; }
 .player-row-remove {
   background: transparent;
   border: 1px solid #333;

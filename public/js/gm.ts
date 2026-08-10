@@ -60,7 +60,10 @@ let playerRoster: Array<{ tokenId: string; name: string; color: string; online: 
 let inviteUrl = '';
 
 // --- DOM ---
+// Topbar: the adventure and the people at it. The name opens the settings, the avatars open the
+// roster — both are triggers, not labels.
 const adventureNameEl = document.getElementById('adventure-name')!;
+const settingsBtn = document.getElementById('settings-btn')!;
 const connectionStatusEl = document.getElementById('connection-status')!;
 const liveLamp = document.getElementById('live-lamp')!;
 const playerPresenceEl = document.getElementById('player-presence')!;
@@ -75,10 +78,6 @@ const modeRevealBtn = document.getElementById('mode-reveal')!;
 const modeFogBtn = document.getElementById('mode-fog')!;
 const brushBtn = document.getElementById('brush-btn')!;
 const brushSizeLabel = document.getElementById('brush-size-label')!;
-const tokenBtn = document.getElementById('token-btn')!;
-const tokenSizeLabel = document.getElementById('token-size-label')!;
-const playersBt = document.getElementById('players-btn')!;
-const playerCount = document.getElementById('player-count')!;
 const presentBtn = document.getElementById('present-btn') as HTMLButtonElement;
 const deleteBtn = document.getElementById('delete-btn') as HTMLButtonElement;
 const fitBtn = document.getElementById('fit-btn')!;
@@ -93,21 +92,18 @@ const tpNameInput = document.getElementById('tp-name') as HTMLInputElement;
 const tpCancelBtn = document.getElementById('tp-cancel')!;
 const tpConfirmBtn = document.getElementById('tp-confirm')!;
 
-// Popups
+// Popovers
 const brushPopup = document.getElementById('brush-popup')!;
 const brushSizeSlider = document.getElementById('brush-size') as HTMLInputElement;
-const tokenPopup = document.getElementById('token-popup')!;
+const settingsPopup = document.getElementById('settings-popup')!;
+const tokenSizeLabel = document.getElementById('token-size-label')!;
 const tokenSizeSlider = document.getElementById('token-size') as HTMLInputElement;
-
-// Sheets
-const sheetBackdrop = document.getElementById('sheet-backdrop')!;
-const playersSheet = document.getElementById('players-sheet')!;
+const playersPopup = document.getElementById('players-popup')!;
 const playersList = document.getElementById('players-list')!;
 const copyInviteBtn = document.getElementById('copy-invite-btn')!;
 const uploadInput = document.getElementById('upload-input') as HTMLInputElement;
 
-// Share + empty state
-const shareBtn = document.getElementById('share-btn')!;
+// Empty state
 const emptyState = document.getElementById('empty-state')!;
 const emptyUploadBtn = document.getElementById('empty-upload-btn')!;
 
@@ -560,14 +556,9 @@ function updateEmptyState() {
 
 emptyUploadBtn.addEventListener('click', () => uploadInput.click());
 
-// --- Share ---
-shareBtn.addEventListener('click', () => {
-  if (!inviteUrl) return;
-  navigator.clipboard.writeText(inviteUrl).catch(() => {});
-  shareBtn.classList.add('active');
-  setTimeout(() => shareBtn.classList.remove('active'), 1200);
-});
-
+// --- The invite link ---
+// One path to it, in the players popover, because "who is at this table" is the question it
+// answers and the avatars are already where that is asked.
 copyInviteBtn.addEventListener('click', () => {
   if (!inviteUrl) return;
   navigator.clipboard.writeText(inviteUrl).catch(() => {});
@@ -805,29 +796,43 @@ function renderPresence(roster: Array<{ tokenId: string; name: string; color: st
     playerPresenceEl.appendChild(overflow);
   }
 
-  const online = roster.filter(p => p.online).length;
-  playerCount.textContent = roster.length > 0 ? String(online) : '';
+  // Nobody has joined, and the invite link lives behind these avatars — an empty strip would leave
+  // the GM nothing to press at exactly the moment they want it.
+  if (sorted.length === 0) {
+    const ghost = document.createElement('div');
+    ghost.className = 'presence-avatar presence-empty';
+    ghost.textContent = '+';
+    playerPresenceEl.appendChild(ghost);
+  }
 
   renderPlayersList(sorted);
 }
 
 function renderPlayersList(roster: Array<{ tokenId: string; name: string; color: string; online: boolean }>) {
   playersList.replaceChildren();
+
+  if (roster.length === 0) {
+    const empty = document.createElement('div');
+    empty.className = 'popover-empty';
+    empty.textContent = 'No players yet';
+    playersList.appendChild(empty);
+    return;
+  }
+
   for (const player of roster) {
     const row = document.createElement('div');
-    row.className = 'player-row';
+    row.className = `player-row ${player.online ? 'online' : 'offline'}`;
 
+    // Online is the dot's ring, the way it is on the avatars above. A word would not fit and would
+    // say it in a second place.
     const dot = document.createElement('span');
     dot.className = 'player-row-dot';
     dot.style.background = player.color;
+    dot.title = player.online ? 'online' : 'offline';
 
     const name = document.createElement('span');
     name.className = 'player-row-name';
     name.textContent = player.name;
-
-    const status = document.createElement('span');
-    status.className = `player-row-status${player.online ? ' online' : ''}`;
-    status.textContent = player.online ? 'online' : 'offline';
 
     const removeBtn = document.createElement('button');
     removeBtn.className = 'player-row-remove';
@@ -838,34 +843,10 @@ function renderPlayersList(roster: Array<{ tokenId: string; name: string; color:
 
     row.appendChild(dot);
     row.appendChild(name);
-    row.appendChild(status);
     row.appendChild(removeBtn);
     playersList.appendChild(row);
   }
 }
-
-// --- Sheet management ---
-function openSheet(sheet: HTMLElement) {
-  closeAllPopups();
-  sheetBackdrop.removeAttribute('hidden');
-  sheet.removeAttribute('hidden');
-}
-
-function closeSheet(sheet: HTMLElement) {
-  sheet.setAttribute('hidden', '');
-  if (playersSheet.hasAttribute('hidden')) {
-    sheetBackdrop.setAttribute('hidden', '');
-  }
-}
-
-sheetBackdrop.addEventListener('click', () => {
-  closeSheet(playersSheet);
-  sheetBackdrop.setAttribute('hidden', '');
-});
-
-document.getElementById('players-close')!.addEventListener('click', () => closeSheet(playersSheet));
-
-playersBt.addEventListener('click', () => openSheet(playersSheet));
 
 // --- Upload ---
 // The server puts a new page on a free spot, so it never lands on top of one already there.
@@ -948,12 +929,25 @@ tokenSizeSlider.addEventListener('input', () => {
   ws.send({ type: 'settings:update', tokenSize: tokenRadius });
 });
 
-// --- Popup management ---
+// --- Popover management ---
+// A popover hangs off the control that opened it. Toolbar popovers open upwards and topbar ones
+// downwards, which is the only thing that differs between them — registering a popover here is
+// what wires up dismissal, so adding one cannot forget to.
+const popovers: Array<{ popup: HTMLElement; anchor: HTMLElement; place: 'above' | 'below' }> = [];
+
+function registerPopover(popup: HTMLElement, anchor: HTMLElement, place: 'above' | 'below') {
+  popovers.push({ popup, anchor, place });
+  anchor.addEventListener('click', (e) => { e.stopPropagation(); togglePopup(popup); });
+  // Working inside a popover is not clicking outside it.
+  popup.addEventListener('click', (e) => e.stopPropagation());
+}
+
 function closeAllPopups() {
-  brushPopup.setAttribute('hidden', '');
-  brushBtn.classList.remove('active');
-  tokenPopup.setAttribute('hidden', '');
-  tokenBtn.classList.remove('active');
+  for (const { popup, anchor } of popovers) {
+    popup.setAttribute('hidden', '');
+    anchor.classList.remove('active');
+    if (anchor.hasAttribute('aria-expanded')) anchor.setAttribute('aria-expanded', 'false');
+  }
   // A half-pressed Delete does not survive the GM doing something else — the confirm means "yes,
   // this page, now", and it should not still be waiting several gestures later.
   if (deleteArmed) {
@@ -962,31 +956,40 @@ function closeAllPopups() {
   }
 }
 
-function togglePopup(popup: HTMLElement, anchorBtn: HTMLElement) {
+function togglePopup(popup: HTMLElement) {
+  const entry = popovers.find(p => p.popup === popup);
+  if (!entry) return;
   const isOpen = !popup.hasAttribute('hidden');
   closeAllPopups();
   if (isOpen) return;
 
-  const rect = anchorBtn.getBoundingClientRect();
-  const popupWidth = 200;
+  // Unhide first: a panel's width is its content's, so it cannot be measured while hidden.
+  popup.removeAttribute('hidden');
+  const rect = entry.anchor.getBoundingClientRect();
+  const popupWidth = popup.getBoundingClientRect().width;
   let left = rect.left + rect.width / 2 - popupWidth / 2;
   left = Math.max(8, Math.min(left, window.innerWidth - popupWidth - 8));
   popup.style.left = `${left}px`;
-  popup.style.bottom = `${window.innerHeight - rect.top + 8}px`;
+  if (entry.place === 'below') {
+    popup.style.top = `${rect.bottom + 8}px`;
+    popup.style.bottom = '';
+  } else {
+    popup.style.bottom = `${window.innerHeight - rect.top + 8}px`;
+    popup.style.top = '';
+  }
 
-  popup.removeAttribute('hidden');
-  anchorBtn.classList.add('active');
+  entry.anchor.classList.add('active');
+  if (entry.anchor.hasAttribute('aria-expanded')) entry.anchor.setAttribute('aria-expanded', 'true');
 }
 
-brushBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePopup(brushPopup, brushBtn); });
-tokenBtn.addEventListener('click', (e) => { e.stopPropagation(); togglePopup(tokenPopup, tokenBtn); });
+registerPopover(brushPopup, brushBtn, 'above');
+registerPopover(settingsPopup, settingsBtn, 'below');
+registerPopover(playersPopup, playerPresenceEl, 'below');
 
 document.addEventListener('click', () => closeAllPopups());
 document.addEventListener('keydown', (ev) => {
   if (ev.key === 'Escape' && placeModeActive) deactivatePlaceMode();
 });
-brushPopup.addEventListener('click', (e) => e.stopPropagation());
-tokenPopup.addEventListener('click', (e) => e.stopPropagation());
 
 // --- Undo/redo ---
 // Fog history lives on the server. A stack held here is empty after every page
