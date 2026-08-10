@@ -3,6 +3,7 @@ import { initCanvas } from './canvas';
 import { initTokenLayer } from './tokens';
 import { initPingLayer } from './ping';
 import { createViewport } from './viewport';
+import { initVeil } from './veil';
 import * as api from './api';
 import type { FogStroke } from './canvas';
 
@@ -133,6 +134,36 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
 
   canvasArea.style.visibility = 'hidden';
 
+  const waitingScreen = document.getElementById('waiting-screen')!;
+  const waitingTitle = document.getElementById('waiting-title')!;
+  const waitingContent = document.getElementById('waiting-content')!;
+  const veil = initVeil(
+    document.getElementById('waiting-veil') as HTMLCanvasElement,
+    // The clearing follows the wordmark rather than the middle of the screen, so it still frames
+    // the title on a tablet held either way round.
+    () => {
+      const box = waitingContent.getBoundingClientRect();
+      const ratio = Math.min(window.devicePixelRatio || 1, 1);
+      return { x: (box.left + box.width / 2) * ratio, y: (box.top + box.height / 2) * ratio };
+    }
+  );
+
+  /**
+   * The two states a player can be in: waiting on the GM, or looking at a map. Nothing sets
+   * `active_image_id` back to null on the server, so waiting is reached on joining and left on the
+   * first `map:switched` — it is not a mode that comes and goes (#53).
+   *
+   * A presented page whose image could not be listed lands here too. It is the same "nothing to
+   * show" state, and saying so beats the blank screen that used to stand in for both.
+   */
+  function showWaiting(waiting: boolean) {
+    waitingScreen.hidden = !waiting;
+    canvasArea.style.visibility = waiting ? 'hidden' : 'visible';
+    // The frame loop only exists while the screen does. A veil left running behind a presented map
+    // would cost a tablet exactly as much as one being looked at, for nothing (#20).
+    if (waiting) veil.start(); else veil.stop();
+  }
+
   let tokenRadius = 20;
   let activeImageId: string | null = null;
   let ownTokenId: string | null = null;
@@ -239,6 +270,7 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
       imageList = [];
     }
 
+    let mapLoaded = false;
     if (activeImageId) {
       const img = imageList.find(i => i.id === activeImageId);
       if (img) {
@@ -247,10 +279,14 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
         if (typeof msg.fogMask === 'string') {
           await canvasCtrl.applyFogMask(msg.fogMask);
         }
+        mapLoaded = true;
       }
     }
 
-    canvasArea.style.visibility = 'visible';
+    // The name alone. A player checks this screen to know they joined the right table, and a
+    // greeting above it only competes with the one word that answers that.
+    waitingTitle.textContent = adv.name;
+    showWaiting(!mapLoaded);
 
     const tokens = msg.tokens;
     for (const token of tokens) {
@@ -340,6 +376,8 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
       if (typeof msg.fogMask === 'string') {
         await canvasCtrl.applyFogMask(msg.fogMask);
       }
+      // Ordered after the image and its fog, so the map is never revealed half-drawn.
+      showWaiting(false);
     }
     // The server moves the party onto the new map's start point.
     const movedPlayers = msg.playerTokens;
@@ -352,6 +390,15 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     gmTokenCtrl.clear();
     const newGmTokens = msg.gmTokens;
     for (const t of newGmTokens ?? []) gmTokenCtrl.addToken(t);
+  });
+
+  ws.on('map:unpresented', () => {
+    activeImageId = null;
+    pingCtrl.clear();
+    // Monsters belong to the page that just left. Player tokens stay in the layer: the party did
+    // not move, and the next page presented decides where they stand.
+    gmTokenCtrl.clear();
+    showWaiting(true);
   });
 
   ws.on('player:joined', (msg) => {

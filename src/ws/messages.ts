@@ -44,6 +44,15 @@ export interface MapSwitchMessage {
   imageId: string;
 }
 
+/**
+ * Takes the presented page off the table. A message of its own rather than a null `imageId` on
+ * `map:switch`: that path moves the party onto a page, opens its fog and sends its mask, and none
+ * of it has a meaning when there is no page.
+ */
+export interface MapUnpresentMessage {
+  type: "map:unpresent";
+}
+
 export interface PlayerRemoveMessage {
   type: "player:remove";
   tokenId: string;
@@ -139,6 +148,7 @@ export type ClientMessage =
   | FogHistoryQueryMessage
   | TokenMoveMessage
   | MapSwitchMessage
+  | MapUnpresentMessage
   | PlayerRemoveMessage
   | PingMessage
   | PingMapMessage
@@ -199,6 +209,15 @@ export interface TokenAddedMessage {
 export interface TokenRemovedMessage {
   type: "token:removed";
   tokenId: string;
+}
+
+/**
+ * The table is empty again. Player tokens are deliberately left where they stand: their positions
+ * are what `token_positions` remembers, so presenting the page again returns the party to it
+ * rather than re-scattering them at the start point.
+ */
+export interface MapUnpresentedMessage {
+  type: "map:unpresented";
 }
 
 export interface MapSwitchedMessage {
@@ -284,6 +303,7 @@ export type ServerMessage =
   | TokenAddedMessage
   | TokenRemovedMessage
   | MapSwitchedMessage
+  | MapUnpresentedMessage
   | MapStartPointSetMessage
   | PlayerJoinedMessage
   | PlayerLeftMessage

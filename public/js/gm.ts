@@ -138,6 +138,26 @@ function fitBoard() {
   viewport.resetView();
 }
 
+/**
+ * Frames one page. Presenting takes the GM to the page they just put on the table, rather than
+ * leaving them wherever the board happened to be — but it only moves the view: the board stays
+ * reachable, and preparing another page from here reaches nobody, exactly as before.
+ */
+function framePage(id: string | null) {
+  if (!id) return;
+  const rect = board.rectOf(id);
+  if (!rect) return;
+  // The same margin rule `getWorldBounds` uses, and for the same reason: the page's name and Live
+  // badge hang above it and counter-scale, so a frame flush to the page cuts them off.
+  const margin = Math.max(120, Math.round(Math.max(rect.width, rect.height) * 0.06));
+  viewport.frame({
+    x: rect.x - margin,
+    y: rect.y - margin,
+    w: rect.width + margin * 2,
+    h: rect.height + margin * 2,
+  });
+}
+
 fitBtn.addEventListener('click', fitBoard);
 
 /**
@@ -310,11 +330,23 @@ ws.on('map:switched', async (msg) => {
   // the board existed. `focusPage` owns the GM token layer, so the new page's monsters come with
   // it and `msg.gmTokens` is the player client's copy of the same thing.
   await focusPage(activeImageId);
+  framePage(activeImageId);
 
   // The server moves the party onto the new map's start point.
   const movedPlayers = msg.playerTokens;
   for (const t of movedPlayers ?? []) tokenCtrl.moveToken(t.id, t.x, t.y);
   tokenCtrl.render();
+});
+
+ws.on('map:unpresented', () => {
+  activeImageId = null;
+  liveFogMask = null;
+  pingCtrl.clear();
+  // The GM keeps the page they were working on and the view they were at. Only the table emptied,
+  // and the badge, the hint and the button are what say so.
+  board.setLive(null);
+  updatePresentButton();
+  updateToolAvailability();
 });
 
 ws.on('fog:reset', (msg) => {
@@ -430,15 +462,29 @@ function updateToolAvailability() {
   }
 }
 
+/**
+ * One button acting on the selected page: it puts it on the table, or takes it off again when it
+ * is already there. Selecting the live page is therefore how the GM reaches Unpresent — the same
+ * select-then-press the other direction takes.
+ */
 function updatePresentButton() {
-  presentBtn.disabled = selectedImageId === null || selectedImageId === activeImageId;
+  const live = selectedImageId !== null && selectedImageId === activeImageId;
+  presentBtn.disabled = selectedImageId === null;
+  presentBtn.textContent = live ? 'Unpresent' : 'Present';
+  presentBtn.title = live
+    ? 'Take this page off the table'
+    : 'Show the selected page to the table';
   boardHint.hidden = imageList.length === 0 || activeImageId !== null;
 }
 
 // Presenting is deliberate, never a single tap: selecting a page arms this button, and pressing it
 // is the second, explicit action (#50).
 presentBtn.addEventListener('click', () => {
-  if (!selectedImageId || selectedImageId === activeImageId) return;
+  if (!selectedImageId) return;
+  if (selectedImageId === activeImageId) {
+    ws.send({ type: 'map:unpresent' });
+    return;
+  }
   ws.send({ type: 'map:switch', imageId: selectedImageId });
 });
 

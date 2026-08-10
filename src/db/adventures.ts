@@ -26,11 +26,14 @@ export function getAdventureByPlayerLink(db: Database, playerLink: string): Adve
   ).get(playerLink) ?? null;
 }
 
-export function setActiveImage(db: Database, adventureId: string, imageId: string): void {
-  const image = db.query<{ id: string }, [string, string]>(
-    `SELECT id FROM images WHERE id = ? AND adventure_id = ?`
-  ).get(imageId, adventureId);
-  if (!image) throw new Error(`Image ${imageId} does not belong to adventure ${adventureId}`);
+/** `null` takes the table back to nothing presented, which is where every adventure starts. */
+export function setActiveImage(db: Database, adventureId: string, imageId: string | null): void {
+  if (imageId !== null) {
+    const image = db.query<{ id: string }, [string, string]>(
+      `SELECT id FROM images WHERE id = ? AND adventure_id = ?`
+    ).get(imageId, adventureId);
+    if (!image) throw new Error(`Image ${imageId} does not belong to adventure ${adventureId}`);
+  }
   db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
 }
 

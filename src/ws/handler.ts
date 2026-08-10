@@ -554,6 +554,20 @@ export function createWsHandlers(deps: ServerDeps) {
           break;
         }
 
+        case "map:unpresent": {
+          if (conn.role !== "gm") {
+            ws.send(serializeMessage({ type: "error", message: "Only GM can clear the table" }));
+            break;
+          }
+          setActiveImage(db, adventureId, null);
+          // No token is moved and no fog is touched. Taking a page off the table is about what the
+          // players are shown, and everything prepared on that page is waiting when it returns.
+          const unpresented = serializeMessage({ type: "map:unpresented" });
+          ws.send(unpresented);
+          ws.publish(topic, unpresented);
+          break;
+        }
+
         case "map:start_point": {
           if (conn.role !== "gm") {
             ws.send(serializeMessage({ type: "error", message: "Only GM can set the start point" }));

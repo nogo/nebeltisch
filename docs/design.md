@@ -48,17 +48,19 @@ No mode toggle for pan vs draw. The gesture itself disambiguates. ~100ms grace p
 
 ---
 
-## Phases **[not implemented — #52]**
+## There is no phase
 
-No code distinguishes the two phases; the board below exists and the phases over it do not. The controls do not collapse, and nothing is remembered about which phase the GM was in — see the session model in [project.md](project.md).
+**The GM has one view, and it does not change.** The board is always the board, every control stays on the toolbar, and preparing and presenting are things the GM does on that one screen rather than modes it switches between.
 
-**A phase is a mode, not a stage.** Earlier drafts of this section described preparation as temporal — "the GM has not started the session yet". That was wrong about the real use case: the party talks in the tavern while the GM sets up the cellar, and comes back to it three times an evening. The GM switches between the two phases freely, including mid-session.
+Two earlier drafts got this wrong in opposite directions. The first described preparation as temporal — "the GM has not started the session yet" — which the real use case contradicts: the party talks in the tavern while the GM sets up the cellar, and comes back to it three times an evening. The second turned that correction into a *mode*, with a phase switch, a collapsing toolbar and a remembered phase (#52). That was a mode invented to describe a difference the GM does not experience.
 
-**Switching phase changes nothing a player can see.** What the players see is decided by which page is presented and by nothing else. The phase is a GM affordance; it never reaches the server (#52).
+**What actually separates the two is one fact, and the server owns it: which page is presented.** Everything else the GM does — arranging pages, painting fog on a room nobody is watching, placing monsters — is stored and reaches nobody. A GM affordance layered on top of that could only ever agree or disagree with it, and disagreeing is the failure. Superseded 2026-08-10; #52 was closed rather than built.
+
+The one thing presenting does to the GM's own screen is frame the page they just put on the table. It is a camera move, not a mode: the board stays reachable, and zooming back out to prepare another page is the same gesture it always was.
 
 ### The board
 
-An adventure is a **board of pages**, and a page is either a *map* or a *card* (cards are #53, not built). The board is the GM's home for an adventure — opening one opens its board, fitted to show every page at once.
+An adventure is a **board of pages**, and every page is a map. The board is the GM's home for an adventure — opening one opens its board, fitted to show every page at once.
 
 **Zoom is the navigation.** Pinch out for the whole adventure; pinch in until a page fills the screen, at which point it is the GM canvas described below. There is no map list, no thumbnail strip and no prev/next arrows — the maps sheet has retired, and so has the map panel.
 
@@ -70,7 +72,7 @@ A page's position on the board means only what the GM means by it — village he
 
 **A player's viewport is bounded, and stays that way.** One page, no zooming out past it filling the screen, no panning it off the edge. There is nothing beyond it to find, so the freedom would only buy them a way to lose the map.
 
-**Selecting and presenting are different acts.** A tap selects: the page gains the canvas stack and its stored fog is drawn. Nobody else sees any of that. Presenting is the second, explicit action — see Play Phase below.
+**Selecting and presenting are different acts.** A tap selects: the page gains the canvas stack and its stored fog is drawn. Nobody else sees any of that. Presenting is the second, explicit action — see *Presenting* below.
 
 ### The start point
 
@@ -82,9 +84,9 @@ Players never see the marker, on any map, presented or not.
 
 Only the selected page carries the canvas stack; every other page is the plain uploaded image, with no fog drawn over it.
 
-### Prep Phase **[not implemented — #52]**
+### Preparing
 
-All panels are expanded. Pages are uploaded, named and arranged here, and any page can be prepared — fog, monster and NPC tokens, start point — whether or not it is the one on the table (#51).
+Pages are uploaded, named and arranged here, and any page can be prepared — fog, monster and NPC tokens, start point — whether or not it is the one on the table (#51).
 
 **Everything the GM can do to the live page, they can do to a page in prep**, and nobody sees it: reveal and re-fog, place and remove monsters and NPCs, drag them, set the start point, and undo and redo, which run per page so stepping back on the room being prepared never touches the one on the table. What keeps it invisible is a server rule, not this screen — see *Only the presented page reaches the players* in [architecture.md](architecture.md).
 
@@ -92,23 +94,31 @@ All panels are expanded. Pages are uploaded, named and arranged here, and any pa
 
 **The party is not drawn on a page in preparation.** Player tokens stand on whatever is presented and pings point at what is on the table, so both layers belong to the live page only. Monsters and NPCs belong to a page and follow the selection. Player tokens are not positioned during prep at all — arrival is governed by the start point.
 
-Only the phases themselves are still missing here (#52); everything above is built.
+Players see the presented page, or the waiting screen, and nothing of this.
 
-Players see the presented page, or the waiting state, and nothing of this.
-
-### Play Phase
-
-Controls collapse to what is used live **[not implemented — #52]**. The presented page carries the canvas stack and the fog brush paints it directly.
+### Presenting
 
 **Presenting is deliberate, never a single tap.** Select a page, then press Present: during play the tap that switches rooms sits next to the live page, and a mis-tap must not show the party somewhere they have not walked. The live page carries a visible badge that stays the same size at every zoom level, so the GM always knows what the table is looking at.
 
-When no page has been presented, the board says so and the players wait on a blank screen. Replacing that blank screen with an opening card is #53.
+**Presenting frames the page on the GM's board.** They pressed Present on a page; landing on it is the answer to the gesture. It moves the camera and nothing else — no control changes, no page becomes unreachable.
 
-### Cards **[not implemented]**
+**A page can be taken off the table again.** Selecting the live page turns Present into Unpresent, and pressing it empties the table: the players return to the waiting screen and the GM keeps the page, the view and everything prepared on it. Selecting the live page is what reaches the control, so taking a page off is the same select-then-press that put it there.
 
-A card is an image page and nothing else — no fog, no tokens, no start point (#53). **A card is fitted, not explored:** it fills the viewport letterboxed, with no pan, no zoom and no pings. A card is a screen; a map is a space. Presenting one is how a session opens, and how the waiting state stops being a blank screen.
+**Nothing moves when the table empties.** Player tokens stay where they stand, because `token_positions` is what decides where the party is when a page comes back — a token that walked somewhere returns there, and only a token that has never stood on that page arrives at the start point. Unpresenting is therefore free to undo: it is about what the table shows, not about where anyone is.
 
-Intro and outro are not types — they are where the GM puts the card on the board.
+### The waiting screen
+
+Until a page is presented — and again whenever the GM takes one off — a player sees the **adventure's name** over drifting fog, and one line: *The fog has not lifted yet.* The GM sees the same state from the other side, as a hint on the board.
+
+**Naming the adventure is the whole point.** A blank screen cannot tell a player who joined too early apart from a player whose connection is broken; the adventure's own name answers that without the GM having to say anything. The name carries it alone — an earlier draft greeted the player above it, and the greeting only competed with the one word that answers the question.
+
+**The fog is the mechanic, not decoration.** Nebeltisch is a table where the map shows only what the party has seen, so a screen before anything is presented is not an empty state needing dressing — nothing has been revealed yet, so there is fog. The name sits in a soft clearing, the shape the GM's brush makes, which is the one place the fog is gone. A player who then watches it give way to a map has understood the product.
+
+**It moves, and it is never interactive.** The drift is atmosphere; the fog answers to nobody. Letting a player part it with a finger was considered and rejected: players never paint fog in this application, and teaching a gesture on the one screen where they are paying full attention, which does nothing for the rest of the session, is a lie. Motion stops entirely under `prefers-reduced-motion`, because it says nothing a player needs.
+
+**The cost is bounded deliberately**, since this runs on the tablet: the noise is baked once into a seamless tile and every frame is three tiled fills of it, capped at 30fps and rendered at pixel ratio 1 — fog is soft gradients, so device resolution buys nothing visible. The loop exists only while the screen does, and is dropped while the tab is hidden; players sit in a voice call and switch apps constantly. A veil still running behind a presented map would cost exactly as much as one being looked at (#20).
+
+An earlier draft filled this state with an uploadable *card* — a page carrying an image and nothing else, presented as an intro or an outro (#53). It bought a title screen at the cost of a second kind of page: a schema column, a wire field, a fog session that must not be allocated, and a player client that renders one page kind fitted and the other explorable. The waiting screen delivers the outcome the card existed for and stays a screen rather than becoming a page. Superseded 2026-08-10.
 
 ---
 
@@ -142,7 +152,7 @@ Left to right, separated into groups:
 | Upload | Adds a page; it lands on a free spot on the board |
 | Place token | Arms a mode: the next tap opens a small form to place a monster or NPC |
 | Fit | Frames every page. Same as double-tapping empty canvas |
-| Present | Shows the selected page to the table. Disabled when it is already live |
+| Present | Puts the selected page on the table. Reads **Unpresent** when the selected page is already the live one, and takes it off. Disabled only when no page is selected |
 
 The fog and token controls dim only while no page is loaded under the canvas stack. Selecting a page the party is not looking at leaves every one of them live — preparing that page is what the board is for (#51).
 

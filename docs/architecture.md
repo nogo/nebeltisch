@@ -50,6 +50,7 @@ Client — `public/js/`
 | `viewport.ts` | Pan, zoom, and pointer gesture disambiguation. Bounded to its content for a player; unbounded for the GM's board |
 | `tokens.ts` | A token layer; hit testing and dragging |
 | `ping.ts` | Ping layer; owns its own animation loop |
+| `veil.ts` | The waiting screen's fog. Bakes one seamless noise tile, then drifts it in layers; owns its loop and runs only while that screen is up |
 | `api.ts` | REST client |
 | `websocket.ts` | WebSocket client with reconnect and backoff; typed against the server's message unions |
 
@@ -168,7 +169,7 @@ The GM is the only writer of fog. Each player writes only their own token. The s
 
 An adventure is a board of pages the GM pans and zooms; the players see one page, `adventures.active_image_id`, and nothing else. The GM's board is a separate editing context and preparing a page the party is not looking at is the point of it.
 **Why:** the hazard this guards against is the GM painting fog onto a map nobody is watching, unnoticed. The guard is a **server rule** — what broadcasts is decided by `active_image_id` — plus a badge on the live page, which binds harder than the previous version of this decision, which relied on the absence of a second screen.
-**Implication:** the board itself is REST only. Players never see it, the GM is the only writer, and nothing on it outlives a tab that is not already in SQLite, so `ClientMessage`/`ServerMessage` are untouched by it. The GM's phase is client state and the server never asks what it is — otherwise the two could disagree and the players' view would depend on a browser's opinion.
+**Implication:** the board itself is REST only. Players never see it, the GM is the only writer, and nothing on it outlives a tab that is not already in SQLite, so `ClientMessage`/`ServerMessage` are untouched by it. **There is no GM-side phase for the server to ask about, deliberately:** `active_image_id` alone decides what the players see, and a mode in the browser could only agree or disagree with it — making the players' view depend on a browser's opinion. See *There is no phase* in [design.md](design.md); #52 was closed rather than built on 2026-08-10.
 
 **Superseded on 2026-08-09** (#48, #49, #50). The rule was previously *"the GM's canvas is the players' canvas; there is no separate editing context"*, and GM edit operations targeted `active_image_id` with the per-map start point as the deliberate exception.
 

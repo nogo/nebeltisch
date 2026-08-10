@@ -338,6 +338,94 @@ describe("WebSocket handler", () => {
     expect(playerSwitched.imageId).toBe(imageId);
   });
 
+  it("GM sends map:unpresent → all clients hear it and nothing is presented", async () => {
+    const gm = track(
+      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+    );
+    await waitForMessage(gm, "joined");
+
+    const player = track(
+      await connectWS(ts.wsUrl, {
+        adventureId,
+        role: "player",
+        playerLink,
+        playerName: "Alice",
+        playerColor: "#ff0000",
+      })
+    );
+    await waitForMessage(player, "joined");
+
+    gm.send(JSON.stringify({ type: "map:switch", imageId }));
+    await waitForMessage(player, "map:switched");
+
+    const gmCleared = waitForMessage(gm, "map:unpresented");
+    const playerCleared = waitForMessage(player, "map:unpresented");
+    gm.send(JSON.stringify({ type: "map:unpresent" }));
+    await gmCleared;
+    await playerCleared;
+
+    expect(getAdventure(ts.db, adventureId)?.active_image_id).toBe(null);
+  });
+
+  it("A player cannot clear the table", async () => {
+    const player = track(
+      await connectWS(ts.wsUrl, {
+        adventureId,
+        role: "player",
+        playerLink,
+        playerName: "Alice",
+        playerColor: "#ff0000",
+      })
+    );
+    await waitForMessage(player, "joined");
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
+
+    const errPromise = waitForMessage(player, "error");
+    player.send(JSON.stringify({ type: "map:unpresent" }));
+    await errPromise;
+
+    expect(getAdventure(ts.db, adventureId)?.active_image_id).toBe(imageId);
+  });
+
+  it("Presenting again after unpresenting returns the party to where it stood", async () => {
+    const gm = track(
+      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+    );
+    await waitForMessage(gm, "joined");
+
+    const player = track(
+      await connectWS(ts.wsUrl, {
+        adventureId,
+        role: "player",
+        playerLink,
+        playerName: "Alice",
+        playerColor: "#ff0000",
+      })
+    );
+    await waitForMessage(player, "joined");
+
+    gm.send(JSON.stringify({ type: "map:switch", imageId }));
+    await waitForMessage(player, "map:switched");
+
+    // The party walks somewhere deliberate. `token:move` is the only writer of token_positions,
+    // so this is what "where it stood" means.
+    const alice = getTokensByAdventure(ts.db, adventureId).find((t) => t.token_type === "player")!;
+    const moved = waitForMessage(gm, "token:moved");
+    player.send(JSON.stringify({ type: "token:move", tokenId: alice.id, x: 37, y: 41 }));
+    await moved;
+
+    gm.send(JSON.stringify({ type: "map:unpresent" }));
+    await waitForMessage(player, "map:unpresented");
+
+    const back = waitForMessage(player, "map:switched");
+    gm.send(JSON.stringify({ type: "map:switch", imageId }));
+    const returned = await back;
+
+    const token = returned.playerTokens.find((t: { id: string }) => t.id === alice.id);
+    expect(token.x).toBe(37);
+    expect(token.y).toBe(41);
+  });
+
   it("Player disconnects → other clients receive player:left, token persists in DB", async () => {
     const gm = track(
       await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })

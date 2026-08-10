@@ -36,6 +36,8 @@ export interface Viewport {
   ): void;
   /** Frames the world bounds. On an unbounded viewport this is the only way back to the content. */
   resetView(): void;
+  /** Frames an arbitrary rectangle. Same clamping as `resetView`, which is one of these. */
+  frame(bounds: WorldBounds): void;
   onChange(callback: () => void): void;
   // Fires for all single-pointer moves (hover + drag). Caller checks own state.
   onPointerMove(callback: (ev: PointerEvent) => void): void;
@@ -77,6 +79,19 @@ export function createViewport(): Viewport {
     const cw = _container.clientWidth || 800;
     const ch = _container.clientHeight || 600;
     return Math.min(cw / w, ch / h);
+  }
+
+  /** Centres a rectangle in the container at the largest legal scale that fits it. */
+  function frameBounds({ x, y, w, h }: WorldBounds) {
+    if (!_container || w === 0 || h === 0) return;
+    const cw = _container.clientWidth || 800;
+    const ch = _container.clientHeight || 600;
+    // Clamped, so a rectangle too large to fit at MIN_SCALE still lands somewhere legal.
+    const fit = clampScale(Math.min(cw / w, ch / h));
+    _scale = fit;
+    _panX = (cw - w * fit) / 2 - x * fit;
+    _panY = (ch - h * fit) / 2 - y * fit;
+    applyTransform();
   }
 
   function clampScale(s: number): number {
@@ -327,18 +342,11 @@ export function createViewport(): Viewport {
     },
 
     resetView() {
-      if (!_container || !_getWorldBounds) return;
-      const { x, y, w, h } = _getWorldBounds();
-      if (w === 0 || h === 0) return;
-      const cw = _container.clientWidth || 800;
-      const ch = _container.clientHeight || 600;
-      // Clamped, so a board too large to fit at MIN_SCALE still lands somewhere legal.
-      const fit = clampScale(Math.min(cw / w, ch / h));
-      _scale = fit;
-      _panX = (cw - w * fit) / 2 - x * fit;
-      _panY = (ch - h * fit) / 2 - y * fit;
-      applyTransform();
+      if (!_getWorldBounds) return;
+      frameBounds(_getWorldBounds());
     },
+
+    frame: frameBounds,
 
     onChange(cb) { changeCbs.push(cb); },
     onPointerMove(cb) { moveCbs.push(cb); },

@@ -52,7 +52,7 @@ One GM and roughly three players, self-hosted by the GM, German-language RPG gro
 
 ### Session model
 
-- **Preparation is a mode, not a stage.** Upload a page, set its start point, place monster and NPC tokens, reveal an area around the start point. Most of it happens before players join, but not all: the party talks in the tavern while the GM sets up the cellar, and comes back to it several times an evening.
+- **Preparation is an activity, not a stage.** Upload a page, set its start point, place monster and NPC tokens, reveal an area around the start point. Most of it happens before players join, but not all: the party talks in the tavern while the GM sets up the cellar, and comes back to it several times an evening. It is not a *mode* either — the GM never switches into it; see *There is no phase* in [design.md](design.md).
 - **Switching maps during play is traversal, not preparation.** Maps are connected spaces — a village, a mill, its floors, a cellar — and the party walks between them and back.
 - **The GM prepares on a board; the players see one page.** An adventure is a canvas of pages the GM pans and zooms, and the live table is a state of that board rather than a separate place. What bounds the two apart is a single rule: **only the presented page reaches the players.** Everything else the GM does is stored and never leaves the server.
 
@@ -68,7 +68,9 @@ No accounts today. The GM holds a password in a URL fragment; players hold an in
 
 ### Scope
 
-**In:** maps, fog brush, undo/redo, player tokens, GM monster/NPC tokens, per-map start points that are dragged and locked (#57), pings, pan/zoom, the preparation board and presenting a page from it (#49, #50), preparing a page the party is not looking at (#51), GM and player interfaces, Docker deployment. Committed on 2026-08-09 and not yet built: preparation and presentation phases (#52), GM accounts and an adventure dashboard (#26), and card pages carrying an image with no fog or tokens (#53).
+**In:** maps, fog brush, undo/redo, player tokens, GM monster/NPC tokens, per-map start points that are dragged and locked (#57), pings, pan/zoom, the preparation board and presenting a page from it (#49, #50), preparing a page the party is not looking at (#51), a waiting screen naming the adventure until a page is presented (#53), GM and player interfaces, Docker deployment. Committed on 2026-08-09 and not yet built: GM accounts and an adventure dashboard (#26).
+
+Two things committed on 2026-08-09 were cancelled on 2026-08-10 rather than built. **Preparation and presentation phases (#52)** would have given the GM a mode switch and a collapsing toolbar; what the players see is decided by which page is presented, and a GM-side phase on top of that could only agree or disagree with it. **Card pages (#53)** would have added a second kind of page — a schema column, a wire field, a page the player client renders differently — to put something on screen before the first map. The waiting screen does that and stays a screen. See *There is no phase* and *The waiting screen* in [design.md](design.md).
 
 **Out:** dice rolling, character sheets, initiative tracking, audio, rules automation, public/community hosting. Deferred ideas are tracked as GitHub issues.
 

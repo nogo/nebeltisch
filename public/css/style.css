@@ -405,6 +405,62 @@ body.painting-armed .board-page { cursor: crosshair; }
 }
 #board-hint[hidden] { display: none; }
 
+/* ── Player waiting screen ──
+   Nothing presented is a state, not a failure — the GM is still preparing. Naming the adventure is
+   what separates "we are waiting" from "this is broken", which a blank screen cannot do (#53).
+
+   The fog is the app's own mechanic, not decoration: nothing has been revealed yet, so there is
+   fog, and the title sits in the one clearing. `veil.ts` draws it. */
+#waiting-screen {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  text-align: center;
+  /* Deeper and warmer than the app's flat ground, so the fog above it has something to sit in. */
+  background:
+    radial-gradient(120% 90% at 50% 42%, #191b34 0%, #0f1022 45%, #08080f 100%);
+}
+#waiting-screen[hidden] { display: none; }
+
+#waiting-veil {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+}
+
+#waiting-content {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  /* Lifts the wordmark out of the fog without a hard edge anywhere. */
+  filter: drop-shadow(0 2px 24px rgba(8, 8, 15, 0.9));
+}
+
+#waiting-title {
+  margin: 0;
+  /* Fluid, so a long adventure name still fits a tablet held either way. */
+  font-size: clamp(1.5rem, 5vw, 2.6rem);
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  line-height: 1.15;
+  max-width: 16ch;
+  color: #f2f3fb;
+}
+#waiting-note {
+  margin: 0;
+  font-size: 0.95rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: rgba(200, 206, 232, 0.5);
+}
+
 /* Party start point — GM only, never rendered for players.
    Sits in the image-sized wrapper, so it pans and zooms with the map. */
 #start-marker {

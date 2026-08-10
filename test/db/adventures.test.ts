@@ -68,6 +68,20 @@ describe("adventures", () => {
     expect(updated!.active_image_id).toBe(img.id);
   });
 
+  test("setActiveImage(null) takes the page off the table", () => {
+    const adv = createAdventure(db, { name: "A", gmPassword: "p" });
+    const img = createImageRecord(db, {
+      adventureId: adv.id,
+      filename: "a.png",
+      originalName: "a.png",
+      width: 10,
+      height: 10,
+    });
+    setActiveImage(db, adv.id, img.id);
+    setActiveImage(db, adv.id, null);
+    expect(getAdventure(db, adv.id)?.active_image_id).toBe(null);
+  });
+
   test("setActiveImage throws for image not in adventure", () => {
     const adv1 = createAdventure(db, { name: "A1", gmPassword: "pw" });
     const adv2 = createAdventure(db, { name: "A2", gmPassword: "pw" });

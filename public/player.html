@@ -8,6 +8,14 @@
 </head>
 <body class="player">
   <main id="canvas-area"></main>
+  <!-- Shown while nothing is presented. The GM's mirror of this state is #board-hint in gm.html. -->
+  <div id="waiting-screen" hidden>
+    <canvas id="waiting-veil"></canvas>
+    <div id="waiting-content">
+      <h1 id="waiting-title"></h1>
+      <p id="waiting-note">The fog has not lifted yet.</p>
+    </div>
+  </div>
   <div id="player-badge" class="floating-control">
     <span id="player-info"></span>
   </div>
