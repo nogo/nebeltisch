@@ -207,15 +207,16 @@ issues nobody reads.
 - Close as `not planned` for anything out of scope, and say which line of `docs/project.md` decided it.
 - If the fix established an invariant, add it to the principles in `docs/architecture.md`. That list
   is the tracker's residue — every entry is a bug that already happened.
-- **If the issue is named in a `[violated — #n]` marker there, remove the marker.** Principles 4, 8
-  and 9 carry one today. A principle that still advertises a breach after the breach is fixed is the
-  same failure as a doc that never mentioned it.
+- **If the issue is named in a `[violated — #n]` marker there, remove the marker.** A principle that
+  still advertises a breach after the breach is fixed is the same failure as a doc that never
+  mentioned it.
 
 ## What does not belong in an issue
 
 - Anything already true of the code. That is `docs/architecture.md`.
 - Anything about why the project exists or what bounds it. That is `docs/project.md`.
-- Interface and interaction rules. That is `docs/design.md`, where unbuilt intent is marked
-  **[not implemented]** rather than filed.
+- Design principles. That is `docs/design.md`. Interface and interaction rules as specified: that is
+  `docs/interface.md`. Neither file tracks build status — **unbuilt intent is filed as an issue**,
+  not marked in the doc.
 
 When a doc and an issue disagree, the doc is wrong or the issue is stale. Fix one; never leave both.

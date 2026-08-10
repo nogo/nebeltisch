@@ -48,7 +48,7 @@ let focusRequest = 0;
 
 /**
  * On a board of pages, one finger drags a page and paints nothing until the fog tool is armed.
- * `docs/design.md` records this as the one deliberate exception to "the gesture disambiguates":
+ * `docs/interface.md` records this as the one deliberate exception to "the gesture disambiguates":
  * a stray finger painting fog onto whichever page happened to be underneath is far worse than an
  * extra tap. Two fingers still pan and pinch whatever is armed.
  */

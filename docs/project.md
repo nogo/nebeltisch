@@ -1,7 +1,7 @@
 # Nebeltisch — Project
 
 > **Scope of this file:** outcome, value, constraints, naming. *Why* the project exists and what bounds it.
-> Stack, structure and engineering rules live in [architecture.md](architecture.md). Interface and interaction rules live in [design.md](design.md).
+> Stack, structure and engineering rules live in [architecture.md](architecture.md). Design principles live in [design.md](design.md), and the interface they produce in [interface.md](interface.md).
 
 **Nebeltisch is a self-hosted, shared map with fog of war for remote pen & paper RPG sessions.**
 
@@ -13,7 +13,7 @@ A GM and their players see the same map in a browser. The GM controls what is vi
 
 | Actor | Can do |
 |---|---|
-| GM | Create an adventure, upload maps, paint and un-paint fog with a round brush, undo/redo, place monster/NPC tokens, drag and lock a per-map party start point, switch the active map, move any token, remove players, ping — and do all of the map work on a page the party is not looking at |
+| GM | Own an adventure and the pages in it, decide which page the table sees, and do every kind of map work — fog, tokens, start points — on any page, presented or not |
 | Player | Join by link with a name and colour, move their own token, pan/zoom, ping |
 
 Supporting properties:
@@ -52,11 +52,9 @@ One GM and roughly three players, self-hosted by the GM, German-language RPG gro
 
 ### Session model
 
-- **Preparation is an activity, not a stage.** Upload a page, set its start point, place monster and NPC tokens, reveal an area around the start point. Most of it happens before players join, but not all: the party talks in the tavern while the GM sets up the cellar, and comes back to it several times an evening. It is not a *mode* either — the GM never switches into it; see *There is no phase* in [design.md](design.md).
+- **Preparation is an activity, not a stage.** Upload a page, set its start point, place monster and NPC tokens, reveal an area around the start point. Most of it happens before players join, but not all: the party talks in the tavern while the GM sets up the cellar, and comes back to it several times an evening. It is not a *mode* either — the GM never switches into it; see principle 6 in [design.md](design.md).
 - **Switching maps during play is traversal, not preparation.** Maps are connected spaces — a village, a mill, its floors, a cellar — and the party walks between them and back.
-- **The GM prepares on a board; the players see one page.** An adventure is a canvas of pages the GM pans and zooms, and the live table is a state of that board rather than a separate place. What bounds the two apart is a single rule: **only the presented page reaches the players.** Everything else the GM does is stored and never leaves the server.
-
-An earlier version of this document concluded the opposite — that the GM's canvas and the players' canvas are the same thing, and that no separate GM editing view should exist. That was protecting against the GM painting fog onto a map nobody is watching. The rule above protects against it better, because it is enforced by the server instead of by the absence of a screen. Superseded 2026-08-09; the board, presenting and preparing an unpresented page all shipped that day (#49, #50, #51). See the `Only the presented page reaches the players` decision in [architecture.md](architecture.md).
+- **The GM prepares on a board; the players see one page.** An adventure is a canvas of pages the GM pans and zooms, and the live table is a state of that board rather than a separate place. What holds the two apart is a single rule, enforced by the server rather than by the absence of a screen: **only the presented page reaches the players.** Everything else the GM does is stored and never leaves the server. See the `Only the presented page reaches the players` decision in [architecture.md](architecture.md).
 
 ### Authentication
 
@@ -68,13 +66,15 @@ No accounts today. The GM holds a password in a URL fragment; players hold an in
 
 ### Scope
 
-**In:** maps, fog brush, undo/redo, player tokens, GM monster/NPC tokens, per-map start points that are dragged and locked (#57), pings, pan/zoom, the preparation board and presenting a page from it (#49, #50), preparing a page the party is not looking at (#51), a waiting screen naming the adventure until a page is presented (#53), GM and player interfaces, Docker deployment. Committed on 2026-08-09 and not yet built: GM accounts and an adventure dashboard (#26).
+**In:** the map and everything the table does to it — pages, the fog brush and its history, player tokens, GM monster and NPC tokens, party start points, pings, pan and zoom, the GM's board and what it presents, the two interfaces, and self-hosted deployment. GM accounts and an adventure dashboard are committed and not yet built.
 
-Two things committed on 2026-08-09 were cancelled on 2026-08-10 rather than built. **Preparation and presentation phases (#52)** would have given the GM a mode switch and a collapsing toolbar; what the players see is decided by which page is presented, and a GM-side phase on top of that could only agree or disagree with it. **Card pages (#53)** would have added a second kind of page — a schema column, a wire field, a page the player client renders differently — to put something on screen before the first map. The waiting screen does that and stays a screen. See *There is no phase* and *The waiting screen* in [design.md](design.md).
+**Out:** dice rolling, character sheets, initiative tracking, audio, rules automation, public/community hosting.
 
-**Out:** dice rolling, character sheets, initiative tracking, audio, rules automation, public/community hosting. Deferred ideas are tracked as GitHub issues.
+**The test:** a feature that belongs to the *rules* of a game is out of scope. A feature that belongs to the *map* is a candidate.
 
-A feature that belongs to the *rules* of a game is out of scope. A feature that belongs to the *map* is a candidate.
+Two things this test does not settle, and both have been decided against once already: a **GM-side mode** on top of what the server already knows, and a **second kind of page** that the player client renders differently. Both are map features by the test above and were still wrong. Reach for principle 6 and principle 3 in [design.md](design.md) before either comes back.
+
+What is planned, in progress or rejected lives in the issue tracker, not here.
 
 ## Naming
 

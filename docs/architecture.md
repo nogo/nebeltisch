@@ -1,8 +1,8 @@
 # Nebeltisch — Architecture
 
 > **Scope of this file:** stack, structure, data model, design decisions and the principles that govern new code.
-> *Why the project exists* is in [project.md](project.md). *How the interface behaves* is in [design.md](design.md).
-> When a decision here is reversed, edit the decision in place and state what replaced it. Do not leave two answers.
+> *Why the project exists* is in [project.md](project.md). *How the interface behaves* is in [design.md](design.md) and [interface.md](interface.md).
+> When a decision here is reversed, edit the decision in place. State the new rule, and keep the old one only where it names a trap worth marking — not as a record that it changed. Do not leave two answers.
 
 ---
 
@@ -88,11 +88,9 @@ Player identity is the composite `playerLink|playerName`. Same link and same nam
 
 **`token:move` is the only writer of `token_positions`.** A remembered position therefore means a token *walked* there, and that is what makes the two rules separable. Arrival does not write one, and neither does a spawn — both are arrivals. Moving the start point does not clear them either: the flag governs first entry, so redeclaring it cannot retroactively un-visit the map.
 
-That invariant is the whole of the fix for #46, where recording arrival as if it were a return made the very first visit consume a map's start point permanently — including a visit the GM made alone to paint fog. Every map in one production adventure was in that state. Two earlier compensations existed and both retire with it: the write at the join path, and `clearRememberedPositions` on setting a start point (#39).
+**The trap:** recording arrival as if it were a return makes the very first visit consume a map's start point permanently — including a visit the GM made alone to paint fog. Every map in one production adventure once sat in that state. Two compensations for it have already been tried and removed, and neither should come back: writing a position at the join path, and clearing remembered positions when a start point is set.
 
 **Every map has a start point.** `start_x`/`start_y` are nullable, and null means "never moved", not "none" — the server lands the party at the map centre either way. The GM's marker is drawn at that fallback rather than hidden, so a map nobody has set up looks like what it is.
-
-Both rules are specified in full, with acceptance criteria, in #36 — closed, so the criteria there are the record of what was actually built. #57 rewrote how the point is set and made the invariant above true.
 
 ## Design decisions
 
@@ -127,7 +125,7 @@ Brush strokes stream over WebSocket for immediate feedback on every client. The 
 
 Disposal is idle-triggered. When the last connection to an adventure leaves, a timer starts; a reconnect cancels it; expiry flushes every mask to SQLite and frees them. It is delayed rather than immediate because zero-connection moments happen constantly during play — page reload, tablet sleep, router blip — and undo history is memory-only, so instant disposal would silently empty the GM's undo stack on every refresh. `IDLE_DISPOSE_MS` is ten minutes; it is a comfort setting, not a correctness one, since disposal always persists first.
 
-**The resident count is capped as well** (`MAX_RESIDENT_MASKS`, eight), added with #51. Idle disposal bounds a *finished* session and does nothing during one, which was enough while the GM touched one or two maps an evening. Preparing a page the party is not looking at invites touching every page of a board in a single sitting, so what grows is now the size of the board rather than the number of rooms walked through. Eviction is least-recently-opened and flushes first, so the only cost is that page's undo history. Eight covers a production adventure whole — six pages, 512×512 to 1536×1122 — and puts a ceiling on the case that actually hurts, a 4K page at 12 MB of mask before snapshots.
+**The resident count is capped as well** (`MAX_RESIDENT_MASKS`, eight). Idle disposal bounds a *finished* session and does nothing during one, which was enough while the GM touched one or two maps an evening; preparing pages the party is not looking at invites touching a whole board in a single sitting, so what grows is the size of the board rather than the number of rooms walked through. Eviction is least-recently-opened and flushes first, so the only cost is that page's undo history. Eight covers a typical adventure whole and puts a ceiling on the case that hurts — a 4K page is 12 MB of mask before snapshots.
 
 **Implication:** nothing about fog lives at module scope. New per-map state belongs on `FogSession` and inherits both evictions for free. Mutating a mask outside `applyStrokes` skips the debounced save, and no caller may hold a `FogSession` across an `await` and assume it is still resident.
 
@@ -169,27 +167,31 @@ The GM is the only writer of fog. Each player writes only their own token. The s
 
 An adventure is a board of pages the GM pans and zooms; the players see one page, `adventures.active_image_id`, and nothing else. The GM's board is a separate editing context and preparing a page the party is not looking at is the point of it.
 **Why:** the hazard this guards against is the GM painting fog onto a map nobody is watching, unnoticed. The guard is a **server rule** — what broadcasts is decided by `active_image_id` — plus a badge on the live page, which binds harder than the previous version of this decision, which relied on the absence of a second screen.
-**Implication:** the board itself is REST only. Players never see it, the GM is the only writer, and nothing on it outlives a tab that is not already in SQLite, so `ClientMessage`/`ServerMessage` are untouched by it. **There is no GM-side phase for the server to ask about, deliberately:** `active_image_id` alone decides what the players see, and a mode in the browser could only agree or disagree with it — making the players' view depend on a browser's opinion. See *There is no phase* in [design.md](design.md); #52 was closed rather than built on 2026-08-10.
+**Implication:** the board itself is REST only. Players never see it, the GM is the only writer, and nothing on it outlives a tab that is not already in SQLite, so `ClientMessage`/`ServerMessage` are untouched by it. **There is no GM-side phase for the server to ask about, deliberately:** `active_image_id` alone decides what the players see, and a mode in the browser could only agree or disagree with it — making the players' view depend on a browser's opinion. See principle 6 in [design.md](design.md).
 
-**Superseded on 2026-08-09** (#48, #49, #50). The rule was previously *"the GM's canvas is the players' canvas; there is no separate editing context"*, and GM edit operations targeted `active_image_id` with the per-map start point as the deliberate exception.
-
-**How the guard is written** (#51). Every message that writes to a page names it: `fog:stroke`, `fog:stroke:batch`, `fog:action:end`, `fog:undo`, `fog:redo`, `fog:history:query` and `gm_token:place` all carry an `imageId`. One helper in `ws/handler.ts`, `resolvePage`, validates it against the connection's adventure and answers whether it is the presented page; the handler applies the edit unconditionally and calls `ws.publish` only when it is. `token:move` and `gm_token:remove` need no new field — a monster's own `image_id` says which page it belongs to, and a player token has none because it stands on whatever is presented.
+**How the guard is written.** Every message that writes to a page carries an `imageId`. One helper in `ws/handler.ts`, `resolvePage`, validates it against the connection's adventure and answers whether it is the presented page; the handler applies the edit unconditionally and calls `ws.publish` only when it is. A message needs no `imageId` where the target is already unambiguous — a monster's own `image_id` says which page it belongs to, and a player token has none because it stands on whatever is presented.
 
 **Implication:** a new GM edit belongs to a page and must go through `resolvePage`. Reading `active_image_id` to decide *what to write* is the bug this decision exists to prevent; it may only decide *who hears*.
 
 Two consequences worth stating. `GET /api/adventures/:id/images/:imageId/fog` reads through `deps.fog.peek` rather than `images.fog_mask`, because a resident mask can now be a debounce ahead of the blob. And a page in preparation reaches the GM's *own* socket only, not every GM socket the way a start point does — a second GM device preparing simultaneously is out of scope under `No CRDT`, and it sees the page's stored state when it next selects it.
 
 **The board is an infinite canvas; a player's map is not.** `viewport.ts` takes a `bounded` flag. Bounded derives its zoom floor and pan limits from the content — correct for one page, where there is nothing beyond it. Unbounded uses an absolute 2%–400% and does not clamp panning at all, so what happens to be on the board never decides how far the GM can pull back, and pages may hold negative coordinates. The content bounds survive only to answer "what frames everything", for the initial view and the Fit control.
-**Why it matters:** the first version of the board reused the bounded viewport, which made the page bounding box the world. Zooming out stopped exactly where the outermost pages touched the screen edges, name labels hung outside that box and were clipped, and there was no visible empty space to drag a page into. The larger the maps, the worse it got — labels counter-scale, so their world height is `13px / scale`.
+**The trap:** reusing the bounded viewport for the board makes the page bounding box the world. Zooming out then stops exactly where the outermost pages touch the screen edges, name labels hang outside that box and clip, and there is no visible empty space to drag a page into. The larger the maps, the worse it gets — labels counter-scale, so their world height is `13px / scale`.
 
-**Rendering.** Only the selected page gets the canvas stack; every other page is a plain `<img>` of the original upload. Measured against the production adventures on 2026-08-09, a six-page board is ~41 MB of decoded bitmap, which is why no thumbnail is stored. Past ten pages, or at 4K, the escape hatch is `createImageBitmap(blob, { resizeWidth })` — no schema change, no stored files. Related: #20.
+**Rendering.** Only the selected page gets the canvas stack; every other page is a plain `<img>` of the original upload. A six-page board measures around 41 MB of decoded bitmap, which is why no thumbnail is stored. Past ten pages, or at 4K, the escape hatch is `createImageBitmap(blob, { resizeWidth })` — no schema change, no stored files.
+
+### The waiting screen's fog is bounded by construction
+
+`veil.ts` bakes the noise once into a seamless tile; every frame is three tiled fills of it, capped at 30fps and rendered at pixel ratio 1 — fog is soft gradients, so device resolution buys nothing visible.
+**Why:** this runs on the players' tablet, alongside a voice call, and an animation loop is the one thing on that screen that can cost anything at all.
+**Implication:** the loop exists only while that screen does, and is dropped while the tab is hidden. Players switch apps constantly, and a veil still running behind a presented map would cost exactly what one being looked at costs. Motion stops entirely under `prefers-reduced-motion`.
 
 ### Lightweight auth
 
 The GM password travels in a URL fragment and is stored in plaintext; players authenticate with an invite link. No accounts.
 **Implication:** this is adequate for a self-hosted group and insufficient for anything public. A GM account is planned and will not change how players join.
 
-**Two things about that account are already settled** (#26, decided 2026-08-09), because the migration rule below makes them permanent the moment the table exists:
+**Two things about that account are already settled**, because the migration rule below makes them permanent the moment the table exists:
 
 - **The identity table is `users`, never `gm_users`.** GM is not a property of an account — it is a relation to an adventure: you own it, so you are its GM. Additive migrations may not rename a table, so a role baked into the name could never be taken out again.
 - **Registration is open, and the deployment stays behind HTTP basic auth** until Nebeltisch is opened publicly. That gate decides who reaches the form; it does not isolate accounts from each other, which is why #4 and #5 become cross-tenant disclosure at public launch rather than at accounts.
@@ -236,7 +238,7 @@ Render the drag immediately, then reconcile with the server broadcast. Never let
 
 ### 5. Touch targets have a screen-space floor
 
-Hit tests computed in image coordinates shrink as the map zooms out. Any interactive target needs a minimum measured in screen pixels — 22px radius, per the 44pt guidance in design.md.
+Hit tests computed in image coordinates shrink as the map zooms out. Any interactive target needs a minimum measured in screen pixels — 22px radius, per the 44pt floor in [interface.md](interface.md).
 *A 20px token was an 8px tap target at fit zoom, which made the tablet unusable.*
 
 ### 6. Broadcast derived state; do not recompute it per client
@@ -253,7 +255,7 @@ Caches keyed by id accumulate for the process lifetime unless evicted. New per-e
 
 Fog was the case that proved it: masks, histories and save timers sat at module scope in `ws/handler.ts` with no eviction at all, so one 4000×3000 map was 12 MB resident forever. They now live on `FogSession`, whose lifetime is the adventure's — see the decision above.
 
-Fog also proved the second half of the rule: **a feature can change what "grows" means.** Preparation (#51) did not add per-entity state, it changed how much of the existing state one sitting touches, and the per-adventure eviction that had been sufficient never fires during a sitting. When a change alters the access pattern of a bounded cache, the bound is part of that change.
+Fog also proved the second half of the rule: **a feature can change what "grows" means.** preparing unpresented pages did not add per-entity state, it changed how much of the existing state one sitting touches, and the per-adventure eviction that had been sufficient never fires during a sitting. When a change alters the access pattern of a bounded cache, the bound is part of that change.
 
 ### 9. Never trust a client-supplied array to be small **[violated — #12]**
 
