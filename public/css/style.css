@@ -797,6 +797,30 @@ body.painting-armed .board-page { cursor: crosshair; }
 }
 .player-row-remove:hover { color: #e74c3c; border-color: #e74c3c; background: rgba(231,76,60,0.1); }
 
+/* ── Notice ── */
+/* Centred under the topbar, which is where the GM's attention already is when something they
+   pressed does not take effect. It floats over the board rather than displacing it, and clears
+   itself, so it never becomes something the GM has to dismiss. */
+#notice {
+  position: fixed;
+  top: 64px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 11;
+  max-width: min(420px, calc(100vw - 32px));
+  padding: 9px 14px;
+  background: rgba(46, 26, 26, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(231, 76, 60, 0.5);
+  border-radius: 8px;
+  color: #f0d0d0;
+  font-size: 0.9rem;
+  text-align: center;
+  pointer-events: none;
+}
+#notice[hidden] { display: none; }
+
 /* ── Empty state ── */
 #empty-state {
   position: fixed;

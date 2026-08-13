@@ -25,6 +25,10 @@
     <span id="connection-status" class="status-dot"></span>
   </header>
 
+  <!-- Something the GM asked for did not happen. It sits under the topbar rather than over the
+       map: it reports on the board, and covering the board to say so would be worse. -->
+  <div id="notice" role="status" hidden></div>
+
   <!-- Empty state -->
   <div id="empty-state" hidden>
     <button id="empty-upload-btn">Upload your first map</button>

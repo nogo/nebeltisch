@@ -103,7 +103,8 @@ const playersList = document.getElementById('players-list')!;
 const copyInviteBtn = document.getElementById('copy-invite-btn')!;
 const uploadInput = document.getElementById('upload-input') as HTMLInputElement;
 
-// Empty state
+// Notice and empty state
+const noticeEl = document.getElementById('notice')!;
 const emptyState = document.getElementById('empty-state')!;
 const emptyUploadBtn = document.getElementById('empty-upload-btn')!;
 
@@ -240,7 +241,6 @@ ws.on('joined', async (msg) => {
   } catch {}
 
   activeImageId = adv.activeImageId;
-  liveFogMask = typeof msg.fogMask === 'string' ? msg.fogMask : null;
   imageList = await api.listImages(adventureId, password);
   renderPages();
 
@@ -317,16 +317,16 @@ function deactivatePlaceMode() {
 
 ws.on('map:switched', async (msg) => {
   activeImageId = msg.imageId;
-  liveFogMask = typeof msg.fogMask === 'string' ? msg.fogMask : null;
   pingCtrl.clear();
 
   imageList = await api.listImages(adventureId, password);
   renderPages();
 
-  // Presenting follows the page to the table. The GM stays on whatever they were preparing only
-  // if it was not the previously live page — otherwise focus tracks the switch, as it did before
-  // the board existed. `focusPage` owns the GM token layer, so the new page's monsters come with
-  // it and `msg.gmTokens` is the player client's copy of the same thing.
+  // Focus follows the page to the table, unconditionally. On the device that presented it this
+  // changes nothing — `map:switch` only ever carries `selectedImageId`, so the page is already
+  // the selected one. A second GM device is pulled along with it; that is out of scope under
+  // `No CRDT` (#51), not an oversight. `focusPage` owns the GM token layer, so the new page's
+  // monsters come with it and `msg.gmTokens` is the player client's copy of the same thing.
   await focusPage(activeImageId);
   framePage(activeImageId);
 
@@ -338,7 +338,6 @@ ws.on('map:switched', async (msg) => {
 
 ws.on('map:unpresented', () => {
   activeImageId = null;
-  liveFogMask = null;
   pingCtrl.clear();
   // The GM keeps the page they were working on and the view they were at. Only the table emptied,
   // and the badge, the lamp and the button are what say so.
@@ -347,16 +346,17 @@ ws.on('map:unpresented', () => {
   updateToolAvailability();
 });
 
-ws.on('fog:reset', (msg) => {
-  if (msg.imageId === selectedImageId && typeof msg.fogMask === 'string') {
-    canvasCtrl.applyFogMask(msg.fogMask);
-  }
+ws.on('fog:reset', async (msg) => {
+  const id = msg.imageId;
+  if (id !== selectedImageId || typeof msg.fogMask !== 'string') return;
+  // Decompression is asynchronous, so the page can change underneath it. Without this guard an
+  // undo on one page repainted its mask — and resized the stack to its dimensions — onto whichever
+  // page the GM tapped next (#65). Same predicate `focusPage` uses, for the same reason.
+  const request = focusRequest;
+  await canvasCtrl.applyFogMask(msg.fogMask, () => request === focusRequest && selectedImageId === id);
 });
 
 // --- The board ---
-/** The presented page's mask, as the server last sent it. Any other page's comes over REST. */
-let liveFogMask: string | null = null;
-
 function renderPages() {
   board.setPages(imageList);
   board.setLive(activeImageId);
@@ -395,15 +395,29 @@ async function focusPage(id: string | null) {
 
   const isCurrent = () => request === focusRequest && selectedImageId === id;
 
-  if (!await canvasCtrl.loadImage(`/uploads/${record.filename}`, isCurrent)) return;
+  // A page that cannot be drawn says so and stops here, rather than throwing out of `focusPage`
+  // and taking its caller down with it (#67): `map:switched` would have skipped repositioning the
+  // party, leaving the GM's copy of it on the previous page's coordinates while the table had
+  // already moved. The two reads below have always been caught for the same reason.
+  let loaded = false;
+  try {
+    loaded = await canvasCtrl.loadImage(`/uploads/${record.filename}`, isCurrent);
+  } catch (e) {
+    console.error('Could not load this page\'s image', e);
+    if (isCurrent()) showNotice(`Could not load "${record.original_name}". Tap the page to try again.`);
+    return;
+  }
+  if (!loaded) return;
 
-  let mask = id === activeImageId ? liveFogMask : null;
-  if (id !== activeImageId) {
-    try {
-      mask = await api.getImageFog(adventureId, password, id);
-    } catch (e) {
-      console.error('Could not read this page\'s fog', e);
-    }
+  // Every page's fog comes over REST, the presented one included. Caching the mask the server
+  // sent at present-time and reusing it here showed the GM their own reveals rolled back the
+  // moment they left the page and came back (#64). The route reads through `deps.fog.peek`, so it
+  // is a debounce ahead of the blob and correct for the live page too.
+  let mask: string | null = null;
+  try {
+    mask = await api.getImageFog(adventureId, password, id);
+  } catch (e) {
+    console.error('Could not read this page\'s fog', e);
   }
   if (!isCurrent()) return;
   if (mask && !await canvasCtrl.applyFogMask(mask, isCurrent)) return;
@@ -417,6 +431,7 @@ async function focusPage(id: string | null) {
     console.error('Could not read this page\'s tokens', e);
   }
 
+  clearNotice();
   focusedImageId = id;
   canvasWrapper.style.left = `${rect.x}px`;
   canvasWrapper.style.top = `${rect.y}px`;
@@ -552,6 +567,23 @@ async function confirmDelete() {
 // --- Empty state ---
 function updateEmptyState() {
   emptyState.hidden = imageList.length > 0;
+}
+
+/**
+ * Says that something the GM asked for did not happen. It clears itself, and any successful page
+ * load clears it too — the message is about the last attempt, not a state to dismiss.
+ */
+let noticeTimer: ReturnType<typeof setTimeout> | null = null;
+function showNotice(text: string) {
+  noticeEl.textContent = text;
+  noticeEl.hidden = false;
+  if (noticeTimer) clearTimeout(noticeTimer);
+  noticeTimer = setTimeout(clearNotice, 6000);
+}
+function clearNotice() {
+  if (noticeTimer) { clearTimeout(noticeTimer); noticeTimer = null; }
+  noticeEl.hidden = true;
+  noticeEl.textContent = '';
 }
 
 emptyUploadBtn.addEventListener('click', () => uploadInput.click());
@@ -1103,9 +1135,17 @@ viewport.onInteractStart((ev: PointerEvent) => {
   if (imageList.length === 0) return;
   closeAllPopups();
 
-  // Place token mode — show form on click, skip painting
+  // Place token mode — show form on click, skip painting.
+  //
+  // A monster belongs to the selected page, and the token layer is sized to that page: one placed
+  // outside it is drawn nowhere, and double-clicking it is the only way to remove it, so it cannot
+  // be reached again (#66). The board made every coordinate off the page tappable — on one map
+  // there was nothing else to hit. The tap is ignored and the tool stays armed, so the GM's next
+  // tap on the page still works. Same trap #17 fixed for the party.
   if (placeModeActive) {
     const pos = screenToPage(ev.clientX, ev.clientY);
+    const { w, h } = canvasCtrl.getImageSize();
+    if (pos.x < 0 || pos.y < 0 || pos.x > w || pos.y > h) return;
     showPlaceForm(ev.clientX, ev.clientY, pos.x, pos.y);
     return;
   }
@@ -1261,7 +1301,11 @@ function finishBoardGesture() {
   }
 
   // A tap that moved nothing selects. Selection is local: the players see no change (#50).
-  if (tapped && tapped !== selectedImageId) void focusPage(tapped);
+  //
+  // Tapping the page that is already selected normally does nothing — but a page whose image
+  // failed to load is selected without ever having focused, and the notice tells the GM to tap it
+  // again (#67). That retry is the one case where re-selecting is not a no-op.
+  if (tapped && (tapped !== selectedImageId || focusedImageId !== tapped)) void focusPage(tapped);
 }
 
 function finishStartGesture() {
