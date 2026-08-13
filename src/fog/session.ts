@@ -185,6 +185,10 @@ function createAdventureFog(
   // arriving together would otherwise each build a mask and one set of strokes
   // would land on the object the other overwrote.
   const opening = new Map<string, Promise<FogSession>>();
+  // Evictions that have left `ready` but whose flush is still running. A re-open in that gap would
+  // otherwise read `images.fog_mask` before the flush had written it and lose every stroke since
+  // the last debounced save (#69). Keyed by image, cleared when the flush settles.
+  const evicting = new Map<string, Promise<void>>();
   let connections = 0;
   let idleTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -235,7 +239,11 @@ function createAdventureFog(
       const inFlight = opening.get(imageId);
       if (inFlight) return inFlight;
 
-      const promise = load(imageId)
+      // Wait out an eviction of this page that is still flushing, so `load` reads the blob the
+      // flush wrote rather than the one it replaced (#69). A failed flush must not wedge the
+      // page shut, so its rejection only ends the wait.
+      const flushing = evicting.get(imageId);
+      const promise = (flushing ? flushing.catch(() => {}).then(() => load(imageId)) : load(imageId))
         .then((session) => {
           opening.delete(imageId);
           ready.set(imageId, session);
@@ -284,22 +292,38 @@ function createAdventureFog(
       const session = ready.get(imageId);
       if (!session) {
         opening.delete(imageId);
+        // Another eviction of the same page is still flushing; its promise is the one to wait on.
+        await evicting.get(imageId);
         return;
       }
       ready.delete(imageId);
-      await session.flush();
+      const tracked = session.flush().finally(() => {
+        // Only clear our own entry — a re-open may already have started a newer cycle.
+        if (evicting.get(imageId) === tracked) evicting.delete(imageId);
+      });
+      evicting.set(imageId, tracked);
+      await tracked;
     },
 
     async flush() {
-      await Promise.all([...ready.values()].map((session) => session.flush()));
+      await Promise.all([
+        ...[...ready.values()].map((session) => session.flush()),
+        // A mask being evicted is already on its way to SQLite, but shutdown must not return
+        // before it lands.
+        ...[...evicting.values()].map((p) => p.catch(() => {})),
+      ]);
     },
 
     async dispose() {
       cancelIdle();
       const sessions = [...ready.values()];
+      const inFlight = [...evicting.values()];
       ready.clear();
       opening.clear();
-      await Promise.all(sessions.map((session) => session.flush()));
+      await Promise.all([
+        ...sessions.map((session) => session.flush()),
+        ...inFlight.map((p) => p.catch(() => {})),
+      ]);
       onDisposed();
     },
   };

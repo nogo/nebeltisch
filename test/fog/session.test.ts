@@ -205,6 +205,38 @@ describe("residency", () => {
     expect(fog.peek(third)).toBeDefined();
   });
 
+  // Eviction leaves `ready` before its flush lands. In practice the flush finishes within
+  // microtasks and every real caller — a WebSocket message, an HTTP request — arrives a macrotask
+  // later, so it never sees the gap. These pin the guard that makes "flushes first" true by
+  // construction rather than by that timing (#69).
+  test("a reopen racing the eviction's flush waits for it instead of reading behind it", async () => {
+    const fog = createFogRegistry(db, undefined, { maxResidentMasks: 1 }).forAdventure(
+      adventureId
+    );
+    (await fog.open(imageId)).applyStrokes(reveal(20, 15));
+
+    // The tightest interleaving any caller could produce: reopen in the same synchronous block
+    // the eviction was started in, before its flush has had a turn.
+    const evicting = fog.evict(imageId);
+    const reopened = await fog.open(imageId);
+    await evicting;
+
+    expect(isRevealed(reopened.readMask(), 20, 15)).toBe(true);
+  });
+
+  test("the evicted mask still reaches SQLite when nobody reopens it", async () => {
+    const fog = createFogRegistry(db, undefined, { maxResidentMasks: 1 }).forAdventure(
+      adventureId
+    );
+    const second = makeImage("second.png");
+
+    (await fog.open(imageId)).applyStrokes(reveal(20, 15));
+    await fog.open(second);
+    await fog.flush();
+
+    expect(isRevealed((await loadFogMask(db, imageId))!, 20, 15)).toBe(true);
+  });
+
   test("using a map keeps it resident while a page merely visited once falls out", async () => {
     const fog = createFogRegistry(db, undefined, { maxResidentMasks: 2 }).forAdventure(
       adventureId

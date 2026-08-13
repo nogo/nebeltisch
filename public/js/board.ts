@@ -136,6 +136,26 @@ export function initBoard(container: HTMLElement): BoardController {
       // elements go — the caller's canvas stack is a sibling in here and must survive.
       for (const page of pages) page.el.remove();
       pages = images.map(buildPage);
+
+      // A rebuild can land mid-drag — `renderPages` is called from the async `map:switched`
+      // handler and after an upload, and the finger does not lift for either. The old `Page` and
+      // its element are gone, so `drag` has to be re-seated or the drop writes a position nothing
+      // is drawn at (#68). The dragged position wins over the one that just arrived: the GM is
+      // holding the page, and their hand is newer than the server's copy.
+      if (drag) {
+        const reseated = pages.find((p) => p.id === drag!.page.id);
+        if (reseated) {
+          reseated.x = drag.page.x;
+          reseated.y = drag.page.y;
+          drag = { ...drag, page: reseated };
+          reseated.el.classList.add('dragging');
+          position(reseated);
+        } else {
+          // The page was deleted under the drag. Nothing to drop onto.
+          drag = null;
+        }
+      }
+
       applyState();
       this.applyScale(scale);
     },
