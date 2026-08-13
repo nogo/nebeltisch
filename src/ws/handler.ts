@@ -261,7 +261,28 @@ export function createWsHandlers(deps: ServerDeps) {
       fog.retain();
 
       const adventure = getAdventure(db, adventureId)!;
-      const playerTokens = getPlayerTokensByAdventure(db, adventureId);
+      let playerTokens = getPlayerTokensByAdventure(db, adventureId);
+
+      // A newcomer is placed before `joined` is built, never after.
+      //
+      // The token row is created during the upgrade with no coordinates, so it defaults to 0,0.
+      // Placing it after the payload had gone left the joining client the one client never told
+      // where its own token stood — everybody else learned it from the `token:added` broadcast,
+      // which excludes the sender. The player then dragged it out of the corner, and that drag was
+      // stored as truth for everyone (#44).
+      //
+      // Arrivals land on the map's start point, not beside the party, so a latecomer walks in from
+      // the entrance instead of appearing mid-scene. A spawn is an arrival, so it is not
+      // remembered: `updateTokenPosition` writes the token, never `token_positions`. Recording it
+      // made a player who joined on a map return to their spawn on every later visit instead of
+      // arriving on its flag (#46, found while verifying #57).
+      if (tokenId && tokenIsNew) {
+        const others = playerTokens.filter((t) => t.id !== tokenId).length;
+        const spawnPos = placeArrivingToken(db, adventure, others);
+        updateTokenPosition(db, tokenId, spawnPos.x, spawnPos.y);
+        playerTokens = getPlayerTokensByAdventure(db, adventureId);
+      }
+
       const gmTokens = adventure.active_image_id
         ? getGmTokensByImage(db, adventureId, adventure.active_image_id)
         : [];
@@ -314,17 +335,8 @@ export function createWsHandlers(deps: ServerDeps) {
         );
 
         if (tokenId && tokenIsNew) {
-          // Arrivals land on the map's start point, not beside the party, so a
-          // latecomer walks in from the entrance instead of appearing mid-scene.
-          const others = playerTokens.filter((t) => t.id !== tokenId).length;
-          const spawnPos = placeArrivingToken(db, adventure, others);
-          updateTokenPosition(db, tokenId, spawnPos.x, spawnPos.y);
-          // A spawn is an arrival, so it is not remembered either — same rule as the map switch
-          // below. Remembering it made a player who joined on a map return to their spawn on every
-          // later visit instead of arriving on its flag (#46, found while verifying #57).
-
-          // Broadcast with updated position
-          const newToken = getTokensByAdventure(db, adventureId).find((t) => t.id === tokenId);
+          // Already placed and re-read above, so this is the arrival position the joiner was sent.
+          const newToken = playerTokens.find((t) => t.id === tokenId);
           if (newToken) {
             ws.publish(
               `adventure:${adventureId}`,

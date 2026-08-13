@@ -136,6 +136,76 @@ describe("WebSocket handler", () => {
     expect(token.color).toBe("#ff0000");
   });
 
+  // The token row is created during the upgrade with no coordinates, so it defaults to 0,0. The
+  // arrival position used to be computed *after* `joined` had gone, and the broadcast that carried
+  // it excludes the sender — so the joining client was the one client never told where it stood
+  // (#44).
+  it("A new player's joined payload carries its arrival position, never 0,0", async () => {
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
+
+    const ws = track(
+      await connectWS(ts.wsUrl, {
+        adventureId, role: "player", playerLink, playerName: "Alice", playerColor: "#ff0000",
+      })
+    );
+    const msg = await waitForMessage(ws, "joined");
+    const mine = msg.tokens.find((t: any) => t.id === msg.yourTokenId);
+
+    expect(mine).toBeDefined();
+    expect(mine.x === 0 && mine.y === 0).toBe(false);
+    // No start point is set on this image, so the party lands at the map centre.
+    expect(Math.hypot(mine.x - 50, mine.y - 50)).toBeLessThan(60);
+  });
+
+  it("The joining player and the GM agree on where the new token is", async () => {
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
+
+    const gm = track(
+      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+    );
+    await waitForMessage(gm, "joined");
+    const tokenAddedPromise = waitForMessage(gm, "token:added");
+
+    const player = track(
+      await connectWS(ts.wsUrl, {
+        adventureId, role: "player", playerLink, playerName: "Alice", playerColor: "#ff0000",
+      })
+    );
+    const joined = await waitForMessage(player, "joined");
+    const mine = joined.tokens.find((t: any) => t.id === joined.yourTokenId);
+    const asGmSeesIt = (await tokenAddedPromise).token;
+
+    expect(asGmSeesIt.id).toBe(mine.id);
+    expect(mine.x).toBe(asGmSeesIt.x);
+    expect(mine.y).toBe(asGmSeesIt.y);
+  });
+
+  it("A returning player still appears where they last stood", async () => {
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
+
+    const first = await connectWS(ts.wsUrl, {
+      adventureId, role: "player", playerLink, playerName: "Alice", playerColor: "#ff0000",
+    });
+    const joined = await waitForMessage(first, "joined");
+    const tokenId = joined.yourTokenId;
+
+    const moved = waitForMessage(first, "token:moved");
+    first.send(JSON.stringify({ type: "token:move", tokenId, x: 77, y: 33 }));
+    await moved;
+    await closeWs(first);
+
+    const again = track(
+      await connectWS(ts.wsUrl, {
+        adventureId, role: "player", playerLink, playerName: "Alice", playerColor: "#ff0000",
+      })
+    );
+    const rejoined = await waitForMessage(again, "joined");
+    const mine = rejoined.tokens.find((t: any) => t.id === tokenId);
+
+    expect(mine.x).toBe(77);
+    expect(mine.y).toBe(33);
+  });
+
   it("Player connects with invalid player link → HTTP 401", async () => {
     const url = new URL(`${ts.wsUrl}/ws`.replace("ws://", "http://"));
     url.searchParams.set("adventureId", adventureId);
