@@ -184,7 +184,11 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     canvasCtrl.getWrapper(),
     () => canvasCtrl.getImageSize(),
     (x, y) => viewport.screenToImage(x, y),
-    { interactive: false, insertBefore: canvasCtrl.getFogCanvas() }
+    // One token size per adventure, so this layer reads the same `tokenRadius` the party's layer
+    // does. Without it monsters drew at `DEFAULT_RADIUS` on players' screens for the whole session
+    // — invisible from the seat the slider lives on (#45). No `getScale`: it feeds hit-testing and
+    // the held halo, and this layer is neither interactive nor draggable.
+    { interactive: false, insertBefore: canvasCtrl.getFogCanvas(), getRadius: () => tokenRadius }
   );
 
   const pingCtrl = initPingLayer(
@@ -361,6 +365,8 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
   ws.on('settings:updated', (msg) => {
     tokenRadius = msg.tokenSize;
     tokenCtrl.render();
+    // Both layers, or monsters keep the old size until the next map switch happens to repaint them.
+    gmTokenCtrl.render();
   });
 
   ws.on('map:switched', async (msg) => {
