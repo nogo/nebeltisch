@@ -21,17 +21,53 @@
 
 export interface MenuItem {
   label: string;
+  /** Drawn instead of the label; `label` stays as the item's accessible name. */
+  icon?: HTMLTemplateElement;
   /** Shown instead of acting on the item; the menu stays open. */
   disabled?: boolean;
   /** Hover text, and the place to say *why* an item is disabled. */
   title?: string;
+  /** A destructive item waiting for its second press. */
+  armed?: boolean;
   onSelect(): void;
+}
+
+/**
+ * What the menu is acting on — which token, when several overlap and their canvas labels do too.
+ *
+ * With `onSelect` the name is the control that edits it, so renaming is reached by tapping the
+ * thing being renamed rather than through an item of its own. `icon` is the affordance that says
+ * so: on a tablet there is no hover to discover it with.
+ */
+export interface MenuLabel {
+  text: string;
+  icon?: HTMLTemplateElement;
+  title?: string;
+  onSelect?(): void;
+}
+
+/**
+ * An edit in place of the button strip — renaming a token, and the damage number after it.
+ *
+ * It lives here rather than in a form of its own because the field has to appear where the menu
+ * that opened it is: anchored to the same token, at the same counter-scale, already inside the
+ * viewport opt-out. A screen-fixed form would put the field somewhere the GM was not looking.
+ */
+export interface MenuInput {
+  value: string;
+  placeholder?: string;
+  maxLength?: number;
+  /** Enter, or the confirm button. Never called with an empty value. */
+  onCommit(value: string): void;
+  /** Escape. The caller decides what the menu shows next. */
+  onCancel(): void;
 }
 
 export interface AnchoredMenu {
   readonly element: HTMLElement;
   readonly isOpen: boolean;
-  setItems(items: MenuItem[]): void;
+  setItems(items: MenuItem[], label?: MenuLabel): void;
+  setInput(input: MenuInput): void;
   /** World coordinates of the point the menu hangs above. */
   anchorAt(x: number, y: number): void;
   open(): void;
@@ -71,21 +107,82 @@ export function createAnchoredMenu(parent: HTMLElement, className: string): Anch
     element,
     get isOpen() { return open; },
 
-    setItems(items) {
+    setItems(items, label) {
       element.textContent = '';
+
+      if (label !== undefined) {
+        const name = document.createElement(label.onSelect ? 'button' : 'span');
+        name.className = 'anchored-menu-label';
+        if (label.title) name.title = label.title;
+        const text = document.createElement('span');
+        text.textContent = label.text;
+        name.appendChild(text);
+        if (label.icon) name.appendChild(label.icon.content.cloneNode(true));
+        if (label.onSelect) {
+          name.classList.add('editable');
+          name.addEventListener('click', (ev) => {
+            ev.stopPropagation();
+            label.onSelect!();
+          });
+        }
+        element.appendChild(name);
+      }
+
       for (const item of items) {
         const button = document.createElement('button');
-        button.textContent = item.label;
         button.className = 'anchored-menu-item';
+        if (item.icon) {
+          button.appendChild(item.icon.content.cloneNode(true));
+          button.setAttribute('aria-label', item.label);
+        } else {
+          button.textContent = item.label;
+        }
         if (item.title) button.title = item.title;
+        button.classList.toggle('armed', item.armed === true);
         button.disabled = item.disabled === true;
         button.addEventListener('click', (ev) => {
+          // Anything else the GM does disarms a waiting item, and this press is not that: without
+          // stopping it, the dismissal path would read it as such and undo the arming it caused.
           ev.stopPropagation();
           if (item.disabled) return;
           item.onSelect();
         });
         element.appendChild(button);
       }
+    },
+
+    setInput(input) {
+      element.textContent = '';
+      const field = document.createElement('input');
+      field.type = 'text';
+      field.className = 'anchored-menu-input';
+      field.value = input.value;
+      field.autocomplete = 'off';
+      if (input.placeholder) field.placeholder = input.placeholder;
+      if (input.maxLength) field.maxLength = input.maxLength;
+
+      const commit = () => {
+        const value = field.value.trim();
+        if (value === '') { input.onCancel(); return; }
+        input.onCommit(value);
+      };
+
+      field.addEventListener('keydown', (ev) => {
+        ev.stopPropagation();
+        if (ev.key === 'Enter') { ev.preventDefault(); commit(); }
+        else if (ev.key === 'Escape') { ev.preventDefault(); input.onCancel(); }
+      });
+
+      const confirm = document.createElement('button');
+      confirm.textContent = 'Save';
+      confirm.className = 'anchored-menu-item';
+      confirm.addEventListener('click', (ev) => { ev.stopPropagation(); commit(); });
+
+      element.append(field, confirm);
+      // Selected rather than merely focused: renaming replaces a name far more often than it
+      // edits one, and on a tablet the keyboard is the expensive part either way.
+      field.focus();
+      field.select();
     },
 
     anchorAt(nextX, nextY) {

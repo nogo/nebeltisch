@@ -597,6 +597,76 @@ body.painting-armed .board-page { cursor: crosshair; }
   opacity: 0.4;
   cursor: default;
 }
+/* An icon item is square, so the glyph sits centred instead of being padded like a word. */
+.anchored-menu-item:has(svg) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  min-width: 34px;
+}
+/* Waiting for its second press. Same red as the page's Delete, which is the same promise. */
+.anchored-menu-item.armed {
+  background: rgba(231, 76, 60, 0.3);
+  border-color: rgba(231, 76, 60, 0.7);
+  color: #fff;
+}
+.anchored-menu-item.armed:hover:not(:disabled) {
+  background: rgba(231, 76, 60, 0.45);
+  border-color: rgba(231, 76, 60, 0.9);
+}
+/* Which token the menu belongs to. In a cluster the labels under the circles overlap, so the
+   ring says "one of these" and this says which. On a monster it is also the rename control. */
+.anchored-menu-label {
+  align-self: center;
+  background: rgba(18, 18, 36, 0.97);
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 8px;
+  padding: 0 10px;
+  /* Same 44pt-derived floor as the items beside it: this one is a tap target too. */
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+.anchored-menu-label > span {
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The pencil is the whole affordance for tap-to-rename: a tablet has no hover to discover it. */
+.anchored-menu-label.editable {
+  color: rgba(255, 255, 255, 0.85);
+  cursor: pointer;
+}
+.anchored-menu-label.editable svg { opacity: 0.55; }
+.anchored-menu-label.editable:hover {
+  background: rgba(74, 74, 255, 0.25);
+  border-color: rgba(74, 74, 255, 0.6);
+  color: #fff;
+}
+.anchored-menu-label.editable:hover svg { opacity: 1; }
+.anchored-menu-input {
+  width: 140px;
+  min-height: 32px;
+  background: rgba(18, 18, 36, 0.97);
+  border: 1px solid rgba(74, 74, 255, 0.6);
+  border-radius: 8px;
+  padding: 0 10px;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+}
+.anchored-menu-input:focus {
+  outline: none;
+  border-color: rgba(74, 74, 255, 0.9);
+}
 /* The marker's menu keeps the start point's gold, so it reads as belonging to the flag. */
 .start-menu .anchored-menu-item {
   border-color: rgba(255, 176, 32, 0.5);

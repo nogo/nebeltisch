@@ -1149,6 +1149,122 @@ describe("WebSocket handler", () => {
       expect(rows.n).toBe(0);
     });
 
+    it("renaming a monster on an unpresented page is stored and reaches nobody", async () => {
+      const { gm, player } = await connectGmAnd("Alice");
+
+      const added = waitForMessage(gm, "gm_token:added");
+      gm.send(
+        JSON.stringify({
+          type: "gm_token:place",
+          imageId: prepImageId,
+          name: "Ork",
+          tokenType: "monster",
+          x: 40,
+          y: 40,
+        })
+      );
+      const tokenId = (await added).token.id;
+
+      const heard = record(player);
+      const renamed = waitForMessage(gm, "token:renamed");
+      gm.send(JSON.stringify({ type: "gm_token:rename", tokenId, name: "Ork 2" }));
+      expect((await renamed).name).toBe("Ork 2");
+      await settle();
+
+      expect(heard).toEqual([]);
+      expect(getTokensByAdventure(ts.db, adventureId).find((t) => t.id === tokenId)?.name)
+        .toBe("Ork 2");
+    });
+
+    it("renaming a monster on the presented page reaches the party", async () => {
+      const { gm, player } = await connectGmAnd("Alice");
+
+      const added = waitForMessage(gm, "gm_token:added");
+      gm.send(
+        JSON.stringify({
+          type: "gm_token:place",
+          imageId,
+          name: "Ork",
+          tokenType: "monster",
+          x: 40,
+          y: 40,
+        })
+      );
+      const tokenId = (await added).token.id;
+
+      const seen = waitForMessage(player, "token:renamed");
+      gm.send(JSON.stringify({ type: "gm_token:rename", tokenId, name: "Ork 2" }));
+      const msg = await seen;
+      expect(msg.tokenId).toBe(tokenId);
+      expect(msg.name).toBe("Ork 2");
+    });
+
+    it("a player token is never renamed, and a player never renames anything", async () => {
+      // The name is half of `playerLink|playerName`, which is how a player reconnects. Renaming
+      // one leaves a token its owner can no longer rejoin, so the message refuses it outright.
+      const { gm, player } = await connectGmAnd("Alice");
+      const alice = getTokensByAdventure(ts.db, adventureId).find(
+        (t) => t.token_type === "player"
+      )!;
+
+      const refusedForPlayerToken = waitForMessage(gm, "error");
+      gm.send(JSON.stringify({ type: "gm_token:rename", tokenId: alice.id, name: "Bob" }));
+      await refusedForPlayerToken;
+      expect(getTokensByAdventure(ts.db, adventureId).find((t) => t.id === alice.id)?.name)
+        .toBe("Alice");
+
+      const added = waitForMessage(gm, "gm_token:added");
+      gm.send(
+        JSON.stringify({
+          type: "gm_token:place",
+          imageId,
+          name: "Ork",
+          tokenType: "monster",
+          x: 40,
+          y: 40,
+        })
+      );
+      const tokenId = (await added).token.id;
+
+      const refusedForPlayer = waitForMessage(player, "error");
+      player.send(JSON.stringify({ type: "gm_token:rename", tokenId, name: "Kitten" }));
+      await refusedForPlayer;
+      expect(getTokensByAdventure(ts.db, adventureId).find((t) => t.id === tokenId)?.name)
+        .toBe("Ork");
+    });
+
+    it("a name is trimmed, capped, and never blank", async () => {
+      // Principle 9: the first client-supplied string this handler stores.
+      const { gm } = await connectGmAnd("Alice");
+
+      const added = waitForMessage(gm, "gm_token:added");
+      gm.send(
+        JSON.stringify({
+          type: "gm_token:place",
+          imageId,
+          name: "Ork",
+          tokenType: "monster",
+          x: 40,
+          y: 40,
+        })
+      );
+      const tokenId = (await added).token.id;
+
+      const trimmed = waitForMessage(gm, "token:renamed");
+      gm.send(JSON.stringify({ type: "gm_token:rename", tokenId, name: "   Ork 2   " }));
+      expect((await trimmed).name).toBe("Ork 2");
+
+      const capped = waitForMessage(gm, "token:renamed");
+      gm.send(JSON.stringify({ type: "gm_token:rename", tokenId, name: "o".repeat(200) }));
+      expect((await capped).name).toHaveLength(40);
+
+      const refused = waitForMessage(gm, "error");
+      gm.send(JSON.stringify({ type: "gm_token:rename", tokenId, name: "   " }));
+      await refused;
+      expect(getTokensByAdventure(ts.db, adventureId).find((t) => t.id === tokenId)?.name)
+        .toHaveLength(40);
+    });
+
     it("a page belonging to another adventure cannot be painted", async () => {
       const other = createAdventure(ts.db, { name: "Other table", gmPassword: "other-pw" });
       const theirPage = createImageRecord(ts.db, {

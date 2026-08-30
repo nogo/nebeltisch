@@ -358,6 +358,13 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     gmTokenCtrl.removeToken(id);
   });
 
+  // The party reads monster names off the map — three orcs are only distinguishable once the GM
+  // has numbered them, so a rename has to land here too.
+  ws.on('token:renamed', (msg) => {
+    gmTokenCtrl.renameToken(msg.tokenId, msg.name);
+    tokenCtrl.renameToken(msg.tokenId, msg.name);
+  });
+
   ws.on('ping:map', (msg) => {
     pingCtrl.addPing(msg.x, msg.y, msg.color);
   });

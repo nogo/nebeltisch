@@ -138,6 +138,23 @@ export interface GmTokenRemoveMessage {
   tokenId: string;
 }
 
+/**
+ * Renames a monster or NPC — "Ork" becomes "Ork 2" once there are three of them. GM only.
+ *
+ * **Never accepts a player token.** Player identity is the composite `playerLink|playerName`, and
+ * reconnection matches on it: renaming without touching `player_link` leaves a token whose name no
+ * longer matches how its owner rejoins, and renaming with it breaks every other device. The
+ * restriction lives on the message rather than in the caller so there is one place to hold it.
+ *
+ * No `imageId`: a monster carries its own `image_id`, so which page this belongs to is never
+ * ambiguous, and the presented-page rule is applied from the token itself.
+ */
+export interface GmTokenRenameMessage {
+  type: "gm_token:rename";
+  tokenId: string;
+  name: string;
+}
+
 export type ClientMessage =
   | JoinMessage
   | FogStrokeMessage
@@ -156,7 +173,8 @@ export type ClientMessage =
   | MapStartPointLockMessage
   | SettingsUpdateMessage
   | GmTokenPlaceMessage
-  | GmTokenRemoveMessage;
+  | GmTokenRemoveMessage
+  | GmTokenRenameMessage;
 
 // ---- Server → Client ----
 
@@ -209,6 +227,13 @@ export interface TokenAddedMessage {
 export interface TokenRemovedMessage {
   type: "token:removed";
   tokenId: string;
+}
+
+/** A monster or NPC now goes by another name. Reaches players only for the presented page. */
+export interface TokenRenamedMessage {
+  type: "token:renamed";
+  tokenId: string;
+  name: string;
 }
 
 /**
@@ -302,6 +327,7 @@ export type ServerMessage =
   | TokenMovedMessage
   | TokenAddedMessage
   | TokenRemovedMessage
+  | TokenRenamedMessage
   | MapSwitchedMessage
   | MapUnpresentedMessage
   | MapStartPointSetMessage

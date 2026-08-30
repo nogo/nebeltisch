@@ -123,6 +123,10 @@ export function getRememberedPositions(
   return new Map(rows.map((r) => [r.token_id, { x: r.x, y: r.y }]));
 }
 
+export function renameToken(db: Database, id: string, name: string): void {
+  db.run(`UPDATE tokens SET name = ? WHERE id = ?`, [name, id]);
+}
+
 export function deleteToken(db: Database, id: string): void {
   db.run(`DELETE FROM tokens WHERE id = ?`, [id]);
 }

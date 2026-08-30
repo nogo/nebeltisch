@@ -6,7 +6,7 @@ import type { FogSession } from "../fog/session";
 import { getAdventure, getAdventureByPlayerLink, setActiveImage, setTokenSize } from "../db/adventures";
 import { getImage, imageBelongsToAdventure, setStartPoint, setStartLocked } from "../db/images";
 import { repairImageDimensions } from "../images";
-import { findOrCreateToken, createToken, getToken, getTokensByAdventure, getPlayerTokensByAdventure, getGmTokensByImage, updateTokenPosition, rememberTokenPosition, getRememberedPositions, deleteToken } from "../db/tokens";
+import { findOrCreateToken, createToken, getToken, getTokensByAdventure, getPlayerTokensByAdventure, getGmTokensByImage, updateTokenPosition, rememberTokenPosition, getRememberedPositions, deleteToken, renameToken } from "../db/tokens";
 import {
   registerConnection,
   unregisterConnection,
@@ -790,6 +790,41 @@ export function createWsHandlers(deps: ServerDeps) {
           const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
           if (target.image_id === null || target.image_id === liveImageId) {
             ws.publish(topic, removedMsg);
+          }
+          break;
+        }
+
+        case "gm_token:rename": {
+          if (conn.role !== "gm") {
+            ws.send(serializeMessage({ type: "error", message: "Only GM can rename GM tokens" }));
+            break;
+          }
+          const allTokens = getTokensByAdventure(db, adventureId);
+          const target = allTokens.find((t) => t.id === msg.tokenId);
+          if (!target || target.token_type === 'player') {
+            // A player token is refused here rather than filtered by the caller: its name is half
+            // of `playerLink|playerName`, which is how its owner reconnects.
+            ws.send(serializeMessage({ type: "error", message: "GM token not found" }));
+            break;
+          }
+          // The first client-supplied string this handler stores. Principle 9 — cap it at the
+          // length the placement form already accepts rather than trusting what arrives.
+          const name = String(msg.name ?? "").trim().slice(0, 40);
+          if (name === "") {
+            ws.send(serializeMessage({ type: "error", message: "A name is required" }));
+            break;
+          }
+          renameToken(db, msg.tokenId, name);
+          const renamedMsg = serializeMessage({
+            type: "token:renamed",
+            tokenId: msg.tokenId,
+            name,
+          });
+          ws.send(renamedMsg);
+          // Same rule as removal: a monster on a page in preparation is stored and silent.
+          const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
+          if (target.image_id === null || target.image_id === liveImageId) {
+            ws.publish(topic, renamedMsg);
           }
           break;
         }

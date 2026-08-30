@@ -1,4 +1,5 @@
 import type { Token } from '../../src/types';
+import { hasDragged } from './gesture';
 
 /**
  * What the token layer needs to draw one. Derived from the server's `Token` so the field
@@ -13,15 +14,19 @@ export interface TokenController {
   element: HTMLCanvasElement;
   addToken(token: TokenData): void;
   removeToken(tokenId: string): void;
+  renameToken(tokenId: string, name: string): void;
   moveToken(tokenId: string, x: number, y: number): void;
   enableDrag(tokenId: string, onMove: (x: number, y: number) => void): void;
   enableDragAll(onMove: (tokenId: string, x: number, y: number) => void): void;
   isDragging(): boolean;
+  /** The token this layer holds under that id, or null when it belongs to the other layer. */
+  getToken(tokenId: string): TokenData | null;
+  /** Rings the token whose menu is open. Pass null to clear; a foreign id is a no-op. */
+  setSelected(tokenId: string | null): void;
   render(): void;
   handlePointerDown(ev: PointerEvent): void;
   handlePointerMove(ev: PointerEvent): void;
   handlePointerUp(): void;
-  handleDoubleClick(ev: MouseEvent): void;
   clear(): void;
 }
 
@@ -46,7 +51,8 @@ export function initTokenLayer(
     getRadius?: () => number;
     getScale?: () => number;
     insertBefore?: HTMLElement;
-    onDoubleClickToken?: (tokenId: string) => void;
+    /** A press that lifted without dragging. The token was not moved. */
+    onTapToken?: (tokenId: string) => void;
   }
 ): TokenController {
   const getRadius = options?.getRadius ?? (() => DEFAULT_RADIUS);
@@ -78,8 +84,7 @@ export function initTokenLayer(
   let onMoveCallback: ((x: number, y: number) => void) | null = null;
   let dragAllMode = false;
   let onMoveAnyCallback: ((tokenId: string, x: number, y: number) => void) | null = null;
-
-  // onDoubleClickToken is wired externally via handleDoubleClick()
+  let selectedTokenId: string | null = null;
 
   function render() {
     const { w, h } = getImageSize();
@@ -94,7 +99,7 @@ export function initTokenLayer(
       const r = getRadius();
       const isGmToken = token.token_type === 'monster' || token.token_type === 'npc';
 
-      if (dragging && token.id === dragTokenId) {
+      if ((dragging && token.id === dragTokenId) || token.id === selectedTokenId) {
         const s = getScale() > 0 ? getScale() : 1;
         ctx.save();
         ctx.beginPath();
@@ -147,8 +152,14 @@ export function initTokenLayer(
   }
 
   // Drag state
+  //
+  // `dragging` means "this layer has the gesture" and is set on the grab, because the held halo
+  // has to appear when the token is picked up rather than when it first moves. Whether the token
+  // actually *moved* is a separate question, and the one that decides between a tap and a drag.
   let dragging = false;
   let dragTokenId: string | null = null;
+  let dragFrom: { x: number; y: number } | null = null;
+  let hasMoved = false;
   let lastMoveTime = 0;
   const MOVE_INTERVAL = 1000 / 30;
 
@@ -163,6 +174,10 @@ export function initTokenLayer(
       tokens.delete(tokenId);
       render();
     },
+    renameToken(tokenId: string, name: string) {
+      const t = tokens.get(tokenId);
+      if (t) { t.name = name; render(); }
+    },
     moveToken(tokenId: string, x: number, y: number) {
       const t = tokens.get(tokenId);
       if (t) { t.x = x; t.y = y; render(); }
@@ -176,6 +191,13 @@ export function initTokenLayer(
       onMoveAnyCallback = onMove;
     },
     isDragging() { return dragging; },
+    getToken(tokenId: string) { return tokens.get(tokenId) ?? null; },
+    setSelected(tokenId: string | null) {
+      const next = tokenId !== null && tokens.has(tokenId) ? tokenId : null;
+      if (next === selectedTokenId) return;
+      selectedTokenId = next;
+      render();
+    },
     render,
 
     handlePointerDown(ev: PointerEvent) {
@@ -190,6 +212,8 @@ export function initTokenLayer(
           if (Math.sqrt(dx * dx + dy * dy) < r) {
             dragging = true;
             dragTokenId = token.id;
+            dragFrom = { x: ev.clientX, y: ev.clientY };
+            hasMoved = false;
             render(); // The halo has to appear on the grab, not on the first movement.
             return;
           }
@@ -204,12 +228,20 @@ export function initTokenLayer(
       if (Math.sqrt(dx * dx + dy * dy) < r) {
         dragging = true;
         dragTokenId = ownTokenId;
+        dragFrom = { x: ev.clientX, y: ev.clientY };
+        hasMoved = false;
         render();
       }
     },
 
     handlePointerMove(ev: PointerEvent) {
       if (!dragging || !dragTokenId) return;
+      // Below the threshold the token holds still and nothing goes on the wire, so a press that
+      // ends up being a tap has moved nothing and remembered nothing.
+      if (!hasMoved) {
+        if (!dragFrom || !hasDragged(dragFrom, { x: ev.clientX, y: ev.clientY })) return;
+        hasMoved = true;
+      }
       const pos = screenToImage(ev.clientX, ev.clientY);
       const token = tokens.get(dragTokenId);
       if (!token) return;
@@ -230,37 +262,36 @@ export function initTokenLayer(
     handlePointerUp() {
       if (!dragging || !dragTokenId) return;
       const token = tokens.get(dragTokenId);
+      const tokenId = dragTokenId;
+      const moved = hasMoved;
       dragging = false;
+      dragFrom = null;
+      hasMoved = false;
+      dragTokenId = null;
       render();
+
+      if (!moved) {
+        options?.onTapToken?.(tokenId);
+        return;
+      }
+
       if (token) {
         if (dragAllMode && onMoveAnyCallback) {
-          onMoveAnyCallback(dragTokenId, token.x, token.y);
+          onMoveAnyCallback(tokenId, token.x, token.y);
         } else if (onMoveCallback) {
           onMoveCallback(token.x, token.y);
         }
       }
-      dragTokenId = null;
     },
 
     clear() {
       tokens.clear();
       dragging = false;
       dragTokenId = null;
+      dragFrom = null;
+      hasMoved = false;
+      selectedTokenId = null;
       render();
-    },
-
-    handleDoubleClick(ev: MouseEvent) {
-      if (!options?.onDoubleClickToken) return;
-      const pos = screenToImage(ev.clientX, ev.clientY);
-      const r = hitRadius();
-      for (const token of tokens.values()) {
-        const dx = pos.x - token.x;
-        const dy = pos.y - token.y;
-        if (Math.sqrt(dx * dx + dy * dy) < r) {
-          options.onDoubleClickToken(token.id);
-          return;
-        }
-      }
     },
   };
 }
