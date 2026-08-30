@@ -117,6 +117,13 @@ export function createSchema(db: Database): void {
     // Column already exists — ignore
   }
 
+  // Migration: three token states, set by hand and by the GM alone (#61)
+  try {
+    db.run(`ALTER TABLE tokens ADD COLUMN state TEXT NOT NULL DEFAULT 'alive'`);
+  } catch {
+    // Column already exists — ignore
+  }
+
   placeUnarrangedPages(db);
 }
 

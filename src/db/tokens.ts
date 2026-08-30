@@ -1,5 +1,5 @@
 import type { Database } from "bun:sqlite";
-import type { Token } from "../types";
+import type { Token, TokenState } from "../types";
 
 export function createToken(
   db: Database,
@@ -121,6 +121,14 @@ export function getRememberedPositions(
     )
     .all(imageId);
   return new Map(rows.map((r) => [r.token_id, { x: r.x, y: r.y }]));
+}
+
+/**
+ * Marks a token alive, unconscious or dead. The GM is the only caller, for every kind of token —
+ * a player does not adjudicate their own unconsciousness, so there is one writer per object.
+ */
+export function setTokenState(db: Database, id: string, state: TokenState): void {
+  db.run(`UPDATE tokens SET state = ? WHERE id = ?`, [state, id]);
 }
 
 export function renameToken(db: Database, id: string, name: string): void {

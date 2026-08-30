@@ -1265,6 +1265,120 @@ describe("WebSocket handler", () => {
         .toHaveLength(40);
     });
 
+    it("a token is placed alive, and the GM can mark it down and back up", async () => {
+      const { gm } = await connectGmAnd("Alice");
+
+      const added = waitForMessage(gm, "gm_token:added");
+      gm.send(
+        JSON.stringify({
+          type: "gm_token:place",
+          imageId,
+          name: "Ork",
+          tokenType: "monster",
+          x: 40,
+          y: 40,
+        })
+      );
+      const placed = (await added).token;
+      // Nobody set this, and that is the point: a token placed today is alive.
+      expect(placed.state).toBe("alive");
+
+      const down = waitForMessage(gm, "token:state:set");
+      gm.send(JSON.stringify({ type: "gm_token:state", tokenId: placed.id, state: "dead" }));
+      expect((await down).state).toBe("dead");
+
+      const up = waitForMessage(gm, "token:state:set");
+      gm.send(JSON.stringify({ type: "gm_token:state", tokenId: placed.id, state: "alive" }));
+      await up;
+      expect(getTokensByAdventure(ts.db, adventureId).find((t) => t.id === placed.id)?.state)
+        .toBe("alive");
+    });
+
+    it("a monster marked on the presented page reaches the party", async () => {
+      const { gm, player } = await connectGmAnd("Alice");
+
+      const added = waitForMessage(gm, "gm_token:added");
+      gm.send(
+        JSON.stringify({
+          type: "gm_token:place",
+          imageId,
+          name: "Ork",
+          tokenType: "monster",
+          x: 40,
+          y: 40,
+        })
+      );
+      const tokenId = (await added).token.id;
+
+      const seen = waitForMessage(player, "token:state:set");
+      gm.send(JSON.stringify({ type: "gm_token:state", tokenId, state: "unconscious" }));
+      const msg = await seen;
+      expect(msg.tokenId).toBe(tokenId);
+      expect(msg.state).toBe("unconscious");
+    });
+
+    it("marking a monster on an unpresented page is stored and reaches nobody", async () => {
+      const { gm, player } = await connectGmAnd("Alice");
+
+      const added = waitForMessage(gm, "gm_token:added");
+      gm.send(
+        JSON.stringify({
+          type: "gm_token:place",
+          imageId: prepImageId,
+          name: "Ork",
+          tokenType: "monster",
+          x: 40,
+          y: 40,
+        })
+      );
+      const tokenId = (await added).token.id;
+
+      const heard = record(player);
+      const marked = waitForMessage(gm, "token:state:set");
+      gm.send(JSON.stringify({ type: "gm_token:state", tokenId, state: "dead" }));
+      await marked;
+      await settle();
+
+      expect(heard).toEqual([]);
+      expect(getTokensByAdventure(ts.db, adventureId).find((t) => t.id === tokenId)?.state)
+        .toBe("dead");
+    });
+
+    it("the GM marks a player token; the player marks nothing, not even their own", async () => {
+      // The opposite of rename, and deliberately: a player does not adjudicate their own
+      // unconsciousness, so the GM is the only writer of every token's state.
+      const { gm, player } = await connectGmAnd("Alice");
+      const alice = getTokensByAdventure(ts.db, adventureId).find(
+        (t) => t.token_type === "player"
+      )!;
+
+      // A player token has no image, so it is always on the presented page.
+      const seen = waitForMessage(player, "token:state:set");
+      gm.send(JSON.stringify({ type: "gm_token:state", tokenId: alice.id, state: "unconscious" }));
+      expect((await seen).state).toBe("unconscious");
+      expect(getTokensByAdventure(ts.db, adventureId).find((t) => t.id === alice.id)?.state)
+        .toBe("unconscious");
+
+      const refused = waitForMessage(player, "error");
+      player.send(JSON.stringify({ type: "gm_token:state", tokenId: alice.id, state: "alive" }));
+      await refused;
+      expect(getTokensByAdventure(ts.db, adventureId).find((t) => t.id === alice.id)?.state)
+        .toBe("unconscious");
+    });
+
+    it("a state outside the three is refused", async () => {
+      const { gm } = await connectGmAnd("Alice");
+      const alice = getTokensByAdventure(ts.db, adventureId).find(
+        (t) => t.token_type === "player"
+      )!;
+
+      const refused = waitForMessage(gm, "error");
+      gm.send(JSON.stringify({ type: "gm_token:state", tokenId: alice.id, state: "poisoned" }));
+      await refused;
+      expect(getTokensByAdventure(ts.db, adventureId).find((t) => t.id === alice.id)?.state)
+        .toBe("alive");
+    });
+
     it("a page belonging to another adventure cannot be painted", async () => {
       const other = createAdventure(ts.db, { name: "Other table", gmPassword: "other-pw" });
       const theirPage = createImageRecord(ts.db, {

@@ -5,7 +5,7 @@ import { hasDragged } from './gesture';
  * What the token layer needs to draw one. Derived from the server's `Token` so the field
  * names and the token_type union cannot drift; the layer has no use for the rest of the row.
  */
-export type TokenData = Pick<Token, 'id' | 'name' | 'color' | 'x' | 'y'> & {
+export type TokenData = Pick<Token, 'id' | 'name' | 'color' | 'x' | 'y' | 'state'> & {
   token_type?: Token['token_type'];
 };
 
@@ -15,6 +15,8 @@ export interface TokenController {
   addToken(token: TokenData): void;
   removeToken(tokenId: string): void;
   renameToken(tokenId: string, name: string): void;
+  /** Standing, down or gone. Only the GM's message ever changes it (#61). */
+  setTokenState(tokenId: string, state: Token['state']): void;
   moveToken(tokenId: string, x: number, y: number): void;
   enableDrag(tokenId: string, onMove: (x: number, y: number) => void): void;
   enableDragAll(onMove: (tokenId: string, x: number, y: number) => void): void;
@@ -41,6 +43,41 @@ const MIN_TOUCH_PX = 22;
  * appear to change while being moved.
  */
 const HELD_HALO_PX = 14;
+
+/**
+ * The shape half of a state: a bar through an unconscious token, a cross through a dead one.
+ *
+ * Outlined the way the name label is, so it holds on a light map and a dark one alike, and sized
+ * off the radius so it survives the adventure's token size being anything.
+ */
+function drawStateGlyph(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  state: 'unconscious' | 'dead'
+): void {
+  const reach = r * 0.55;
+  ctx.save();
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  if (state === 'dead') {
+    ctx.moveTo(x - reach, y - reach);
+    ctx.lineTo(x + reach, y + reach);
+    ctx.moveTo(x + reach, y - reach);
+    ctx.lineTo(x - reach, y + reach);
+  } else {
+    ctx.moveTo(x - reach, y);
+    ctx.lineTo(x + reach, y);
+  }
+  ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+  ctx.lineWidth = Math.max(4, r * 0.34);
+  ctx.stroke();
+  ctx.strokeStyle = '#ffffff';
+  ctx.lineWidth = Math.max(2, r * 0.18);
+  ctx.stroke();
+  ctx.restore();
+}
 
 export function initTokenLayer(
   wrapper: HTMLElement,
@@ -98,6 +135,7 @@ export function initTokenLayer(
     for (const token of tokens.values()) {
       const r = getRadius();
       const isGmToken = token.token_type === 'monster' || token.token_type === 'npc';
+      const down = token.state !== 'alive';
 
       if ((dragging && token.id === dragTokenId) || token.id === selectedTokenId) {
         const s = getScale() > 0 ? getScale() : 1;
@@ -111,6 +149,9 @@ export function initTokenLayer(
       }
 
       ctx.save();
+      // State is shape and weight, never hue: the colour is the only thing on the map that says
+      // whose token this is, and greying a dead one out would spend it to say something else.
+      ctx.globalAlpha = token.state === 'dead' ? 0.45 : token.state === 'unconscious' ? 0.65 : 1;
       ctx.beginPath();
       ctx.arc(token.x, token.y, r, 0, Math.PI * 2);
       ctx.fillStyle = token.color;
@@ -122,18 +163,25 @@ export function initTokenLayer(
         ctx.lineWidth = 1.5;
         ctx.stroke();
         ctx.setLineDash([]);
-        // Type letter inside circle
-        ctx.fillStyle = 'rgba(255,255,255,0.9)';
-        ctx.font = `bold ${Math.max(10, r * 0.7)}px system-ui, sans-serif`;
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(token.token_type === 'monster' ? 'M' : 'N', token.x, token.y);
+        // Type letter inside circle. The state glyph takes this spot when there is one: monster or
+        // NPC is still read off the dashed ring and the name, and the state is the news.
+        if (!down) {
+          ctx.fillStyle = 'rgba(255,255,255,0.9)';
+          ctx.font = `bold ${Math.max(10, r * 0.7)}px system-ui, sans-serif`;
+          ctx.textAlign = 'center';
+          ctx.textBaseline = 'middle';
+          ctx.fillText(token.token_type === 'monster' ? 'M' : 'N', token.x, token.y);
+        }
       } else if (token.id === ownTokenId) {
         ctx.strokeStyle = 'rgba(255,255,255,0.9)';
         ctx.lineWidth = 2;
         ctx.stroke();
       }
       ctx.restore();
+
+      // Full strength over the faded circle: the fade says "out of the fight", the glyph says
+      // which kind of out, and at fight zoom a fade on its own is a guess.
+      if (token.state !== 'alive') drawStateGlyph(ctx, token.x, token.y, r, token.state);
 
       // Name label below circle
       ctx.save();
@@ -177,6 +225,10 @@ export function initTokenLayer(
     renameToken(tokenId: string, name: string) {
       const t = tokens.get(tokenId);
       if (t) { t.name = name; render(); }
+    },
+    setTokenState(tokenId: string, state: Token['state']) {
+      const t = tokens.get(tokenId);
+      if (t) { t.state = state; render(); }
     },
     moveToken(tokenId: string, x: number, y: number) {
       const t = tokens.get(tokenId);

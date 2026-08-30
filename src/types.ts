@@ -45,6 +45,12 @@ export interface ImageRecord {
   created_at: string;
 }
 
+/**
+ * The coarsest account of a fight: standing, down, or gone. Text rather than a boolean pair
+ * because additive migrations may not retype a column later, and three values are not two.
+ */
+export type TokenState = 'alive' | 'unconscious' | 'dead';
+
 export interface Token {
   id: string;
   adventure_id: string;
@@ -54,6 +60,7 @@ export interface Token {
   y: number;
   player_link: string | null;
   token_type: 'player' | 'monster' | 'npc';
+  state: TokenState;
   image_id: string | null;
   created_at: string;
 }

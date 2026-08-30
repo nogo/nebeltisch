@@ -8,6 +8,7 @@ import { createViewport } from './viewport';
 import { createAnchoredMenu } from './anchored-menu';
 import type { MenuItem } from './anchored-menu';
 import type { FogStroke } from './canvas';
+import type { TokenState } from '../../src/types';
 import * as api from './api';
 
 // --- URL params ---
@@ -86,6 +87,23 @@ const placeTokenBtn = document.getElementById('place-token-btn')!;
 const flagIconTemplate = document.getElementById('flag-icon') as HTMLTemplateElement;
 const trashIconTemplate = document.getElementById('trash-icon') as HTMLTemplateElement;
 const pencilIconTemplate = document.getElementById('pencil-icon') as HTMLTemplateElement;
+
+/**
+ * The two states worth a button. Alive is the third, and it has none: it is both toggles unlit,
+ * which is also how the token reads on the map, so the menu matches the canvas.
+ *
+ * Toggles rather than a cycle. A cycle would reach dead from alive through a press on
+ * unconscious, and that press is a write the whole table sees — a state that never happened,
+ * broadcast (principle 12). Here every press lands on the state the GM meant, from any state.
+ */
+const TOKEN_STATES: Array<{
+  value: Exclude<TokenState, 'alive'>;
+  label: string;
+  icon: HTMLTemplateElement;
+}> = [
+  { value: 'unconscious', label: 'Unconscious', icon: document.getElementById('state-unconscious-icon') as HTMLTemplateElement },
+  { value: 'dead', label: 'Dead', icon: document.getElementById('state-dead-icon') as HTMLTemplateElement },
+];
 
 // Token placement form
 const tokenPlaceForm = document.getElementById('token-place-form')!;
@@ -274,7 +292,23 @@ function renderTokenMenu() {
   if (!token) { selectToken(null); return; }
 
   const isGmToken = token.token_type === 'monster' || token.token_type === 'npc';
-  const items: MenuItem[] = [];
+  const state = token.state;
+  // On every token, the party's included: the GM adjudicates a player's unconsciousness too, and
+  // is the only one who can. Nothing here sets a state on its own — a press is the whole story.
+  const items: MenuItem[] = TOKEN_STATES.map(({ value, label, icon }) => {
+    const lit = value === state;
+    return {
+      label,
+      icon,
+      // The way back to alive is the lit toggle, so no press is ever a no-op.
+      title: lit ? `${label} — tap to mark alive` : `Mark ${label.toLowerCase()}`,
+      current: lit,
+      onSelect: () => {
+        removeArmed = false;
+        ws.send({ type: 'gm_token:state', tokenId: token.id, state: lit ? 'alive' : value });
+      },
+    };
+  });
   if (isGmToken) {
     items.push(
       removeArmed
@@ -413,6 +447,14 @@ ws.on('token:renamed', (msg) => {
   // The id lives in exactly one controller; the other no-ops.
   gmTokenCtrl.renameToken(msg.tokenId, msg.name);
   tokenCtrl.renameToken(msg.tokenId, msg.name);
+  if (selectedTokenId === msg.tokenId) renderTokenMenu();
+});
+
+ws.on('token:state:set', (msg) => {
+  // The id lives in exactly one controller; the other no-ops.
+  gmTokenCtrl.setTokenState(msg.tokenId, msg.state);
+  tokenCtrl.setTokenState(msg.tokenId, msg.state);
+  // The menu marks the state the token is in, so the server's echo is what moves the mark.
   if (selectedTokenId === msg.tokenId) renderTokenMenu();
 });
 

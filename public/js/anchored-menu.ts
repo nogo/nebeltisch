@@ -29,6 +29,9 @@ export interface MenuItem {
   title?: string;
   /** A destructive item waiting for its second press. */
   armed?: boolean;
+  /** A lit toggle: this item's state is the one in force. Marked rather than hidden, so a tablet
+   *  with no hover can still see what the set offers. Reaches the DOM as `aria-pressed` too. */
+  current?: boolean;
   onSelect(): void;
 }
 
@@ -139,6 +142,8 @@ export function createAnchoredMenu(parent: HTMLElement, className: string): Anch
         }
         if (item.title) button.title = item.title;
         button.classList.toggle('armed', item.armed === true);
+        button.classList.toggle('current', item.current === true);
+        if (item.current !== undefined) button.setAttribute('aria-pressed', String(item.current));
         button.disabled = item.disabled === true;
         button.addEventListener('click', (ev) => {
           // Anything else the GM does disarms a waiting item, and this press is not that: without

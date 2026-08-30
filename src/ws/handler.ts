@@ -6,7 +6,7 @@ import type { FogSession } from "../fog/session";
 import { getAdventure, getAdventureByPlayerLink, setActiveImage, setTokenSize } from "../db/adventures";
 import { getImage, imageBelongsToAdventure, setStartPoint, setStartLocked } from "../db/images";
 import { repairImageDimensions } from "../images";
-import { findOrCreateToken, createToken, getToken, getTokensByAdventure, getPlayerTokensByAdventure, getGmTokensByImage, updateTokenPosition, rememberTokenPosition, getRememberedPositions, deleteToken, renameToken } from "../db/tokens";
+import { findOrCreateToken, createToken, getToken, getTokensByAdventure, getPlayerTokensByAdventure, getGmTokensByImage, updateTokenPosition, rememberTokenPosition, getRememberedPositions, deleteToken, renameToken, setTokenState } from "../db/tokens";
 import {
   registerConnection,
   unregisterConnection,
@@ -825,6 +825,40 @@ export function createWsHandlers(deps: ServerDeps) {
           const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
           if (target.image_id === null || target.image_id === liveImageId) {
             ws.publish(topic, renamedMsg);
+          }
+          break;
+        }
+
+        case "gm_token:state": {
+          if (conn.role !== "gm") {
+            ws.send(serializeMessage({ type: "error", message: "Only GM can set a token state" }));
+            break;
+          }
+          const allTokens = getTokensByAdventure(db, adventureId);
+          const target = allTokens.find((t) => t.id === msg.tokenId);
+          if (!target) {
+            ws.send(serializeMessage({ type: "error", message: "Token not found" }));
+            break;
+          }
+          // A player token is accepted here — deliberately, and unlike rename. The GM adjudicates
+          // every token's state, so this is the one message that writes to a player's token.
+          const state = msg.state;
+          if (state !== "alive" && state !== "unconscious" && state !== "dead") {
+            ws.send(serializeMessage({ type: "error", message: "Unknown token state" }));
+            break;
+          }
+          setTokenState(db, msg.tokenId, state);
+          const stateMsg = serializeMessage({
+            type: "token:state:set",
+            tokenId: msg.tokenId,
+            state,
+          });
+          ws.send(stateMsg);
+          // Same rule as rename. A player token has no image and is therefore always on the
+          // presented page; a monster prepared on another page is stored and silent.
+          const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
+          if (target.image_id === null || target.image_id === liveImageId) {
+            ws.publish(topic, stateMsg);
           }
           break;
         }

@@ -1,4 +1,4 @@
-import type { FogStroke, Token } from "../types";
+import type { FogStroke, Token, TokenState } from "../types";
 
 // ---- Client → Server ----
 
@@ -155,6 +155,20 @@ export interface GmTokenRenameMessage {
   name: string;
 }
 
+/**
+ * Marks a token alive, unconscious or dead. GM only — and unlike `gm_token:rename`, it **accepts a
+ * player token**: a player does not adjudicate their own unconsciousness, so the GM is the only
+ * writer of every token's state. Nothing sets one automatically; this message is the only path.
+ *
+ * No `imageId`, for the same reason rename has none: a monster carries its own `image_id`, and a
+ * player token has none and is therefore always on the presented page.
+ */
+export interface GmTokenStateMessage {
+  type: "gm_token:state";
+  tokenId: string;
+  state: TokenState;
+}
+
 export type ClientMessage =
   | JoinMessage
   | FogStrokeMessage
@@ -174,7 +188,8 @@ export type ClientMessage =
   | SettingsUpdateMessage
   | GmTokenPlaceMessage
   | GmTokenRemoveMessage
-  | GmTokenRenameMessage;
+  | GmTokenRenameMessage
+  | GmTokenStateMessage;
 
 // ---- Server → Client ----
 
@@ -234,6 +249,13 @@ export interface TokenRenamedMessage {
   type: "token:renamed";
   tokenId: string;
   name: string;
+}
+
+/** A token is standing, down or gone. Reaches players only for the presented page. */
+export interface TokenStateSetMessage {
+  type: "token:state:set";
+  tokenId: string;
+  state: TokenState;
 }
 
 /**
@@ -328,6 +350,7 @@ export type ServerMessage =
   | TokenAddedMessage
   | TokenRemovedMessage
   | TokenRenamedMessage
+  | TokenStateSetMessage
   | MapSwitchedMessage
   | MapUnpresentedMessage
   | MapStartPointSetMessage

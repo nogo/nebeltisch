@@ -615,6 +615,15 @@ body.painting-armed .board-page { cursor: crosshair; }
   background: rgba(231, 76, 60, 0.45);
   border-color: rgba(231, 76, 60, 0.9);
 }
+/* A lit toggle — the state the token is in. Marked, not disabled: it is still a control, and the
+   one that puts the token back to alive. */
+.anchored-menu-item.current {
+  background: rgba(74, 74, 255, 0.3);
+  border-color: rgba(74, 74, 255, 0.75);
+  color: #fff;
+  cursor: default;
+}
+
 /* Which token the menu belongs to. In a cluster the labels under the circles overlap, so the
    ring says "one of these" and this says which. On a monster it is also the rename control. */
 .anchored-menu-label {

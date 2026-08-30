@@ -365,6 +365,13 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     tokenCtrl.renameToken(msg.tokenId, msg.name);
   });
 
+  // A dead orc has to look dead here, or the party keeps planning around it. Player tokens too:
+  // the state is the GM's to set, and this side only draws it.
+  ws.on('token:state:set', (msg) => {
+    gmTokenCtrl.setTokenState(msg.tokenId, msg.state);
+    tokenCtrl.setTokenState(msg.tokenId, msg.state);
+  });
+
   ws.on('ping:map', (msg) => {
     pingCtrl.addPing(msg.x, msg.y, msg.color);
   });
