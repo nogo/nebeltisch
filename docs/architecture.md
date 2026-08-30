@@ -284,3 +284,13 @@ Behaviour is read from the code. A comment cannot make wrong code right, and non
 **This is principle 7 applied to prose.** The simplest solution usually needs the least explaining, so reach for a clearer name, a smaller function or a deleted branch before reaching for a comment. One written to excuse the code is a sign the code should be simpler instead.
 
 **A comment is part of the code it sits on.** Changing the code means updating the comment in the same edit, or deleting it — there is no third option, and "nearly right" is not one either. A stale comment is worse than none, because it is read as current and believed: the `map:switched` handler carried one describing a conditional focus that was never built and had been decided against in #52, and a reviewer took it for intent and filed the working code as the bug.
+
+### 12. A write means something changed
+
+Only the client knows whether a gesture did anything. The server takes every message at face
+value, so a write emitted by a press that changed nothing is stored as though it were real.
+
+*`handlePointerUp` sent `token:move` for every press, a tap included, and `token:move` is the only
+writer of `token_positions`. Tapping a player token to see who it was therefore recorded a walk and
+consumed that map's start point — #46 again, arriving from the client side this time (#60). Send on
+a gesture's effect, never on its end.*
