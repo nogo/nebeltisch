@@ -6,7 +6,7 @@ import type { WsData } from "../src/types";
 import type { ServerDeps } from "../src/deps";
 import type { FogRegistry } from "../src/fog/session";
 import { initDatabase } from "../src/db/database";
-import { handleRequest } from "../src/routes";
+import { handleRequest, staticRoutes } from "../src/routes";
 import { createFogRegistry } from "../src/fog/session";
 import { createWsHandlers, handleWsUpgrade } from "../src/ws/handler";
 
@@ -41,6 +41,7 @@ export function startTestServer(): TestServer {
 
   const server = Bun.serve({
     port: 0,
+    routes: staticRoutes(uploadsDir),
     fetch(req) {
       return handleRequest(req, deps);
     },
@@ -73,6 +74,7 @@ export function startWsTestServer(): WsTestServer {
 
   const server = Bun.serve({
     port: 0,
+    routes: staticRoutes(uploadsDir),
     fetch(req, server) {
       const url = new URL(req.url);
       if (url.pathname === "/ws") return handleWsUpgrade(req, deps, server);

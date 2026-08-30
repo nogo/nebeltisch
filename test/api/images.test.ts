@@ -186,4 +186,35 @@ describe("Image API", () => {
     expect(fileRes.status).toBe(200);
     expect(fileRes.headers.get("content-type")).toContain("image");
   });
+
+  // A page is megabytes and the party reloads constantly — tablet sleep, router blip. The
+  // validator is the whole reason this route is Bun's `dir` rather than hand-written, so it
+  // is what the test asserts.
+  it("a page is revalidated, not refetched", async () => {
+    const formData = new FormData();
+    formData.append("file", makeImageFile());
+    const uploadRes = await fetch(`${ts.url}/api/adventures/${adventureId}/images`, {
+      method: "POST",
+      headers: { "X-GM-Password": gmPassword },
+      body: formData,
+    });
+    const image = await uploadRes.json();
+
+    const first = await fetch(`${ts.url}/uploads/${image.filename}`);
+    const etag = first.headers.get("etag");
+    expect(etag).toBeTruthy();
+
+    const second = await fetch(`${ts.url}/uploads/${image.filename}`, {
+      headers: { "If-None-Match": etag! },
+    });
+    expect(second.status).toBe(304);
+    expect((await second.arrayBuffer()).byteLength).toBe(0);
+  });
+
+  // The hand-written route this replaced rejected `..` itself. Bun refuses a non-canonical
+  // path before it reaches the filesystem; keep the guarantee asserted either way.
+  it("refuses a path that climbs out of the uploads directory", async () => {
+    const res = await fetch(`${ts.url}/uploads/..%2F..%2Fpackage.json`);
+    expect(res.status).toBe(404);
+  });
 });

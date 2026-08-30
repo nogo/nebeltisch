@@ -1,6 +1,6 @@
 import { mkdirSync } from "fs";
 import { initDatabase } from "./db/database";
-import { handleRequest } from "./routes";
+import { handleRequest, staticRoutes } from "./routes";
 import { createFogRegistry } from "./fog/session";
 import { createWsHandlers, handleWsUpgrade } from "./ws/handler";
 import type { ServerDeps } from "./deps";
@@ -15,6 +15,7 @@ const wsHandlers = createWsHandlers(deps);
 
 const server = Bun.serve({
   port: process.env.PORT ? parseInt(process.env.PORT) : 3000,
+  routes: staticRoutes(uploadsDir),
   fetch(req, server) {
     const url = new URL(req.url);
     if (url.pathname === "/ws") {

@@ -21,11 +21,25 @@ import type { ServerDeps } from "./deps";
 
 const publicDir = join(import.meta.dir, "..", "public");
 
+/**
+ * Uploaded pages, served by Bun rather than by hand.
+ *
+ * A page is megabytes and the hand-written version sent no validator with it, so every
+ * reload refetched the whole map. This sends `ETag` and `Last-Modified` and answers a
+ * conditional request with `304`, and it refuses a non-canonical path before it reaches
+ * the filesystem — which is what the manual `..` check it replaced was for.
+ *
+ * `/dist/` stays in `handleRequest` deliberately: it is build output, and `Bun.serve`
+ * throws at startup when a `dir` route points at a directory that does not exist yet.
+ */
+export function staticRoutes(uploadsDir: string) {
+  return { "/uploads/*": { dir: uploadsDir } };
+}
+
 export function handleRequest(
   req: Request,
   deps: ServerDeps
 ): Promise<Response> | Response {
-  const { uploadsDir } = deps;
   const url = new URL(req.url);
   const { pathname } = url;
   const segments = pathname.split("/").filter(Boolean);
@@ -71,28 +85,6 @@ export function handleRequest(
     return new Response(JSON.stringify({ status: "ok" }), {
       headers: { "Content-Type": "application/json" },
     });
-  }
-
-  if (req.method === "GET" && segments[0] === "uploads" && segments.length === 2) {
-    const filename = segments[1];
-    if (filename.includes("..") || filename.includes("/") || filename.includes("\\")) {
-      return new Response("Not Found", { status: 404 });
-    }
-    const file = Bun.file(join(uploadsDir, filename));
-    return file.exists().then((exists) => {
-      if (!exists) return new Response("Not Found", { status: 404 });
-      return new Response(file);
-    });
-  }
-
-  if (pathname.startsWith("/public/")) {
-    const filePath = join(publicDir, pathname.replace("/public/", ""));
-    try {
-      const file = Bun.file(filePath);
-      return new Response(file);
-    } catch {
-      return new Response("Not Found", { status: 404 });
-    }
   }
 
   if (segments[0] === "api" && segments[1] === "adventures") {

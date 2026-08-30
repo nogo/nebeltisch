@@ -26,7 +26,7 @@ Server — `src/`
 |---|---|
 | `index.ts` | The composition root: builds `ServerDeps`, runs `Bun.serve()`, routes `/ws` to the upgrade handler and everything else to `routes.ts`, flushes fog on SIGINT/SIGTERM |
 | `deps.ts` | `ServerDeps` — the database, uploads directory and fog registry, built once and passed down |
-| `routes.ts` | HTTP routing by path segments, static files, REST endpoints |
+| `routes.ts` | HTTP routing by path segments, REST endpoints, the HTML pages and `/dist`; plus `staticRoutes`, the uploads directory handed to `Bun.serve` |
 | `images.ts` | Image dimensions from file headers (PNG/JPEG/WebP). Pure parsing plus a repair path; used by both `routes.ts` and `fog/` |
 | `board.ts` | Where a page lands on the board when nobody has arranged it. Pure geometry; used by the upload route and the migration |
 | `types.ts` | Shared domain types: `FogMask`, `FogStroke`, `Adventure`, `ImageRecord`, `Token`, `WsData` |
@@ -101,6 +101,8 @@ Each decision states what was chosen, why, and what it commits the code to.
 
 `Bun.serve()` handles HTTP and WebSocket directly. Under a dozen REST routes do not justify a router dependency.
 **Implication:** routing is manual path-segment matching in `routes.ts`. Adding routes means extending that chain.
+
+**Uploaded pages are the exception, and they are Bun's `dir` route.** A page is megabytes, and hand-written serving sends no `ETag` — so every reload refetched the whole map on the players' tablets. The route serves the validator, answers a conditional request with `304`, honours `Range`, and refuses a non-canonical path before it reaches the filesystem. `/dist` cannot join it: `Bun.serve` throws at startup when a `dir` points at a directory that does not exist, and `public/dist` is gitignored build output absent from a clean checkout.
 
 ### Fog mask is a `Uint8Array`
 
