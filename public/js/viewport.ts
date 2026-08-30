@@ -116,6 +116,8 @@ export function createViewport(): Viewport {
   const pointers = new Map<number, PPos>();
   let graceTimer: ReturnType<typeof setTimeout> | null = null;
   let gracePendingEv: PointerEvent | null = null;
+  /** Where the pending pointer has moved to since it landed, replayed on commit (#23). */
+  let graceLatestEv: PointerEvent | null = null;
   let interacting = false;
   let panActive = false;
   let prevMidX = 0, prevMidY = 0, prevDist = 0;
@@ -144,6 +146,7 @@ export function createViewport(): Viewport {
   function cancelGrace() {
     if (graceTimer !== null) { clearTimeout(graceTimer); graceTimer = null; }
     gracePendingEv = null;
+    graceLatestEv = null;
   }
 
   function commitInteract() {
@@ -151,8 +154,15 @@ export function createViewport(): Viewport {
     if (gracePendingEv) {
       try { _container?.setPointerCapture(gracePendingEv.pointerId); } catch {}
       const ev = gracePendingEv;
+      const movedTo = graceLatestEv;
       gracePendingEv = null;
+      graceLatestEv = null;
+      // The hit test belongs to where the finger landed, not where it has got to: a flick that
+      // leaves a token inside the window still picked that token up. The movement since is
+      // replayed straight after, so the drag continues from the finger rather than snapping back
+      // to the press — the two halves of #23.
       for (const cb of startCbs) cb(ev);
+      if (movedTo) for (const cb of moveCbs) cb(movedTo);
     }
   }
 
@@ -220,6 +230,10 @@ export function createViewport(): Viewport {
     ev.stopPropagation();
     pointers.set(ev.pointerId, { x: ev.clientX, y: ev.clientY });
 
+    if (graceTimer !== null && gracePendingEv !== null && ev.pointerId === gracePendingEv.pointerId) {
+      graceLatestEv = ev;
+    }
+
     if (panActive) {
       if (pointers.size >= 2) {
         // Pinch + pan
@@ -262,6 +276,25 @@ export function createViewport(): Viewport {
   function onUp(ev: PointerEvent) {
     if (isViewportControl(ev.target)) return;
     ev.stopPropagation();
+
+    // A touch lifting inside the grace window is a tap, and it used to vanish: cancelling the
+    // timer meant the interaction never committed, so neither the start nor the end callback ever
+    // fired. A crisp tablet tap is often under 100ms, which made every tap-driven gesture
+    // intermittent on the only device players use (#23).
+    //
+    // Evaluated before the pointer is removed, and guarded on the pending pointer and `panActive`
+    // together: a pinch dropping back to one finger must never surface as a tap.
+    if (
+      graceTimer !== null &&
+      !panActive &&
+      gracePendingEv !== null &&
+      ev.pointerId === gracePendingEv.pointerId
+    ) {
+      clearTimeout(graceTimer);
+      graceTimer = null;
+      commitInteract();
+    }
+
     pointers.delete(ev.pointerId);
     cancelGrace();
     stopInteract();
