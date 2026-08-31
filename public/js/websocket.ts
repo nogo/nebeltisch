@@ -28,6 +28,7 @@ function makeClient(buildUrl: () => string): WebSocketClient {
   let ws: WebSocket | null = null;
   let closed = false;
   let backoff = 1000;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   // The one unchecked hop in the client: the socket yields JSON, and `type` selects the
   // handler list. Everything downstream of here is checked against ServerMessage.
@@ -69,8 +70,30 @@ function makeClient(buildUrl: () => string): WebSocketClient {
   }
 
   function scheduleReconnect() {
-    setTimeout(() => { backoff = Math.min(backoff * 2, 30000); connect(); }, backoff);
+    if (retryTimer !== null) clearTimeout(retryTimer);
+    retryTimer = setTimeout(() => {
+      retryTimer = null;
+      backoff = Math.min(backoff * 2, 30000);
+      connect();
+    }, backoff);
   }
+
+  /**
+   * A tablet that woke up, or a network that came back. The scheduled retry can be 30 seconds
+   * away, and a player who presses something in that window sends nothing — so retry at once.
+   * The pending timer has to be cancelled or the two attempts race and open two sockets.
+   */
+  function reconnectNow() {
+    if (closed) return;
+    if (ws && (ws.readyState === WebSocket.CONNECTING || ws.readyState === WebSocket.OPEN)) return;
+    if (retryTimer !== null) { clearTimeout(retryTimer); retryTimer = null; }
+    connect();
+  }
+
+  function onVisibility() { if (!document.hidden) reconnectNow(); }
+
+  document.addEventListener('visibilitychange', onVisibility);
+  window.addEventListener('online', reconnectNow);
 
   connect();
 
@@ -86,6 +109,9 @@ function makeClient(buildUrl: () => string): WebSocketClient {
     },
     close() {
       closed = true;
+      if (retryTimer !== null) { clearTimeout(retryTimer); retryTimer = null; }
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('online', reconnectNow);
       ws?.close();
     },
   };
