@@ -3,11 +3,13 @@ import { initCanvas } from './canvas';
 import { initTokenLayer } from './tokens';
 import { initPingLayer } from './ping';
 import { createTokenMenu } from './token-menu';
+import type { MenuItem } from './anchored-menu';
 import { createDeclarations } from './declarations';
 import { createViewport } from './viewport';
 import { initVeil } from './veil';
 import * as api from './api';
 import type { FogStroke } from './canvas';
+import type { Declaration } from '../../src/types';
 
 // --- Resolve entry mode ---
 const fragment = new URLSearchParams(location.hash.slice(1));
@@ -195,6 +197,7 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
       getRadius: () => tokenRadius,
       getScale: () => viewport.scale,
       onTapToken: (tokenId) => tokenMenu.toggle(tokenId),
+      onTapPip: (declarationId, tokenId) => answerPip(declarationId, tokenId),
     }
   );
 
@@ -208,7 +211,14 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     canvasCtrl.getWrapper(),
     () => canvasCtrl.getImageSize(),
     (x, y) => viewport.screenToImage(x, y),
-    { interactive: true, getRadius: () => tokenRadius, getScale: () => viewport.scale }
+    {
+      interactive: true,
+      getRadius: () => tokenRadius,
+      getScale: () => viewport.scale,
+      // No `onTapToken`: tapping a friend opens nothing. The pips on my own token are another
+      // matter — an attack aimed at me is mine to answer (#73).
+      onTapPip: (declarationId, tokenId) => answerPip(declarationId, tokenId),
+    }
   );
 
   // --- Declarations and the token menu ---
@@ -222,12 +232,81 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
   // Which token was hit is answered by the name already drawn under the circle.
   const declarations = createDeclarations([tokenCtrl, gmTokenCtrl]);
 
+  /** The declaration whose pip was tapped, while its menu stands open on the token it points at. */
+  let answeringId: string | null = null;
+
+  /**
+   * What this player may do about one declaration: answer the attack aimed at their own token, or
+   * send the number for the attack they made. Never both — the two halves of an exchange belong to
+   * different people (#73).
+   */
+  function pipItems(declaration: Declaration): MenuItem[] {
+    if (declaration.state === 'open' && declaration.target_id === ownTokenId) {
+      return [
+        { label: 'Parried', title: 'You parried this', onSelect: () => answer(declaration.id, true) },
+        { label: 'Not parried', title: 'It got through', onSelect: () => answer(declaration.id, false) },
+      ];
+    }
+    if (
+      declaration.state === 'not_parried' &&
+      declaration.damage === null &&
+      declaration.source_id !== null &&
+      declaration.source_id === ownTokenId
+    ) {
+      return [{ label: 'Damage', title: 'Send the damage you rolled', onSelect: () => showDamageInput(declaration.id) }];
+    }
+    return [];
+  }
+
+  function answer(declarationId: string, parried: boolean) {
+    ws.send({ type: 'declaration:answer', declarationId, parried });
+    answeringId = null;
+    tokenMenu.render();
+  }
+
+  function showDamageInput(declarationId: string) {
+    tokenMenu.showInput({
+      value: '',
+      placeholder: 'Damage',
+      maxLength: 3,
+      inputMode: 'numeric',
+      onCommit: (value) => {
+        const damage = Number(value);
+        // The server checks this too, and its answer is what the table sees (principle 2).
+        if (Number.isInteger(damage) && damage >= 0) {
+          ws.send({ type: 'declaration:damage', declarationId, damage });
+        }
+        answeringId = null;
+        tokenMenu.render();
+      },
+      onCancel: () => {
+        answeringId = null;
+        tokenMenu.render();
+      },
+    });
+  }
+
+  /** A tap on a pip: the menu opens on the token it sits on, narrowed to that one exchange. */
+  function answerPip(declarationId: string, tokenId: string) {
+    const declaration = declarations.get(declarationId);
+    if (!declaration || pipItems(declaration).length === 0) return;
+    tokenMenu.select(tokenId);
+    answeringId = declarationId;
+    tokenMenu.render();
+  }
+
   const tokenMenu = createTokenMenu({
     parent: canvasCtrl.getWrapper(),
-    layers: [gmTokenCtrl],
+    layers: [gmTokenCtrl, tokenCtrl],
     getRadius: () => tokenRadius,
     getScale: () => viewport.scale,
+    onSelectionChange: () => {
+      answeringId = null;
+    },
     build: (token) => {
+      const answering = answeringId === null ? null : declarations.get(answeringId);
+      if (answering && answering.target_id === token.id) return { items: pipItems(answering) };
+
       const open = ownTokenId === null ? null : declarations.openOn(token.id, ownTokenId);
       return {
         items:
@@ -276,9 +355,9 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     tokenCtrl.handlePointerDown(ev);
     if (!tokenCtrl.isDragging()) gmTokenCtrl.handlePointerDown(ev);
 
-    // The menu belongs to the monster it was opened on, so only a press that reaches that layer
-    // keeps it — picking up my own token dismisses it like a press on the map does.
-    if (!gmTokenCtrl.isDragging()) tokenMenu.select(null);
+    // The menu belongs to whatever it was opened on, so a press on a monster or on any pip keeps
+    // it — picking up my own token dismisses it like a press on the map does.
+    if (!gmTokenCtrl.isDragging() && tokenCtrl.pressedPip() === null) tokenMenu.select(null);
 
     if (!tokenCtrl.isDragging() && !gmTokenCtrl.isDragging()) {
       // Asking the layers replaces the copy of the grab radius this used to keep: a token that was
@@ -433,6 +512,11 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     declarations.add(msg.declaration);
     // The menu carries the lit Attack toggle, so the server's echo is what lights it.
     if (tokenMenu.selectedId === msg.declaration.target_id) tokenMenu.render();
+  });
+
+  ws.on('declaration:updated', (msg) => {
+    declarations.update(msg.declaration);
+    if (tokenMenu.selectedId !== null) tokenMenu.render();
   });
 
   ws.on('declaration:retracted', (msg) => {

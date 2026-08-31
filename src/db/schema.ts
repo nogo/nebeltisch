@@ -158,6 +158,14 @@ export function createSchema(db: Database): void {
     // Column already exists — ignore
   }
 
+  // Migration: what the attacker rolled, once they send it (#73). Nullable and never computed
+  // from — an exchange can be left at not parried.
+  try {
+    db.run(`ALTER TABLE declarations ADD COLUMN damage INTEGER NULL`);
+  } catch {
+    // Column already exists — ignore
+  }
+
   placeUnarrangedPages(db);
 }
 

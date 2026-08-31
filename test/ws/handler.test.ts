@@ -3,7 +3,7 @@ import { startWsTestServer, type WsTestServer } from "../helpers";
 import { createAdventure, getAdventure } from "../../src/db/adventures";
 import { createImageRecord } from "../../src/db/images";
 import { getTokensByAdventure } from "../../src/db/tokens";
-import { getDeclarationsByImage } from "../../src/db/declarations";
+import { getDeclarationsByImage, getDeclaration } from "../../src/db/declarations";
 // Fog state is reached through the test server’s own registry, not a module global.
 import { loadFogMask } from "../../src/fog/serialize";
 import { isRevealed } from "../../src/fog/mask";
@@ -2131,6 +2131,157 @@ describe("WebSocket handler", () => {
       alice.ws.send(JSON.stringify({ type: "declaration:open", targetId: monsterId }));
       await refused;
       expect(getDeclarationsByImage(ts.db, imageId)).toEqual([]);
+    });
+
+    it("the GM answers for the monster a player attacked, and the table sees it", async () => {
+      const gm = await connectGm();
+      monsterId = await placeMonster(gm);
+      const alice = await connectPlayer("Alice");
+
+      const opened = waitForMessage(gm, "declaration:opened");
+      alice.ws.send(JSON.stringify({ type: "declaration:open", targetId: monsterId }));
+      const declarationId = (await opened).declaration.id;
+
+      const seen = waitForMessage(alice.ws, "declaration:updated");
+      gm.send(JSON.stringify({ type: "declaration:answer", declarationId, parried: true }));
+      expect((await seen).declaration.state).toBe("parried");
+    });
+
+    it("the player answers the attack aimed at their own token", async () => {
+      const gm = await connectGm();
+      const alice = await connectPlayer("Alice");
+
+      const opened = waitForMessage(alice.ws, "declaration:opened");
+      gm.send(JSON.stringify({ type: "declaration:open", targetId: alice.tokenId }));
+      const declarationId = (await opened).declaration.id;
+
+      const seen = waitForMessage(gm, "declaration:updated");
+      alice.ws.send(JSON.stringify({ type: "declaration:answer", declarationId, parried: false }));
+      expect((await seen).declaration.state).toBe("not_parried");
+    });
+
+    it("nobody answers an attack that is not aimed at them", async () => {
+      const gm = await connectGm();
+      monsterId = await placeMonster(gm);
+      const alice = await connectPlayer("Alice");
+      const bob = await connectPlayer("Bob");
+
+      // Alice attacks the Ork. The Ork is the GM's to answer for — not Alice's, though she made it.
+      const opened = waitForMessage(gm, "declaration:opened");
+      alice.ws.send(JSON.stringify({ type: "declaration:open", targetId: monsterId }));
+      const onMonster = (await opened).declaration.id;
+
+      const refusedAlice = waitForMessage(alice.ws, "error");
+      alice.ws.send(JSON.stringify({ type: "declaration:answer", declarationId: onMonster, parried: true }));
+      await refusedAlice;
+
+      // The GM attacks Alice. Bob may not answer for her.
+      const second = waitForMessage(bob.ws, "declaration:opened");
+      gm.send(JSON.stringify({ type: "declaration:open", targetId: alice.tokenId }));
+      const onAlice = (await second).declaration.id;
+
+      const refusedBob = waitForMessage(bob.ws, "error");
+      bob.ws.send(JSON.stringify({ type: "declaration:answer", declarationId: onAlice, parried: true }));
+      await refusedBob;
+
+      expect(getDeclaration(ts.db, onMonster)!.state).toBe("open");
+      expect(getDeclaration(ts.db, onAlice)!.state).toBe("open");
+    });
+
+    it("an answered declaration cannot be answered again", async () => {
+      const gm = await connectGm();
+      monsterId = await placeMonster(gm);
+      const alice = await connectPlayer("Alice");
+
+      const opened = waitForMessage(gm, "declaration:opened");
+      alice.ws.send(JSON.stringify({ type: "declaration:open", targetId: monsterId }));
+      const declarationId = (await opened).declaration.id;
+
+      const answered = waitForMessage(gm, "declaration:updated");
+      gm.send(JSON.stringify({ type: "declaration:answer", declarationId, parried: true }));
+      await answered;
+
+      const refused = waitForMessage(gm, "error");
+      gm.send(JSON.stringify({ type: "declaration:answer", declarationId, parried: false }));
+      await refused;
+      expect(getDeclaration(ts.db, declarationId)!.state).toBe("parried");
+    });
+
+    it("the attacker sends the number they rolled, and only they can", async () => {
+      const gm = await connectGm();
+      monsterId = await placeMonster(gm);
+      const alice = await connectPlayer("Alice");
+      const bob = await connectPlayer("Bob");
+
+      const opened = waitForMessage(gm, "declaration:opened");
+      alice.ws.send(JSON.stringify({ type: "declaration:open", targetId: monsterId }));
+      const declarationId = (await opened).declaration.id;
+
+      // Nothing to send while it is still open.
+      const tooEarly = waitForMessage(alice.ws, "error");
+      alice.ws.send(JSON.stringify({ type: "declaration:damage", declarationId, damage: 7 }));
+      await tooEarly;
+
+      const answered = waitForMessage(alice.ws, "declaration:updated");
+      gm.send(JSON.stringify({ type: "declaration:answer", declarationId, parried: false }));
+      await answered;
+
+      // Not Bob's attack, and not the GM's either — the GM owns the target, not the source.
+      for (const other of [bob.ws, gm]) {
+        const refused = waitForMessage(other, "error");
+        other.send(JSON.stringify({ type: "declaration:damage", declarationId, damage: 7 }));
+        await refused;
+      }
+
+      const sent = waitForMessage(gm, "declaration:updated");
+      alice.ws.send(JSON.stringify({ type: "declaration:damage", declarationId, damage: 7 }));
+      expect((await sent).declaration.damage).toBe(7);
+
+      // Written once. The record does not move after it is made.
+      const again = waitForMessage(alice.ws, "error");
+      alice.ws.send(JSON.stringify({ type: "declaration:damage", declarationId, damage: 12 }));
+      await again;
+      expect(getDeclaration(ts.db, declarationId)!.damage).toBe(7);
+    });
+
+    it("a parried attack carries no number, and a number outside the range is refused", async () => {
+      const gm = await connectGm();
+      const first = await placeMonster(gm, "Ork 1");
+      const second = await placeMonster(gm, "Ork 2");
+      const alice = await connectPlayer("Alice");
+
+      const opened = waitForMessage(gm, "declaration:opened");
+      alice.ws.send(JSON.stringify({ type: "declaration:open", targetId: first }));
+      const parriedId = (await opened).declaration.id;
+      const answered = waitForMessage(alice.ws, "declaration:updated");
+      gm.send(JSON.stringify({ type: "declaration:answer", declarationId: parriedId, parried: true }));
+      await answered;
+
+      const refused = waitForMessage(alice.ws, "error");
+      alice.ws.send(JSON.stringify({ type: "declaration:damage", declarationId: parriedId, damage: 7 }));
+      await refused;
+
+      // Answering freed the attacker: the record stays and a new attack can be declared (#62 rule 2).
+      const reopened = waitForMessage(gm, "declaration:opened");
+      alice.ws.send(JSON.stringify({ type: "declaration:open", targetId: second }));
+      const openId = (await reopened).declaration.id;
+      expect(getDeclarationsByImage(ts.db, imageId)).toHaveLength(2);
+
+      const notParried = waitForMessage(alice.ws, "declaration:updated");
+      gm.send(JSON.stringify({ type: "declaration:answer", declarationId: openId, parried: false }));
+      await notParried;
+
+      for (const damage of [-1, 1000, 3.5]) {
+        const bad = waitForMessage(alice.ws, "error");
+        alice.ws.send(JSON.stringify({ type: "declaration:damage", declarationId: openId, damage }));
+        await bad;
+      }
+      expect(getDeclaration(ts.db, openId)!.damage).toBeNull();
+
+      // Zero is a real answer: the armour took all of it, and the table said so.
+      const zero = waitForMessage(gm, "declaration:updated");
+      alice.ws.send(JSON.stringify({ type: "declaration:damage", declarationId: openId, damage: 0 }));
+      expect((await zero).declaration.damage).toBe(0);
     });
 
     it("removing a token takes its declarations with it, as target and as source", async () => {

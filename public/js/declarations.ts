@@ -1,5 +1,5 @@
 import type { Declaration } from '../../src/types';
-import type { TokenController } from './tokens';
+import type { TokenController, TokenPip } from './tokens';
 
 /**
  * What the table has said out loud, held for one page and drawn on the tokens it points at.
@@ -8,13 +8,19 @@ import type { TokenController } from './tokens';
  * decides who may make one, and the two clients differ only in which tokens they offer it on.
  *
  * The list is the presented page's, whole. It is replaced on joining and on every page switch, and
- * nudged by `declaration:opened` and `declaration:retracted` in between — a client never computes
- * a declaration for itself, so a pip on screen is always one the server wrote down (principle 2).
+ * nudged by `declaration:opened`, `declaration:updated` and `declaration:retracted` in between — a
+ * client never writes one for itself, so a pip on screen is always one the server wrote down
+ * (principle 2).
  */
 export interface Declarations {
   /** The whole of a page, from `joined` or `map:switched`. */
   replace(list: Declaration[]): void;
   add(declaration: Declaration): void;
+  /**
+   * The same declaration, further on: answered, or carrying its number. Replaced where it stands,
+   * so the pips keep the arrival order they are read in.
+   */
+  update(declaration: Declaration): void;
   remove(declarationId: string): void;
   /**
    * Drops whatever a removed token was part of, at either end.
@@ -25,6 +31,8 @@ export interface Declarations {
   dropToken(tokenId: string): void;
   /** This attacker's open declaration on that token, if they have one. The menu's toggle. */
   openOn(targetId: string, sourceId: string | null): Declaration | null;
+  /** One declaration by id — what the pip a finger landed on stands for. */
+  get(declarationId: string): Declaration | null;
   /** Redraws the pips. Needed after a layer is repopulated with a page's tokens. */
   render(): void;
 }
@@ -51,11 +59,17 @@ export function createDeclarations(layers: TokenController[]): Declarations {
   }
 
   function render() {
-    const byTarget = new Map<string, string[]>();
+    const byTarget = new Map<string, TokenPip[]>();
     for (const declaration of list) {
+      const pip: TokenPip = {
+        id: declaration.id,
+        color: colorOf(declaration.source_id),
+        state: declaration.state,
+        damage: declaration.damage,
+      };
       const pips = byTarget.get(declaration.target_id);
-      if (pips) pips.push(colorOf(declaration.source_id));
-      else byTarget.set(declaration.target_id, [colorOf(declaration.source_id)]);
+      if (pips) pips.push(pip);
+      else byTarget.set(declaration.target_id, [pip]);
     }
     // Both layers get the same map. A target lives in exactly one of them, and the other ignores it.
     for (const layer of layers) layer.setDeclarations(byTarget);
@@ -69,6 +83,10 @@ export function createDeclarations(layers: TokenController[]): Declarations {
     add(declaration) {
       list = list.filter((d) => d.id !== declaration.id);
       list.push(declaration);
+      render();
+    },
+    update(declaration) {
+      list = list.map((d) => (d.id === declaration.id ? declaration : d));
       render();
     },
     remove(declarationId) {
@@ -85,6 +103,9 @@ export function createDeclarations(layers: TokenController[]): Declarations {
           (d) => d.target_id === targetId && d.source_id === sourceId && d.state === 'open'
         ) ?? null
       );
+    },
+    get(declarationId) {
+      return list.find((d) => d.id === declarationId) ?? null;
     },
     render,
   };

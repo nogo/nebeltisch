@@ -188,6 +188,30 @@ export interface DeclarationRetractMessage {
   declarationId: string;
 }
 
+/**
+ * Parried, or not parried. Sent by the owner of the *target*: a player for their own token, the GM
+ * for every monster and NPC. One writer per object, and the object is the declaration.
+ *
+ * Only an open declaration can be answered. Answering is what makes it a record.
+ */
+export interface DeclarationAnswerMessage {
+  type: "declaration:answer";
+  declarationId: string;
+  parried: boolean;
+}
+
+/**
+ * The number the attacker rolled, sent by the owner of the *source* — the other half of the pair.
+ *
+ * Only on a not-parried declaration, and only once. The first client-supplied number on the wire,
+ * so it is range-checked at the boundary rather than trusted (principle 9).
+ */
+export interface DeclarationDamageMessage {
+  type: "declaration:damage";
+  declarationId: string;
+  damage: number;
+}
+
 export type ClientMessage =
   | JoinMessage
   | FogStrokeMessage
@@ -210,7 +234,9 @@ export type ClientMessage =
   | GmTokenRenameMessage
   | GmTokenStateMessage
   | DeclarationOpenMessage
-  | DeclarationRetractMessage;
+  | DeclarationRetractMessage
+  | DeclarationAnswerMessage
+  | DeclarationDamageMessage;
 
 // ---- Server → Client ----
 
@@ -379,6 +405,12 @@ export interface DeclarationRetractedMessage {
   declarationId: string;
 }
 
+/** A declaration has been answered, or has had its number put on it. Presented page only. */
+export interface DeclarationUpdatedMessage {
+  type: "declaration:updated";
+  declaration: Declaration;
+}
+
 export type ServerMessage =
   | JoinedMessage
   | GmTokenAddedMessage
@@ -403,7 +435,8 @@ export type ServerMessage =
   | PingMapBroadcast
   | SettingsUpdatedMessage
   | DeclarationOpenedMessage
-  | DeclarationRetractedMessage;
+  | DeclarationRetractedMessage
+  | DeclarationUpdatedMessage;
 
 export function parseMessage(raw: string): ClientMessage | null {
   try {

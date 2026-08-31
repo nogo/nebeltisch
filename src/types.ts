@@ -77,14 +77,27 @@ export interface Token {
  * monster, and which of them swings is something the GM says out loud anyway — a pip on a player
  * token means "you are being attacked", and that is the whole of what it has to carry.
  */
+/**
+ * How far an exchange has got. Open until the target's owner says, and then it stops moving —
+ * an answered declaration is the record of what happened, and only clearing removes it (#73).
+ */
+export type DeclarationState = 'open' | 'parried' | 'not_parried';
+
 export interface Declaration {
   id: string;
   image_id: string;
   /** The attacking token, or null when the GM declared it. */
   source_id: string | null;
   target_id: string;
-  /** Only 'open' is ever written here; answering is #73. */
-  state: 'open';
+  state: DeclarationState;
+  /**
+   * What the attacker rolled, once they send it. Null on an open or parried declaration, and on a
+   * not-parried one nobody has put a number to yet — damage is optional.
+   *
+   * Never added to anything. The number sent is the number rolled, and armour comes off it on
+   * paper (#62).
+   */
+  damage: number | null;
   created_at: string;
 }
 

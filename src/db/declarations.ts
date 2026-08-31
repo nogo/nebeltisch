@@ -61,6 +61,21 @@ export function getDeclarationsByImage(db: Database, imageId: string): Declarati
     .all(imageId);
 }
 
+/**
+ * Parried, or not. The one write the target's owner makes, and it is what closes the question.
+ *
+ * Leaves the row where it stands in arrival order and out of the open-declaration indexes, so the
+ * attacker is free to declare again while this stays behind as the record.
+ */
+export function answerDeclaration(db: Database, id: string, parried: boolean): void {
+  db.run(`UPDATE declarations SET state = ? WHERE id = ?`, [parried ? "parried" : "not_parried", id]);
+}
+
+/** The number the attacker rolled. Written once, never added to anything. */
+export function setDeclarationDamage(db: Database, id: string, damage: number): void {
+  db.run(`UPDATE declarations SET damage = ? WHERE id = ?`, [damage, id]);
+}
+
 export function deleteDeclaration(db: Database, id: string): void {
   db.run(`DELETE FROM declarations WHERE id = ?`, [id]);
 }

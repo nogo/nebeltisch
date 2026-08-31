@@ -10,7 +10,7 @@ import { createTokenMenu } from './token-menu';
 import { createDeclarations } from './declarations';
 import type { MenuItem } from './anchored-menu';
 import type { FogStroke } from './canvas';
-import type { TokenState } from '../../src/types';
+import type { Declaration, TokenState } from '../../src/types';
 import * as api from './api';
 
 // --- URL params ---
@@ -215,6 +215,7 @@ const gmTokenCtrl = initTokenLayer(
     getRadius: () => tokenRadius,
     getScale: () => viewport.scale,
     onTapToken: (tokenId) => tokenMenu.toggle(tokenId),
+    onTapPip: (declarationId, tokenId) => answerPip(declarationId, tokenId),
   }
 );
 gmTokenCtrl.enableDragAll((tokenId, x, y) => {
@@ -241,6 +242,7 @@ const tokenCtrl = initTokenLayer(
     getRadius: () => tokenRadius,
     getScale: () => viewport.scale,
     onTapToken: (tokenId) => tokenMenu.toggle(tokenId),
+    onTapPip: (declarationId, tokenId) => answerPip(declarationId, tokenId),
   }
 );
 tokenCtrl.enableDragAll((tokenId, x, y) => {
@@ -253,6 +255,85 @@ tokenCtrl.enableDragAll((tokenId, x, y) => {
 // The presented page's, whichever page the GM has selected: the pips are drawn on the tokens they
 // point at, so a page the GM is only preparing has none of them in its layers and shows nothing.
 const declarations = createDeclarations([gmTokenCtrl, tokenCtrl]);
+
+/**
+ * The declaration whose pip was tapped, while its menu stands open on the token it points at.
+ *
+ * A monster can carry three attacks at once, so answering needs to name *which* — and the pip is
+ * already the thing on screen that stands for one. Tapping it narrows the token's menu to that
+ * exchange; tapping the token itself widens it back (#73).
+ */
+let answeringId: string | null = null;
+
+/**
+ * What the GM may do about one declaration. The GM owns every monster, so they answer for the
+ * target of a player's attack and send the number for their own — the two halves of one exchange
+ * belong to different people, and this is the GM's half of whichever it is.
+ */
+function pipItems(declaration: Declaration): MenuItem[] {
+  const target = gmTokenCtrl.getToken(declaration.target_id) ?? tokenCtrl.getToken(declaration.target_id);
+  const answersForTarget = target !== null && target.token_type !== 'player';
+  if (declaration.state === 'open' && answersForTarget) {
+    return [
+      {
+        label: 'Parried',
+        title: 'This attack was parried',
+        onSelect: () => answer(declaration.id, true),
+      },
+      {
+        label: 'Not parried',
+        title: 'This attack got through',
+        onSelect: () => answer(declaration.id, false),
+      },
+    ];
+  }
+  // The GM's own attacks are the sourceless ones, and the number is the attacker's to send.
+  if (declaration.state === 'not_parried' && declaration.damage === null && declaration.source_id === null) {
+    return [{ label: 'Damage', title: 'Send the damage you rolled', onSelect: () => showDamageInput(declaration.id) }];
+  }
+  return [];
+}
+
+function answer(declarationId: string, parried: boolean) {
+  ws.send({ type: 'declaration:answer', declarationId, parried });
+  // Back to the token's own menu: the other half of this exchange is somebody else's to send.
+  answeringId = null;
+  tokenMenu.render();
+}
+
+function showDamageInput(declarationId: string) {
+  tokenMenu.showInput({
+    value: '',
+    placeholder: 'Damage',
+    maxLength: 3,
+    inputMode: 'numeric',
+    onCommit: (value) => {
+      const damage = Number(value);
+      // The server checks this too, and its answer is what the table sees (principle 2). This only
+      // keeps a stray letter from becoming a message.
+      if (Number.isInteger(damage) && damage >= 0) {
+        ws.send({ type: 'declaration:damage', declarationId, damage });
+      }
+      answeringId = null;
+      tokenMenu.render();
+    },
+    onCancel: () => {
+      answeringId = null;
+      tokenMenu.render();
+    },
+  });
+}
+
+/** A tap on a pip: the menu opens on the token it sits on, narrowed to that one exchange. */
+function answerPip(declarationId: string, tokenId: string) {
+  const declaration = declarations.get(declarationId);
+  // Nothing to offer means nothing to open. A finished exchange is a record, and the pip is
+  // already showing it.
+  if (!declaration || pipItems(declaration).length === 0) return;
+  tokenMenu.select(tokenId);
+  answeringId = declarationId;
+  tokenMenu.render();
+}
 
 // --- The token menu ---
 //
@@ -267,13 +348,18 @@ const tokenMenu = createTokenMenu({
   getRadius: () => tokenRadius,
   getScale: () => viewport.scale,
   onSelectionChange: (tokenId) => {
-    // A half-armed Remove does not survive the GM moving to another token.
+    // A half-armed Remove does not survive the GM moving to another token, and neither does an
+    // exchange that was being answered.
     removeArmed = false;
+    answeringId = null;
     // The marker's menu and this one both hang over the same page, and a token can sit under the
     // marker. `createAnchoredMenu` deliberately does not close siblings, so this is said here.
     if (tokenId !== null) selectStartMarker(false);
   },
   build: (token) => {
+    const answering = answeringId === null ? null : declarations.get(answeringId);
+    if (answering && answering.target_id === token.id) return { items: pipItems(answering) };
+
     const isGmToken = token.token_type === 'monster' || token.token_type === 'npc';
     // A player token offers the GM one thing, and the menu is that one button.
     //
@@ -464,6 +550,11 @@ ws.on('declaration:opened', (msg) => {
   declarations.add(msg.declaration);
   // The menu carries the lit Attack toggle, so the server's echo is what lights it.
   if (tokenMenu.selectedId === msg.declaration.target_id) tokenMenu.render();
+});
+
+ws.on('declaration:updated', (msg) => {
+  declarations.update(msg.declaration);
+  if (tokenMenu.selectedId !== null) tokenMenu.render();
 });
 
 ws.on('declaration:retracted', (msg) => {

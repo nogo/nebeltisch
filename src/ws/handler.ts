@@ -16,7 +16,7 @@ import {
   getGmWsForAdventure,
   getGmSocketsForAdventure,
 } from "./connections";
-import { openDeclaration, getDeclaration, getDeclarationsByImage, deleteDeclaration } from "../db/declarations";
+import { openDeclaration, getDeclaration, getDeclarationsByImage, deleteDeclaration, answerDeclaration, setDeclarationDamage } from "../db/declarations";
 import { parseMessage, serializeMessage } from "./messages";
 
 // ---- Spawn position ----
@@ -247,6 +247,32 @@ export function handleWsUpgrade(
   }
   // Return undefined so Bun completes the WebSocket handshake
   return undefined;
+}
+
+/**
+ * A number a table can plausibly roll. Not a rule — the tool computes nothing with it — just the
+ * boundary check that keeps a typo or a forged message off everybody's screen.
+ */
+const MAX_DAMAGE = 999;
+
+/**
+ * Sends a declaration's new state to the sender and, when its page is the one on the table, to
+ * everybody else. Re-read from the database rather than assembled here, so what the table is shown
+ * is what was stored (principle 2).
+ */
+function publishDeclaration(
+  db: Database,
+  ws: ServerWebSocket<WsData>,
+  topic: string,
+  adventureId: string,
+  declarationId: string
+): void {
+  const declaration = getDeclaration(db, declarationId);
+  if (!declaration) return;
+  const updated = serializeMessage({ type: "declaration:updated", declaration });
+  ws.send(updated);
+  const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
+  if (declaration.image_id === liveImageId) ws.publish(topic, updated);
 }
 
 // ---- WebSocket handlers ----
@@ -964,6 +990,76 @@ export function createWsHandlers(deps: ServerDeps) {
           ws.send(retracted);
           const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
           if (declaration.image_id === liveImageId) ws.publish(topic, retracted);
+          break;
+        }
+
+        case "declaration:answer": {
+          const declaration = getDeclaration(db, msg.declarationId);
+          if (!declaration || !imageBelongsToAdventure(db, declaration.image_id, adventureId)) {
+            ws.send(serializeMessage({ type: "error", message: "Declaration not found" }));
+            break;
+          }
+          // Immutable once answered. A record of what happened is not a control, and only
+          // clearing removes it (#73).
+          if (declaration.state !== "open") {
+            ws.send(serializeMessage({ type: "error", message: "This attack has already been answered" }));
+            break;
+          }
+          const target = getToken(db, declaration.target_id);
+          if (!target) {
+            ws.send(serializeMessage({ type: "error", message: "Token not found" }));
+            break;
+          }
+          // The target's owner answers, and nobody else: a player for their own token, the GM for
+          // every monster and NPC. One writer per object, and the object is the declaration.
+          const answersForTarget =
+            target.token_type === "player"
+              ? conn.role !== "gm" && !!conn.tokenId && conn.tokenId === target.id
+              : conn.role === "gm";
+          if (!answersForTarget) {
+            ws.send(serializeMessage({ type: "error", message: "This attack is not aimed at you" }));
+            break;
+          }
+          answerDeclaration(db, declaration.id, msg.parried === true);
+          publishDeclaration(db, ws, topic, adventureId, declaration.id);
+          break;
+        }
+
+        case "declaration:damage": {
+          const declaration = getDeclaration(db, msg.declarationId);
+          if (!declaration || !imageBelongsToAdventure(db, declaration.image_id, adventureId)) {
+            ws.send(serializeMessage({ type: "error", message: "Declaration not found" }));
+            break;
+          }
+          // Only where a number has a meaning: a parried attack rolled none, and an open one has
+          // not been answered yet. Written once, for the same reason answering is.
+          if (declaration.state !== "not_parried") {
+            ws.send(serializeMessage({ type: "error", message: "No damage to send on this attack" }));
+            break;
+          }
+          if (declaration.damage !== null) {
+            ws.send(serializeMessage({ type: "error", message: "The damage has already been sent" }));
+            break;
+          }
+          // The other half of the pair: the source's owner sends the number they rolled. The GM's
+          // declarations have no source token, and the GM is who owns those.
+          const sendsForSource =
+            declaration.source_id === null
+              ? conn.role === "gm"
+              : conn.role !== "gm" && !!conn.tokenId && conn.tokenId === declaration.source_id;
+          if (!sendsForSource) {
+            ws.send(serializeMessage({ type: "error", message: "This is not your attack" }));
+            break;
+          }
+          // The first client-supplied *number* on the wire. Checked rather than clamped: a 7 that
+          // silently became a 999 would be a lie the table acts on (principle 9, #12).
+          const damage = Number(msg.damage);
+          if (!Number.isInteger(damage) || damage < 0 || damage > MAX_DAMAGE) {
+            ws.send(serializeMessage({ type: "error", message: `Damage must be a whole number from 0 to ${MAX_DAMAGE}` }));
+            break;
+          }
+          setDeclarationDamage(db, declaration.id, damage);
+          publishDeclaration(db, ws, topic, adventureId, declaration.id);
           break;
         }
 

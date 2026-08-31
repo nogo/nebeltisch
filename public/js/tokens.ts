@@ -1,4 +1,4 @@
-import type { Token } from '../../src/types';
+import type { DeclarationState, Token } from '../../src/types';
 import { hasDragged } from './gesture';
 
 /**
@@ -8,6 +8,15 @@ import { hasDragged } from './gesture';
 export type TokenData = Pick<Token, 'id' | 'name' | 'color' | 'x' | 'y' | 'state'> & {
   token_type?: Token['token_type'];
 };
+
+/** One mark on a ring: whose attack it is, how far it has got, and the number if one was sent. */
+export interface TokenPip {
+  /** The declaration this stands for, so a finger landing on it can say which (#73). */
+  id: string;
+  color: string;
+  state: DeclarationState;
+  damage: number | null;
+}
 
 export interface TokenController {
   /** The layer's own canvas, so a caller can hide it without clearing the tokens it holds. */
@@ -21,20 +30,21 @@ export interface TokenController {
   enableDrag(tokenId: string, onMove: (x: number, y: number) => void): void;
   enableDragAll(onMove: (tokenId: string, x: number, y: number) => void): void;
   isDragging(): boolean;
+  /** The pip this layer's current press landed on, if it landed on one. */
+  pressedPip(): string | null;
   /** The token this layer holds under that id, or null when it belongs to the other layer. */
   getToken(tokenId: string): TokenData | null;
   /** Rings the token whose menu is open. Pass null to clear; a foreign id is a no-op. */
   setSelected(tokenId: string | null): void;
   /**
-   * The declarations pointing at each token, as the colours to draw their pips in, in arrival
-   * order (#72). Keyed by target; ids this layer does not hold are ignored, so both layers can be
-   * handed the same map.
+   * The declarations pointing at each token, in arrival order (#72). Keyed by target; ids this
+   * layer does not hold are ignored, so both layers can be handed the same map.
    *
    * The layer knows nothing about who is attacking whom — only that a ring can carry marks. The
    * caller resolves each colour, because it is the one that knows what a sourceless declaration
    * means.
    */
-  setDeclarations(byTarget: Map<string, string[]>): void;
+  setDeclarations(byTarget: Map<string, TokenPip[]>): void;
   render(): void;
   handlePointerDown(ev: PointerEvent): void;
   handlePointerMove(ev: PointerEvent): void;
@@ -57,7 +67,7 @@ const HELD_HALO_PX = 14;
  * A pip is smaller than the token it sits on, so it needs the screen-space floor harder than the
  * token does: drawn in image pixels alone it is a smudge at the zoom a fight is played at.
  */
-const PIP_MIN_PX = 7;
+const PIP_MIN_PX = 9;
 
 /**
  * The shape half of a state: a bar through an unconscious token, a cross through a dead one.
@@ -97,40 +107,91 @@ function drawStateGlyph(
 /**
  * The declarations aimed at a token, as coloured pips around the upper right of its ring (#72).
  *
- * Colour is the entire message: every token carries one, monsters included, so three pips on one
+ * Colour says whose attack it is: every token carries one, monsters included, so three pips on one
  * orc read as three named people with no lines drawn across the map. The upper right is the only
  * side that is free — the name label sits below and the menu hangs above.
+ *
+ * How far the exchange has got is the pip's *filling*, because a glyph at this size is mush (#73):
+ *
+ * - **open** — solid. Nothing has been said about it yet.
+ * - **parried** — hollow, the colour reduced to a ring. Nothing landed, and nothing fills it.
+ * - **not parried** — solid with a hole punched in it: the slot the number goes in.
+ * - **the number** — filling that slot, which is the most useful thing this space can hold.
  *
  * Never faded with the token. An attack declared on something already down is still something the
  * table said, and the fade is about the token, not about what points at it.
  */
+/**
+ * Where a token's pips sit, in image coordinates, in the order they are drawn.
+ *
+ * One function so the thing a finger lands on is the thing an eye sees. They fan out from the
+ * upper right, which is the only side that is free — the name label sits below and the menu above.
+ */
+function pipLayout(
+  x: number,
+  y: number,
+  r: number,
+  scale: number,
+  count: number
+): { x: number; y: number; radius: number }[] {
+  const radius = Math.max(r * 0.36, PIP_MIN_PX / scale);
+  const ring = r + radius * 0.6;
+  const step = (radius * 2.3) / ring;
+  const first = -Math.PI / 4 - (step * (count - 1)) / 2;
+  const spots = [];
+  for (let i = 0; i < count; i++) {
+    const angle = first + step * i;
+    spots.push({ x: x + Math.cos(angle) * ring, y: y + Math.sin(angle) * ring, radius });
+  }
+  return spots;
+}
+
 function drawPips(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
   r: number,
   scale: number,
-  colors: string[]
+  pips: TokenPip[]
 ): void {
-  const pipR = Math.max(r * 0.3, PIP_MIN_PX / scale);
-  const ring = r + pipR * 0.6;
-  const step = (pipR * 2.3) / ring;
-  const first = -Math.PI / 4 - (step * (colors.length - 1)) / 2;
+  const spots = pipLayout(x, y, r, scale, pips.length);
   ctx.save();
-  colors.forEach((color, i) => {
-    const angle = first + step * i;
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.lineJoin = 'round';
+  pips.forEach((pip, i) => {
+    const { x: px, y: py, radius: pipR } = spots[i]!;
+    const parried = pip.state === 'parried';
+
     ctx.beginPath();
-    ctx.arc(x + Math.cos(angle) * ring, y + Math.sin(angle) * ring, pipR, 0, Math.PI * 2);
-    ctx.fillStyle = color;
+    ctx.arc(px, py, pipR, 0, Math.PI * 2);
+    ctx.fillStyle = parried ? 'rgba(12,12,24,0.88)' : pip.color;
     ctx.fill();
-    // Dark then white, the way the name label is outlined: a player's colour has to hold on a
+    // Dark then bright, the way the name label is outlined: a player's colour has to hold on a
     // light map and a dark one alike.
     ctx.strokeStyle = 'rgba(0,0,0,0.55)';
     ctx.lineWidth = Math.max(2, pipR * 0.4);
     ctx.stroke();
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = Math.max(1, pipR * 0.2);
+    ctx.strokeStyle = parried ? pip.color : '#ffffff';
+    ctx.lineWidth = Math.max(1, pipR * 0.22);
     ctx.stroke();
+
+    if (pip.state !== 'not_parried') return;
+    if (pip.damage === null) {
+      ctx.beginPath();
+      ctx.arc(px, py, pipR * 0.34, 0, Math.PI * 2);
+      ctx.fillStyle = 'rgba(12,12,24,0.85)';
+      ctx.fill();
+      return;
+    }
+    const text = String(pip.damage);
+    const size = pipR * (text.length > 2 ? 0.8 : text.length > 1 ? 1.0 : 1.35);
+    ctx.font = `bold ${size}px system-ui, sans-serif`;
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.lineWidth = Math.max(2, pipR * 0.28);
+    ctx.strokeText(text, px, py);
+    ctx.fillStyle = '#ffffff';
+    ctx.fillText(text, px, py);
   });
   ctx.restore();
 }
@@ -146,6 +207,13 @@ export function initTokenLayer(
     insertBefore?: HTMLElement;
     /** A press that lifted without dragging. The token was not moved. */
     onTapToken?: (tokenId: string) => void;
+    /**
+     * A tap that landed on one of a token's pips rather than on the token.
+     *
+     * Pips are tested before tokens and win, because they sit inside the token's own finger-sized
+     * hit area: the ring is where they are drawn, and the grab radius reaches past it.
+     */
+    onTapPip?: (declarationId: string, tokenId: string) => void;
   }
 ): TokenController {
   const getRadius = options?.getRadius ?? (() => DEFAULT_RADIUS);
@@ -178,7 +246,7 @@ export function initTokenLayer(
   let dragAllMode = false;
   let onMoveAnyCallback: ((tokenId: string, x: number, y: number) => void) | null = null;
   let selectedTokenId: string | null = null;
-  let declarations = new Map<string, string[]>();
+  let declarations = new Map<string, TokenPip[]>();
 
   /**
    * The first token whose finger-sized hit area contains this point, own token first.
@@ -186,6 +254,36 @@ export function initTokenLayer(
    * The tie matters: standing on a friend must not cost a player the ability to drag themselves,
    * and their own is the only one they can move.
    */
+  /**
+   * The pip under this point, if a finger landed on one.
+   *
+   * Nearest wins rather than first: pips sit shoulder to shoulder around the ring, so which one was
+   * meant is a question of distance, not of drawing order.
+   */
+  function pipAtPoint(pos: { x: number; y: number }): { pip: TokenPip; token: TokenData } | null {
+    if (declarations.size === 0) return null;
+    const scale = getScale() > 0 ? getScale() : 1;
+    let bestPip: TokenPip | null = null;
+    let bestToken: TokenData | null = null;
+    let bestDistance = Infinity;
+    for (const token of tokens.values()) {
+      const pips = declarations.get(token.id);
+      if (!pips || pips.length === 0) continue;
+      const spots = pipLayout(token.x, token.y, getRadius(), scale, pips.length);
+      for (let i = 0; i < spots.length; i++) {
+        const spot = spots[i]!;
+        const dx = pos.x - spot.x;
+        const dy = pos.y - spot.y;
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        if (distance >= spot.radius || distance >= bestDistance) continue;
+        bestPip = pips[i]!;
+        bestToken = token;
+        bestDistance = distance;
+      }
+    }
+    return bestPip && bestToken ? { pip: bestPip, token: bestToken } : null;
+  }
+
   function tokenAtPoint(pos: { x: number; y: number }): TokenData | null {
     const r = hitRadius();
     let hit: TokenData | null = null;
@@ -289,6 +387,8 @@ export function initTokenLayer(
   let dragTokenId: string | null = null;
   /** Whether the press that took this token may also move it. A tap-only press may not. */
   let pressCanMove = false;
+  /** Set when the press landed on a pip rather than on the token under it. */
+  let pressedPipId: string | null = null;
   let dragFrom: { x: number; y: number } | null = null;
   let hasMoved = false;
   let lastMoveTime = 0;
@@ -326,8 +426,9 @@ export function initTokenLayer(
       onMoveAnyCallback = onMove;
     },
     isDragging() { return dragging; },
+    pressedPip() { return pressedPipId; },
     getToken(tokenId: string) { return tokens.get(tokenId) ?? null; },
-    setDeclarations(byTarget: Map<string, string[]>) {
+    setDeclarations(byTarget: Map<string, TokenPip[]>) {
       declarations = byTarget;
       render();
     },
@@ -340,7 +441,22 @@ export function initTokenLayer(
     render,
 
     handlePointerDown(ev: PointerEvent) {
-      const hit = tokenAtPoint(screenToImage(ev.clientX, ev.clientY));
+      const pos = screenToImage(ev.clientX, ev.clientY);
+      // Pips first. They are drawn on the ring, which the token's grab radius reaches past, so a
+      // token tested first would swallow every one of them.
+      if (options?.onTapPip) {
+        const onPip = pipAtPoint(pos);
+        if (onPip) {
+          dragging = true;
+          dragTokenId = onPip.token.id;
+          pressCanMove = false;
+          pressedPipId = onPip.pip.id;
+          dragFrom = { x: ev.clientX, y: ev.clientY };
+          hasMoved = false;
+          return;
+        }
+      }
+      const hit = tokenAtPoint(pos);
       if (!hit) return;
       // Whether this press may *move* the token is a separate question from whether this layer
       // answers the press at all. A player taps a monster to open its menu and may not drag it, so
@@ -350,6 +466,7 @@ export function initTokenLayer(
       dragging = true;
       dragTokenId = hit.id;
       pressCanMove = canMove;
+      pressedPipId = null;
       dragFrom = { x: ev.clientX, y: ev.clientY };
       hasMoved = false;
       if (canMove) render(); // The halo has to appear on the grab, not on the first movement.
@@ -389,15 +506,18 @@ export function initTokenLayer(
       const tokenId = dragTokenId;
       const moved = hasMoved;
       const couldMove = pressCanMove;
+      const pipId = pressedPipId;
       dragging = false;
       dragFrom = null;
       hasMoved = false;
       dragTokenId = null;
       pressCanMove = false;
+      pressedPipId = null;
       render();
 
       if (!moved) {
-        options?.onTapToken?.(tokenId);
+        if (pipId !== null) options?.onTapPip?.(pipId, tokenId);
+        else options?.onTapToken?.(tokenId);
         return;
       }
 
@@ -417,6 +537,7 @@ export function initTokenLayer(
       dragFrom = null;
       hasMoved = false;
       pressCanMove = false;
+      pressedPipId = null;
       selectedTokenId = null;
       render();
     },

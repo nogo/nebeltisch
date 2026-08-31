@@ -60,6 +60,8 @@ export interface MenuInput {
   value: string;
   placeholder?: string;
   maxLength?: number;
+  /** A number field: the tablet offers a keypad instead of the whole keyboard (#73). */
+  inputMode?: 'numeric';
   /** Enter, or the confirm button. Never called with an empty value. */
   onCommit(value: string): void;
   /** Escape. The caller decides what the menu shows next. */
@@ -165,6 +167,8 @@ export function createAnchoredMenu(parent: HTMLElement, className: string): Anch
       field.autocomplete = 'off';
       if (input.placeholder) field.placeholder = input.placeholder;
       if (input.maxLength) field.maxLength = input.maxLength;
+      // Text, not `type=number`: the spinners are a mouse control and the field is a tablet's.
+      if (input.inputMode) field.inputMode = input.inputMode;
 
       const commit = () => {
         const value = field.value.trim();
