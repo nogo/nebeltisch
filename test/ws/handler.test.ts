@@ -3,6 +3,7 @@ import { startWsTestServer, type WsTestServer } from "../helpers";
 import { createAdventure, getAdventure } from "../../src/db/adventures";
 import { createImageRecord } from "../../src/db/images";
 import { getTokensByAdventure } from "../../src/db/tokens";
+import { getDeclarationsByImage } from "../../src/db/declarations";
 // Fog state is reached through the test server’s own registry, not a module global.
 import { loadFogMask } from "../../src/fog/serialize";
 import { isRevealed } from "../../src/fog/mask";
@@ -1896,4 +1897,266 @@ describe("WebSocket handler", () => {
     const err = await errPromise;
     expect(err.message).toContain("GM");
   });
+
+  // ---- Declaring an attack (#72) ----
+  //
+  // The first thing a *player* writes that is not their own token position, so every test here is
+  // as much about who may write as about what is written. The attacker is never on the wire: the
+  // server reads it off the connection, which is why "a player forging someone else's source" is
+  // not a test — there is no field to put it in.
+
+  describe("declarations", () => {
+    let monsterId: string;
+    let prepImageId: string;
+
+    beforeEach(() => {
+      ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
+      prepImageId = createImageRecord(ts.db, {
+        adventureId,
+        filename: "cellar.png",
+        originalName: "cellar.png",
+        width: 100,
+        height: 100,
+      }).id;
+    });
+
+    async function connectGm() {
+      const gm = track(await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword }));
+      await waitForMessage(gm, "joined");
+      return gm;
+    }
+
+    async function connectPlayer(name: string) {
+      const ws = track(
+        await connectWS(ts.wsUrl, {
+          adventureId,
+          role: "player",
+          playerLink,
+          playerName: name,
+          playerColor: "#ff0000",
+        })
+      );
+      const joined = await waitForMessage(ws, "joined");
+      return { ws, tokenId: joined.yourTokenId as string };
+    }
+
+    /** A monster on the presented page, which is what the party is allowed to attack. */
+    async function placeMonster(gm: WebSocket, name = "Ork", page = imageId) {
+      const added = waitForMessage(gm, "gm_token:added");
+      gm.send(
+        JSON.stringify({ type: "gm_token:place", imageId: page, name, tokenType: "monster", x: 40, y: 40 })
+      );
+      return (await added).token.id as string;
+    }
+
+    it("a player declares on a monster, and the whole table sees it", async () => {
+      const gm = await connectGm();
+      monsterId = await placeMonster(gm);
+      const alice = await connectPlayer("Alice");
+
+      const mine = waitForMessage(alice.ws, "declaration:opened");
+      const theirs = waitForMessage(gm, "declaration:opened");
+      alice.ws.send(JSON.stringify({ type: "declaration:open", targetId: monsterId }));
+
+      const declaration = (await mine).declaration;
+      expect(declaration.source_id).toBe(alice.tokenId);
+      expect(declaration.target_id).toBe(monsterId);
+      expect(declaration.state).toBe("open");
+      expect(declaration.image_id).toBe(imageId);
+      expect((await theirs).declaration.id).toBe(declaration.id);
+    });
+
+    it("the GM declares on a player token, and names no monster to do it", async () => {
+      const gm = await connectGm();
+      const alice = await connectPlayer("Alice");
+
+      const seen = waitForMessage(alice.ws, "declaration:opened");
+      gm.send(JSON.stringify({ type: "declaration:open", targetId: alice.tokenId }));
+
+      const declaration = (await seen).declaration;
+      // Sourceless is what makes it the GM's, and it is the only thing that says so.
+      expect(declaration.source_id).toBeNull();
+      expect(declaration.target_id).toBe(alice.tokenId);
+    });
+
+    it("a player cannot attack another player, and the GM cannot attack a monster", async () => {
+      const gm = await connectGm();
+      monsterId = await placeMonster(gm);
+      const alice = await connectPlayer("Alice");
+      const bob = await connectPlayer("Bob");
+
+      const refused = waitForMessage(alice.ws, "error");
+      alice.ws.send(JSON.stringify({ type: "declaration:open", targetId: bob.tokenId }));
+      await refused;
+
+      const refusedGm = waitForMessage(gm, "error");
+      gm.send(JSON.stringify({ type: "declaration:open", targetId: monsterId }));
+      await refusedGm;
+
+      expect(getDeclarationsByImage(ts.db, imageId)).toEqual([]);
+    });
+
+    it("declaring again replaces the open one rather than adding a second", async () => {
+      const gm = await connectGm();
+      const first = await placeMonster(gm, "Ork 1");
+      const second = await placeMonster(gm, "Ork 2");
+      const alice = await connectPlayer("Alice");
+
+      const opened = waitForMessage(alice.ws, "declaration:opened");
+      const gmSaw = waitForMessage(gm, "declaration:opened");
+      alice.ws.send(JSON.stringify({ type: "declaration:open", targetId: first }));
+      const firstId = (await opened).declaration.id;
+      await gmSaw;
+
+      const retracted = waitForMessage(gm, "declaration:retracted");
+      const reopened = waitForMessage(gm, "declaration:opened");
+      alice.ws.send(JSON.stringify({ type: "declaration:open", targetId: second }));
+      // The pip that went away is announced, so a mis-tap corrects itself on every screen.
+      expect((await retracted).declarationId).toBe(firstId);
+      expect((await reopened).declaration.target_id).toBe(second);
+
+      const rows = getDeclarationsByImage(ts.db, imageId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0]!.target_id).toBe(second);
+    });
+
+    it("the GM holds one open attack per player, not one in total", async () => {
+      const gm = await connectGm();
+      const alice = await connectPlayer("Alice");
+      const bob = await connectPlayer("Bob");
+
+      for (const target of [alice.tokenId, bob.tokenId]) {
+        const opened = waitForMessage(gm, "declaration:opened");
+        gm.send(JSON.stringify({ type: "declaration:open", targetId: target }));
+        await opened;
+      }
+      expect(getDeclarationsByImage(ts.db, imageId)).toHaveLength(2);
+
+      // A second one on Alice replaces hers and leaves Bob's alone.
+      const replaced = waitForMessage(gm, "declaration:retracted");
+      gm.send(JSON.stringify({ type: "declaration:open", targetId: alice.tokenId }));
+      await replaced;
+      expect(getDeclarationsByImage(ts.db, imageId)).toHaveLength(2);
+    });
+
+    it("only the one who declared can retract it", async () => {
+      const gm = await connectGm();
+      monsterId = await placeMonster(gm);
+      const alice = await connectPlayer("Alice");
+      const bob = await connectPlayer("Bob");
+
+      const opened = waitForMessage(alice.ws, "declaration:opened");
+      alice.ws.send(JSON.stringify({ type: "declaration:open", targetId: monsterId }));
+      const declarationId = (await opened).declaration.id;
+
+      const bobRefused = waitForMessage(bob.ws, "error");
+      bob.ws.send(JSON.stringify({ type: "declaration:retract", declarationId }));
+      await bobRefused;
+
+      // Not even the GM: the GM's own are the sourceless ones.
+      const gmRefused = waitForMessage(gm, "error");
+      gm.send(JSON.stringify({ type: "declaration:retract", declarationId }));
+      await gmRefused;
+      expect(getDeclarationsByImage(ts.db, imageId)).toHaveLength(1);
+
+      const gone = waitForMessage(gm, "declaration:retracted");
+      alice.ws.send(JSON.stringify({ type: "declaration:retract", declarationId }));
+      expect((await gone).declarationId).toBe(declarationId);
+      expect(getDeclarationsByImage(ts.db, imageId)).toEqual([]);
+    });
+
+    it("a player cannot retract the GM's declaration on them", async () => {
+      const gm = await connectGm();
+      const alice = await connectPlayer("Alice");
+
+      const opened = waitForMessage(alice.ws, "declaration:opened");
+      gm.send(JSON.stringify({ type: "declaration:open", targetId: alice.tokenId }));
+      const declarationId = (await opened).declaration.id;
+
+      const refused = waitForMessage(alice.ws, "error");
+      alice.ws.send(JSON.stringify({ type: "declaration:retract", declarationId }));
+      await refused;
+      expect(getDeclarationsByImage(ts.db, imageId)).toHaveLength(1);
+    });
+
+    it("a declaration is waiting after a reload", async () => {
+      const gm = await connectGm();
+      monsterId = await placeMonster(gm);
+      const alice = await connectPlayer("Alice");
+
+      const opened = waitForMessage(alice.ws, "declaration:opened");
+      alice.ws.send(JSON.stringify({ type: "declaration:open", targetId: monsterId }));
+      const declarationId = (await opened).declaration.id;
+
+      // The reload: same player, same link, a new socket. What they are told on arrival is the
+      // only thing that can put the fight back on their screen.
+      await closeWs(alice.ws);
+      const again = track(
+        await connectWS(ts.wsUrl, {
+          adventureId, role: "player", playerLink, playerName: "Alice", playerColor: "#ff0000",
+        })
+      );
+      const joined = await waitForMessage(again, "joined");
+      expect(joined.declarations.map((d: any) => d.id)).toEqual([declarationId]);
+    });
+
+    it("a page switch hides the fight, and coming back shows it again", async () => {
+      const gm = await connectGm();
+      monsterId = await placeMonster(gm);
+      const alice = await connectPlayer("Alice");
+
+      const opened = waitForMessage(alice.ws, "declaration:opened");
+      alice.ws.send(JSON.stringify({ type: "declaration:open", targetId: monsterId }));
+      const declarationId = (await opened).declaration.id;
+
+      const away = waitForMessage(alice.ws, "map:switched");
+      gm.send(JSON.stringify({ type: "map:switch", imageId: prepImageId }));
+      expect((await away).declarations).toEqual([]);
+
+      const back = waitForMessage(alice.ws, "map:switched");
+      gm.send(JSON.stringify({ type: "map:switch", imageId }));
+      expect((await back).declarations.map((d: any) => d.id)).toEqual([declarationId]);
+    });
+
+    it("nothing can be declared while nothing is on the table", async () => {
+      const gm = await connectGm();
+      monsterId = await placeMonster(gm);
+      const alice = await connectPlayer("Alice");
+
+      const cleared = waitForMessage(alice.ws, "map:unpresented");
+      gm.send(JSON.stringify({ type: "map:unpresent" }));
+      await cleared;
+
+      const refused = waitForMessage(alice.ws, "error");
+      alice.ws.send(JSON.stringify({ type: "declaration:open", targetId: monsterId }));
+      await refused;
+      expect(getDeclarationsByImage(ts.db, imageId)).toEqual([]);
+    });
+
+    it("removing a token takes its declarations with it, as target and as source", async () => {
+      const gm = await connectGm();
+      monsterId = await placeMonster(gm);
+      const alice = await connectPlayer("Alice");
+
+      // Alice on the Ork, the GM on Alice: one declaration pointing each way.
+      const first = waitForMessage(gm, "declaration:opened");
+      alice.ws.send(JSON.stringify({ type: "declaration:open", targetId: monsterId }));
+      await first;
+      const second = waitForMessage(gm, "declaration:opened");
+      gm.send(JSON.stringify({ type: "declaration:open", targetId: alice.tokenId }));
+      await second;
+      expect(getDeclarationsByImage(ts.db, imageId)).toHaveLength(2);
+
+      // No handler code does this — the foreign keys cascade.
+      const removed = waitForMessage(gm, "token:removed");
+      gm.send(JSON.stringify({ type: "gm_token:remove", tokenId: monsterId }));
+      await removed;
+      expect(getDeclarationsByImage(ts.db, imageId)).toHaveLength(1);
+
+      gm.send(JSON.stringify({ type: "player:remove", tokenId: alice.tokenId }));
+      await new Promise((r) => setTimeout(r, 120));
+      expect(getDeclarationsByImage(ts.db, imageId)).toEqual([]);
+    });
+  });
+
 });

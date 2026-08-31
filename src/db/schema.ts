@@ -91,6 +91,40 @@ export function createSchema(db: Database): void {
     );
   `);
 
+  // What somebody said out loud, kept until it is cleared: this token is attacking that one (#62).
+  //
+  // All three foreign keys cascade, and that is the whole of "a declaration dies with its tokens
+  // and with its page" — there is no handler code for it. `source_id` is null for the GM's, which
+  // is why it is nullable rather than pointing at a monster (#72).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS declarations (
+      id TEXT PRIMARY KEY,
+      image_id TEXT NOT NULL REFERENCES images(id) ON DELETE CASCADE,
+      source_id TEXT NULL REFERENCES tokens(id) ON DELETE CASCADE,
+      target_id TEXT NOT NULL REFERENCES tokens(id) ON DELETE CASCADE,
+      state TEXT NOT NULL DEFAULT 'open',
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+
+  // One open declaration per attacker, in the database rather than in a handler: declaring again
+  // replaces the open one, and that is how a mis-tap is corrected and how a target is changed.
+  //
+  // Two indexes because the GM has no source token. A player's attacker is their token; the GM's
+  // is the GM, who may have one open attack on each of several players at once — so for those the
+  // target is what there can only be one of. The `state = 'open'` predicate is what lets an
+  // answered declaration stay behind once #73 writes one.
+  db.run(`
+    CREATE UNIQUE INDEX IF NOT EXISTS declarations_one_open_per_source
+      ON declarations(source_id)
+      WHERE source_id IS NOT NULL AND state = 'open'
+  `);
+  db.run(`
+    CREATE UNIQUE INDEX IF NOT EXISTS declarations_one_open_gm_per_target
+      ON declarations(target_id)
+      WHERE source_id IS NULL AND state = 'open'
+  `);
+
   // Unique index prevents duplicate tokens per player per adventure
   db.run(`
     CREATE UNIQUE INDEX IF NOT EXISTS tokens_adventure_player_link

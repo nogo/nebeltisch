@@ -7,6 +7,7 @@ import { initPingLayer } from './ping';
 import { createViewport } from './viewport';
 import { createAnchoredMenu } from './anchored-menu';
 import { createTokenMenu } from './token-menu';
+import { createDeclarations } from './declarations';
 import type { MenuItem } from './anchored-menu';
 import type { FogStroke } from './canvas';
 import type { TokenState } from '../../src/types';
@@ -247,6 +248,12 @@ tokenCtrl.enableDragAll((tokenId, x, y) => {
   ws.send({ type: 'token:move', tokenId, x, y });
 });
 
+// --- Declarations ---
+//
+// The presented page's, whichever page the GM has selected: the pips are drawn on the tokens they
+// point at, so a page the GM is only preparing has none of them in its layers and shows nothing.
+const declarations = createDeclarations([gmTokenCtrl, tokenCtrl]);
+
 // --- The token menu ---
 //
 // The menu itself is `token-menu.ts`, shared with the player client: which layer holds the token,
@@ -268,9 +275,33 @@ const tokenMenu = createTokenMenu({
   },
   build: (token) => {
     const isGmToken = token.token_type === 'monster' || token.token_type === 'npc';
+    // A player token offers the GM one thing, and the menu is that one button.
+    //
+    // No name: it is already written under the circle, and the menu repeating it says nothing the
+    // GM cannot see. No states either — a player reports being down, and the GM adjudicating it
+    // from here was a guess #61 made about a table that does not work that way.
+    if (!isGmToken) {
+      const open = declarations.openOn(token.id, null);
+      return {
+        items: [
+          {
+            label: 'Attack',
+            // Lit while it stands, and the same press takes it back, so no press is ever a no-op
+            // and taking one back needs no control of its own.
+            current: open !== null,
+            title: open ? 'Attacking — tap to take it back' : `Declare an attack on ${token.name}`,
+            onSelect: () => {
+              removeArmed = false;
+              if (open) ws.send({ type: 'declaration:retract', declarationId: open.id });
+              else ws.send({ type: 'declaration:open', targetId: token.id });
+            },
+          },
+        ],
+      };
+    }
+
     const state = token.state;
-    // On every token, the party's included: the GM adjudicates a player's unconsciousness too, and
-    // is the only one who can. Nothing here sets a state on its own — a press is the whole story.
+    // Nothing here sets a state on its own — a press is the whole story.
     const items: MenuItem[] = TOKEN_STATES.map(({ value, label, icon }) => {
       const lit = value === state;
       return {
@@ -285,41 +316,38 @@ const tokenMenu = createTokenMenu({
         },
       };
     });
-    if (isGmToken) {
-      items.push(
-        removeArmed
-          ? {
-              // Words, not the icon, for the press that actually destroys something: a second tap
-              // on the same glyph would look like the first one failed.
-              label: 'Remove?',
-              armed: true,
-              title: 'Tap again to remove this token',
-              onSelect: () => {
-                ws.send({ type: 'gm_token:remove', tokenId: token.id });
-                tokenMenu.select(null);
-              },
-            }
-          : {
-              label: 'Remove',
-              icon: trashIconTemplate,
-              title: 'Remove this token',
-              onSelect: () => {
-                removeArmed = true;
-                tokenMenu.render();
-              },
-            }
-      );
-    }
-    // The name is the confirmation of *which* token was hit — in a cluster the labels under the
-    // circles overlap, and the ring alone says "one of these". On a monster it is also the control
-    // that renames it, so the edit happens on the name rather than beside it.
+    items.push(
+      removeArmed
+        ? {
+            // Words, not the icon, for the press that actually destroys something: a second tap on
+            // the same glyph would look like the first one failed.
+            label: 'Remove?',
+            armed: true,
+            title: 'Tap again to remove this token',
+            onSelect: () => {
+              ws.send({ type: 'gm_token:remove', tokenId: token.id });
+              tokenMenu.select(null);
+            },
+          }
+        : {
+            label: 'Remove',
+            icon: trashIconTemplate,
+            title: 'Remove this token',
+            onSelect: () => {
+              removeArmed = true;
+              tokenMenu.render();
+            },
+          }
+    );
+    // A monster's name is also the control that renames it, so the edit happens on the name rather
+    // than beside it. Numbering three orcs is what makes the party able to name one.
     return {
       items,
       label: {
         text: token.name,
-        icon: isGmToken ? pencilIconTemplate : undefined,
-        title: isGmToken ? 'Rename' : undefined,
-        onSelect: isGmToken ? () => showTokenRename(token.id, token.name) : undefined,
+        icon: pencilIconTemplate,
+        title: 'Rename',
+        onSelect: () => showTokenRename(token.id, token.name),
       },
     };
   },
@@ -373,6 +401,8 @@ ws.on('joined', async (msg) => {
   for (const token of msg.tokens) {
     if (token.token_type !== 'monster' && token.token_type !== 'npc') tokenCtrl.addToken(token);
   }
+  // After the tokens: a pip is drawn in its attacker's colour, which is read off their token.
+  declarations.replace(msg.declarations);
 
   syncStartPointFromImageList();
   renderPresence(playerRoster);
@@ -410,6 +440,9 @@ ws.on('token:removed', (msg) => {
   if (tokenMenu.selectedId === id) tokenMenu.select(null);
   tokenCtrl.removeToken(id);
   gmTokenCtrl.removeToken(id);
+  // The server has already cascaded these away. Without it a dead orc's pip stays on the player it
+  // was attacking until the next page switch.
+  declarations.dropToken(id);
 });
 
 ws.on('token:renamed', (msg) => {
@@ -425,6 +458,17 @@ ws.on('token:state:set', (msg) => {
   tokenCtrl.setTokenState(msg.tokenId, msg.state);
   // The menu marks the state the token is in, so the server's echo is what moves the mark.
   if (tokenMenu.selectedId === msg.tokenId) tokenMenu.render();
+});
+
+ws.on('declaration:opened', (msg) => {
+  declarations.add(msg.declaration);
+  // The menu carries the lit Attack toggle, so the server's echo is what lights it.
+  if (tokenMenu.selectedId === msg.declaration.target_id) tokenMenu.render();
+});
+
+ws.on('declaration:retracted', (msg) => {
+  declarations.remove(msg.declarationId);
+  if (tokenMenu.selectedId !== null) tokenMenu.render();
 });
 
 ws.on('player:roster', (msg) => {
@@ -471,11 +515,14 @@ ws.on('map:switched', async (msg) => {
   const movedPlayers = msg.playerTokens;
   for (const t of movedPlayers ?? []) tokenCtrl.moveToken(t.id, t.x, t.y);
   tokenCtrl.render();
+  // A fight belongs to the page it was declared on, so the new page brings its own or none.
+  declarations.replace(msg.declarations);
 });
 
 ws.on('map:unpresented', () => {
   activeImageId = null;
   pingCtrl.clear();
+  declarations.replace([]);
   // The GM keeps the page they were working on and the view they were at. Only the table emptied,
   // and the badge, the lamp and the button are what say so.
   board.setLive(null);

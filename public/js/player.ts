@@ -2,6 +2,8 @@ import { connectPlayer } from './websocket';
 import { initCanvas } from './canvas';
 import { initTokenLayer } from './tokens';
 import { initPingLayer } from './ping';
+import { createTokenMenu } from './token-menu';
+import { createDeclarations } from './declarations';
 import { createViewport } from './viewport';
 import { initVeil } from './veil';
 import * as api from './api';
@@ -167,7 +169,6 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
   let tokenRadius = 20;
   let activeImageId: string | null = null;
   let ownTokenId: string | null = null;
-  let ownTokenPos: { x: number; y: number } | null = null;
   let imageList: api.ImageRecord[] = [];
 
   const canvasCtrl = initCanvas(canvasArea, { mode: 'player' });
@@ -186,9 +187,15 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     (x, y) => viewport.screenToImage(x, y),
     // One token size per adventure, so this layer reads the same `tokenRadius` the party's layer
     // does. Without it monsters drew at `DEFAULT_RADIUS` on players' screens for the whole session
-    // — invisible from the seat the slider lives on (#45). No `getScale`: it feeds hit-testing and
-    // the held halo, and this layer is neither interactive nor draggable.
-    { interactive: false, insertBefore: canvasCtrl.getFogCanvas(), getRadius: () => tokenRadius }
+    // — invisible from the seat the slider lives on (#45). `getScale` feeds the finger-sized hit
+    // floor: a monster cannot be dragged here, but it is tapped to open its menu (#72).
+    {
+      interactive: false,
+      insertBefore: canvasCtrl.getFogCanvas(),
+      getRadius: () => tokenRadius,
+      getScale: () => viewport.scale,
+      onTapToken: (tokenId) => tokenMenu.toggle(tokenId),
+    }
   );
 
   const pingCtrl = initPingLayer(
@@ -204,6 +211,52 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     { interactive: true, getRadius: () => tokenRadius, getScale: () => viewport.scale }
   );
 
+  // --- Declarations and the token menu ---
+  //
+  // The same menu the GM opens, holding the one thing a player has to say: an attack on the
+  // monster under their finger. A player owns one token, so the attacker is never chosen — tapping
+  // the target is the whole gesture (#72).
+  //
+  // On the monsters only. The party's own layer passes no `onTapToken`, so tapping a friend opens
+  // nothing: player against player is out of scope, and a menu offering nothing is not a menu.
+  // Which token was hit is answered by the name already drawn under the circle.
+  const declarations = createDeclarations([tokenCtrl, gmTokenCtrl]);
+
+  const tokenMenu = createTokenMenu({
+    parent: canvasCtrl.getWrapper(),
+    layers: [gmTokenCtrl],
+    getRadius: () => tokenRadius,
+    getScale: () => viewport.scale,
+    build: (token) => {
+      const open = ownTokenId === null ? null : declarations.openOn(token.id, ownTokenId);
+      return {
+        items:
+          ownTokenId === null
+            ? []
+            : [
+                {
+                  label: 'Attack',
+                  // Lit while it stands, and the same press takes it back. Declaring on another
+                  // monster replaces it, so a mis-tap costs one tap either way.
+                  current: open !== null,
+                  title: open
+                    ? 'Attacking — tap to take it back'
+                    : `Declare an attack on ${token.name}`,
+                  onSelect: () => {
+                    if (open) ws.send({ type: 'declaration:retract', declarationId: open.id });
+                    else ws.send({ type: 'declaration:open', targetId: token.id });
+                  },
+                },
+              ],
+      };
+    },
+  });
+
+  // The menu counter-scales, so zooming has to re-apply it.
+  viewport.onChange(() => {
+    if (tokenMenu.selectedId !== null) tokenMenu.render();
+  });
+
   const LONG_PRESS_DELAY = 400;
   const PING_RATE_LIMIT = 1000;
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
@@ -215,24 +268,21 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     longPressStartPos = null;
   }
 
-  function isOnOwnToken(clientX: number, clientY: number): boolean {
-    if (!ownTokenId || !ownTokenPos) return false;
-    const pos = viewport.screenToImage(clientX, clientY);
-    const dx = pos.x - ownTokenPos.x;
-    const dy = pos.y - ownTokenPos.y;
-    // Must match the grab radius in tokens.ts, or a tap can start a drag and a
-    // ping at once: the token moves and a marker fires under the finger.
-    const scale = viewport.scale;
-    const r = Math.max(tokenRadius, 22 / (scale > 0 ? scale : 1));
-    return dx * dx + dy * dy <= r * r;
-  }
-
   const ws = connectPlayer(adventureId, playerLink, playerName, playerColor);
 
   viewport.onInteractStart(ev => {
+    // The party's layer first, then the monsters below it — the same precedence the GM's board
+    // takes. A press either lands on a token or it does not, and the layers are what decide.
     tokenCtrl.handlePointerDown(ev);
+    if (!tokenCtrl.isDragging()) gmTokenCtrl.handlePointerDown(ev);
 
-    if (!isOnOwnToken(ev.clientX, ev.clientY)) {
+    // The menu belongs to the monster it was opened on, so only a press that reaches that layer
+    // keeps it — picking up my own token dismisses it like a press on the map does.
+    if (!gmTokenCtrl.isDragging()) tokenMenu.select(null);
+
+    if (!tokenCtrl.isDragging() && !gmTokenCtrl.isDragging()) {
+      // Asking the layers replaces the copy of the grab radius this used to keep: a token that was
+      // picked up must never also drop a marker under the finger.
       longPressStartPos = { x: ev.clientX, y: ev.clientY };
       longPressTimer = setTimeout(() => {
         longPressTimer = null;
@@ -248,6 +298,7 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
 
   viewport.onPointerMove(ev => {
     tokenCtrl.handlePointerMove(ev);
+    gmTokenCtrl.handlePointerMove(ev);
 
     if (longPressTimer !== null && longPressStartPos !== null) {
       const dx = ev.clientX - longPressStartPos.x;
@@ -259,6 +310,7 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
   viewport.onInteractEnd(() => {
     cancelLongPress();
     tokenCtrl.handlePointerUp();
+    gmTokenCtrl.handlePointerUp();
   });
 
   ws.on('joined', async (msg) => {
@@ -298,19 +350,19 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
         gmTokenCtrl.addToken(token);
       } else {
         tokenCtrl.addToken(token);
-        if (token.id === ownTokenId) ownTokenPos = { x: token.x, y: token.y };
       }
     }
 
     if (ownTokenId) {
       const tid = ownTokenId;
       tokenCtrl.enableDrag(tid, (x, y) => {
-        ownTokenPos = { x, y };
         ws.send({ type: 'token:move', tokenId: tid, x, y });
       });
     }
 
     tokenCtrl.render();
+    // After the tokens: a pip is drawn in its attacker's colour, read off their token.
+    declarations.replace(msg.declarations);
   });
 
   ws.on('fog:stroke', (msg) => {
@@ -337,10 +389,10 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     const tokenId = msg.tokenId;
     const x = msg.x;
     const y = msg.y;
-    if (tokenId === ownTokenId) ownTokenPos = { x, y };
     // The id lives in exactly one controller; moveToken no-ops on the other.
     tokenCtrl.moveToken(tokenId, x, y);
     gmTokenCtrl.moveToken(tokenId, x, y);
+    if (tokenMenu.selectedId === tokenId) tokenMenu.render();
   });
 
   ws.on('token:added', (msg) => {
@@ -354,8 +406,11 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
 
   ws.on('token:removed', (msg) => {
     const id = msg.tokenId;
+    if (tokenMenu.selectedId === id) tokenMenu.select(null);
     tokenCtrl.removeToken(id);
     gmTokenCtrl.removeToken(id);
+    // The server has already cascaded these away; this is the same removal on screen.
+    declarations.dropToken(id);
   });
 
   // The party reads monster names off the map — three orcs are only distinguishable once the GM
@@ -363,6 +418,8 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
   ws.on('token:renamed', (msg) => {
     gmTokenCtrl.renameToken(msg.tokenId, msg.name);
     tokenCtrl.renameToken(msg.tokenId, msg.name);
+    // The menu names the token it is open on, and the Attack label names it again.
+    if (tokenMenu.selectedId === msg.tokenId) tokenMenu.render();
   });
 
   // A dead orc has to look dead here, or the party keeps planning around it. Player tokens too:
@@ -370,6 +427,17 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
   ws.on('token:state:set', (msg) => {
     gmTokenCtrl.setTokenState(msg.tokenId, msg.state);
     tokenCtrl.setTokenState(msg.tokenId, msg.state);
+  });
+
+  ws.on('declaration:opened', (msg) => {
+    declarations.add(msg.declaration);
+    // The menu carries the lit Attack toggle, so the server's echo is what lights it.
+    if (tokenMenu.selectedId === msg.declaration.target_id) tokenMenu.render();
+  });
+
+  ws.on('declaration:retracted', (msg) => {
+    declarations.remove(msg.declarationId);
+    if (tokenMenu.selectedId !== null) tokenMenu.render();
   });
 
   ws.on('ping:map', (msg) => {
@@ -381,11 +449,14 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     tokenCtrl.render();
     // Both layers, or monsters keep the old size until the next map switch happens to repaint them.
     gmTokenCtrl.render();
+    // The strip hangs clear of the circle, and the circle just changed size.
+    if (tokenMenu.selectedId !== null) tokenMenu.render();
   });
 
   ws.on('map:switched', async (msg) => {
     activeImageId = msg.imageId;
     pingCtrl.clear();
+    tokenMenu.select(null);
     try {
       imageList = await api.listImagesAsPlayer(adventureId, playerLink);
     } catch {}
@@ -403,18 +474,21 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     const movedPlayers = msg.playerTokens;
     for (const t of movedPlayers ?? []) {
       tokenCtrl.moveToken(t.id, t.x, t.y);
-      if (t.id === ownTokenId) ownTokenPos = { x: t.x, y: t.y };
     }
     tokenCtrl.render();
     // Swap GM tokens for the new map
     gmTokenCtrl.clear();
     const newGmTokens = msg.gmTokens;
     for (const t of newGmTokens ?? []) gmTokenCtrl.addToken(t);
+    // A fight belongs to the page it was declared on, so the new page brings its own or none.
+    declarations.replace(msg.declarations);
   });
 
   ws.on('map:unpresented', () => {
     activeImageId = null;
     pingCtrl.clear();
+    tokenMenu.select(null);
+    declarations.replace([]);
     // Monsters belong to the page that just left. Player tokens stay in the layer: the party did
     // not move, and the next page presented decides where they stand.
     gmTokenCtrl.clear();

@@ -65,6 +65,29 @@ export interface Token {
   created_at: string;
 }
 
+/**
+ * One thing somebody said out loud: this token is attacking that one.
+ *
+ * Nothing is computed from it and nothing else is stored — the dice are on the table and the
+ * arithmetic is on paper. It exists because a voice call loses "I hit the left orc" when three
+ * people say it at once (#62).
+ *
+ * `source_id` is null for the GM's. A player owns one token, so their source names itself and is
+ * worth drawing: three pips on one orc are Imion's, Alrik's and Layariel's. The GM owns every
+ * monster, and which of them swings is something the GM says out loud anyway — a pip on a player
+ * token means "you are being attacked", and that is the whole of what it has to carry.
+ */
+export interface Declaration {
+  id: string;
+  image_id: string;
+  /** The attacking token, or null when the GM declared it. */
+  source_id: string | null;
+  target_id: string;
+  /** Only 'open' is ever written here; answering is #73. */
+  state: 'open';
+  created_at: string;
+}
+
 export interface WsData {
   adventureId: string;
   role: "gm" | "player";

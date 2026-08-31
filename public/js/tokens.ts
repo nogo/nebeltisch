@@ -25,6 +25,16 @@ export interface TokenController {
   getToken(tokenId: string): TokenData | null;
   /** Rings the token whose menu is open. Pass null to clear; a foreign id is a no-op. */
   setSelected(tokenId: string | null): void;
+  /**
+   * The declarations pointing at each token, as the colours to draw their pips in, in arrival
+   * order (#72). Keyed by target; ids this layer does not hold are ignored, so both layers can be
+   * handed the same map.
+   *
+   * The layer knows nothing about who is attacking whom — only that a ring can carry marks. The
+   * caller resolves each colour, because it is the one that knows what a sourceless declaration
+   * means.
+   */
+  setDeclarations(byTarget: Map<string, string[]>): void;
   render(): void;
   handlePointerDown(ev: PointerEvent): void;
   handlePointerMove(ev: PointerEvent): void;
@@ -43,6 +53,11 @@ const MIN_TOUCH_PX = 22;
  * appear to change while being moved.
  */
 const HELD_HALO_PX = 14;
+/**
+ * A pip is smaller than the token it sits on, so it needs the screen-space floor harder than the
+ * token does: drawn in image pixels alone it is a smudge at the zoom a fight is played at.
+ */
+const PIP_MIN_PX = 7;
 
 /**
  * The shape half of a state: a bar through an unconscious token, a cross through a dead one.
@@ -76,6 +91,47 @@ function drawStateGlyph(
   ctx.strokeStyle = '#ffffff';
   ctx.lineWidth = Math.max(2, r * 0.18);
   ctx.stroke();
+  ctx.restore();
+}
+
+/**
+ * The declarations aimed at a token, as coloured pips around the upper right of its ring (#72).
+ *
+ * Colour is the entire message: every token carries one, monsters included, so three pips on one
+ * orc read as three named people with no lines drawn across the map. The upper right is the only
+ * side that is free — the name label sits below and the menu hangs above.
+ *
+ * Never faded with the token. An attack declared on something already down is still something the
+ * table said, and the fade is about the token, not about what points at it.
+ */
+function drawPips(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  r: number,
+  scale: number,
+  colors: string[]
+): void {
+  const pipR = Math.max(r * 0.3, PIP_MIN_PX / scale);
+  const ring = r + pipR * 0.6;
+  const step = (pipR * 2.3) / ring;
+  const first = -Math.PI / 4 - (step * (colors.length - 1)) / 2;
+  ctx.save();
+  colors.forEach((color, i) => {
+    const angle = first + step * i;
+    ctx.beginPath();
+    ctx.arc(x + Math.cos(angle) * ring, y + Math.sin(angle) * ring, pipR, 0, Math.PI * 2);
+    ctx.fillStyle = color;
+    ctx.fill();
+    // Dark then white, the way the name label is outlined: a player's colour has to hold on a
+    // light map and a dark one alike.
+    ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+    ctx.lineWidth = Math.max(2, pipR * 0.4);
+    ctx.stroke();
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = Math.max(1, pipR * 0.2);
+    ctx.stroke();
+  });
   ctx.restore();
 }
 
@@ -122,6 +178,26 @@ export function initTokenLayer(
   let dragAllMode = false;
   let onMoveAnyCallback: ((tokenId: string, x: number, y: number) => void) | null = null;
   let selectedTokenId: string | null = null;
+  let declarations = new Map<string, string[]>();
+
+  /**
+   * The first token whose finger-sized hit area contains this point, own token first.
+   *
+   * The tie matters: standing on a friend must not cost a player the ability to drag themselves,
+   * and their own is the only one they can move.
+   */
+  function tokenAtPoint(pos: { x: number; y: number }): TokenData | null {
+    const r = hitRadius();
+    let hit: TokenData | null = null;
+    for (const token of tokens.values()) {
+      const dx = pos.x - token.x;
+      const dy = pos.y - token.y;
+      if (dx * dx + dy * dy >= r * r) continue;
+      if (token.id === ownTokenId) return token;
+      if (!hit) hit = token;
+    }
+    return hit;
+  }
 
   function render() {
     const { w, h } = getImageSize();
@@ -137,7 +213,7 @@ export function initTokenLayer(
       const isGmToken = token.token_type === 'monster' || token.token_type === 'npc';
       const down = token.state !== 'alive';
 
-      if ((dragging && token.id === dragTokenId) || token.id === selectedTokenId) {
+      if ((dragging && pressCanMove && token.id === dragTokenId) || token.id === selectedTokenId) {
         const s = getScale() > 0 ? getScale() : 1;
         ctx.save();
         ctx.beginPath();
@@ -183,6 +259,11 @@ export function initTokenLayer(
       // which kind of out, and at fight zoom a fade on its own is a guess.
       if (token.state !== 'alive') drawStateGlyph(ctx, token.x, token.y, r, token.state);
 
+      const pips = declarations.get(token.id);
+      if (pips && pips.length > 0) {
+        drawPips(ctx, token.x, token.y, r, getScale() > 0 ? getScale() : 1, pips);
+      }
+
       // Name label below circle
       ctx.save();
       ctx.font = `bold ${FONT_SIZE}px system-ui, sans-serif`;
@@ -206,6 +287,8 @@ export function initTokenLayer(
   // actually *moved* is a separate question, and the one that decides between a tap and a drag.
   let dragging = false;
   let dragTokenId: string | null = null;
+  /** Whether the press that took this token may also move it. A tap-only press may not. */
+  let pressCanMove = false;
   let dragFrom: { x: number; y: number } | null = null;
   let hasMoved = false;
   let lastMoveTime = 0;
@@ -244,6 +327,10 @@ export function initTokenLayer(
     },
     isDragging() { return dragging; },
     getToken(tokenId: string) { return tokens.get(tokenId) ?? null; },
+    setDeclarations(byTarget: Map<string, string[]>) {
+      declarations = byTarget;
+      render();
+    },
     setSelected(tokenId: string | null) {
       const next = tokenId !== null && tokens.has(tokenId) ? tokenId : null;
       if (next === selectedTokenId) return;
@@ -253,37 +340,19 @@ export function initTokenLayer(
     render,
 
     handlePointerDown(ev: PointerEvent) {
-      const pos = screenToImage(ev.clientX, ev.clientY);
-
-      const r = hitRadius();
-
-      if (dragAllMode) {
-        for (const token of tokens.values()) {
-          const dx = pos.x - token.x;
-          const dy = pos.y - token.y;
-          if (Math.sqrt(dx * dx + dy * dy) < r) {
-            dragging = true;
-            dragTokenId = token.id;
-            dragFrom = { x: ev.clientX, y: ev.clientY };
-            hasMoved = false;
-            render(); // The halo has to appear on the grab, not on the first movement.
-            return;
-          }
-        }
-      }
-
-      if (!ownTokenId) return;
-      const own = tokens.get(ownTokenId);
-      if (!own) return;
-      const dx = pos.x - own.x;
-      const dy = pos.y - own.y;
-      if (Math.sqrt(dx * dx + dy * dy) < r) {
-        dragging = true;
-        dragTokenId = ownTokenId;
-        dragFrom = { x: ev.clientX, y: ev.clientY };
-        hasMoved = false;
-        render();
-      }
+      const hit = tokenAtPoint(screenToImage(ev.clientX, ev.clientY));
+      if (!hit) return;
+      // Whether this press may *move* the token is a separate question from whether this layer
+      // answers the press at all. A player taps a monster to open its menu and may not drag it, so
+      // the press is taken and the movement is not (#72).
+      const canMove = dragAllMode || hit.id === ownTokenId;
+      if (!canMove && !options?.onTapToken) return;
+      dragging = true;
+      dragTokenId = hit.id;
+      pressCanMove = canMove;
+      dragFrom = { x: ev.clientX, y: ev.clientY };
+      hasMoved = false;
+      if (canMove) render(); // The halo has to appear on the grab, not on the first movement.
     },
 
     handlePointerMove(ev: PointerEvent) {
@@ -294,6 +363,9 @@ export function initTokenLayer(
         if (!dragFrom || !hasDragged(dragFrom, { x: ev.clientX, y: ev.clientY })) return;
         hasMoved = true;
       }
+      // Recorded even when the token cannot follow: the press has travelled, so it is no longer a
+      // tap, and lifting it must not open a menu the finger has already left.
+      if (!pressCanMove) return;
       const pos = screenToImage(ev.clientX, ev.clientY);
       const token = tokens.get(dragTokenId);
       if (!token) return;
@@ -316,10 +388,12 @@ export function initTokenLayer(
       const token = tokens.get(dragTokenId);
       const tokenId = dragTokenId;
       const moved = hasMoved;
+      const couldMove = pressCanMove;
       dragging = false;
       dragFrom = null;
       hasMoved = false;
       dragTokenId = null;
+      pressCanMove = false;
       render();
 
       if (!moved) {
@@ -327,7 +401,7 @@ export function initTokenLayer(
         return;
       }
 
-      if (token) {
+      if (token && couldMove) {
         if (dragAllMode && onMoveAnyCallback) {
           onMoveAnyCallback(tokenId, token.x, token.y);
         } else if (onMoveCallback) {
@@ -342,6 +416,7 @@ export function initTokenLayer(
       dragTokenId = null;
       dragFrom = null;
       hasMoved = false;
+      pressCanMove = false;
       selectedTokenId = null;
       render();
     },

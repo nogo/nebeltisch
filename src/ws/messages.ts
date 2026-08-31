@@ -1,4 +1,4 @@
-import type { FogStroke, Token, TokenState } from "../types";
+import type { Declaration, FogStroke, Token, TokenState } from "../types";
 
 // ---- Client → Server ----
 
@@ -169,6 +169,25 @@ export interface GmTokenStateMessage {
   state: TokenState;
 }
 
+/**
+ * Declares an attack on a token. Sent by both clients, and it names only the target.
+ *
+ * **The attacker is never on the wire.** The server reads it off the connection — a player's own
+ * token, or nothing at all for the GM — so there is no source for a client to get wrong and none
+ * for a client to forge. The page is read off `active_image_id` for the same reason: a declaration
+ * is made at the table, and the table is showing one page.
+ */
+export interface DeclarationOpenMessage {
+  type: "declaration:open";
+  targetId: string;
+}
+
+/** Takes back an open declaration. Only the client that made it may. */
+export interface DeclarationRetractMessage {
+  type: "declaration:retract";
+  declarationId: string;
+}
+
 export type ClientMessage =
   | JoinMessage
   | FogStrokeMessage
@@ -189,7 +208,9 @@ export type ClientMessage =
   | GmTokenPlaceMessage
   | GmTokenRemoveMessage
   | GmTokenRenameMessage
-  | GmTokenStateMessage;
+  | GmTokenStateMessage
+  | DeclarationOpenMessage
+  | DeclarationRetractMessage;
 
 // ---- Server → Client ----
 
@@ -199,6 +220,8 @@ export interface JoinedMessage {
   tokens: Token[];
   fogMask: string | null;
   yourTokenId?: string;
+  /** Standing on the presented page. Empty when there is none, so a reload draws the fight again. */
+  declarations: Declaration[];
 }
 
 export interface FogStrokeBroadcast {
@@ -275,6 +298,8 @@ export interface MapSwitchedMessage {
   gmTokens: Token[];
   /** Player tokens, repositioned onto the new map's start point. */
   playerTokens: Token[];
+  /** The new page's declarations. The previous page's are hidden by being absent from this list. */
+  declarations: Declaration[];
 }
 
 /** GM-only. Sent for both a move and a lock, so one message carries the whole state. */
@@ -339,6 +364,21 @@ export interface GmTokenAddedMessage {
   token: Token;
 }
 
+/**
+ * Somebody declared an attack. Reaches players only for the presented page — like fog, like a
+ * monster, and for the same reason.
+ */
+export interface DeclarationOpenedMessage {
+  type: "declaration:opened";
+  declaration: Declaration;
+}
+
+/** A declaration is gone: retracted, or replaced by its attacker's next one. */
+export interface DeclarationRetractedMessage {
+  type: "declaration:retracted";
+  declarationId: string;
+}
+
 export type ServerMessage =
   | JoinedMessage
   | GmTokenAddedMessage
@@ -361,7 +401,9 @@ export type ServerMessage =
   | ErrorMessage
   | PongMessage
   | PingMapBroadcast
-  | SettingsUpdatedMessage;
+  | SettingsUpdatedMessage
+  | DeclarationOpenedMessage
+  | DeclarationRetractedMessage;
 
 export function parseMessage(raw: string): ClientMessage | null {
   try {

@@ -16,6 +16,7 @@ import {
   getGmWsForAdventure,
   getGmSocketsForAdventure,
 } from "./connections";
+import { openDeclaration, getDeclaration, getDeclarationsByImage, deleteDeclaration } from "../db/declarations";
 import { parseMessage, serializeMessage } from "./messages";
 
 // ---- Spawn position ----
@@ -309,6 +310,9 @@ export function createWsHandlers(deps: ServerDeps) {
           tokens,
           fogMask,
           yourTokenId: tokenId,
+          declarations: adventure.active_image_id
+            ? getDeclarationsByImage(db, adventure.active_image_id)
+            : [],
         })
       );
 
@@ -553,6 +557,7 @@ export function createWsHandlers(deps: ServerDeps) {
             fogMask,
             gmTokens: newGmTokens,
             playerTokens,
+            declarations: getDeclarationsByImage(db, msg.imageId),
           });
           ws.send(switched);
           ws.publish(topic, switched);
@@ -860,6 +865,105 @@ export function createWsHandlers(deps: ServerDeps) {
           if (target.image_id === null || target.image_id === liveImageId) {
             ws.publish(topic, stateMsg);
           }
+          break;
+        }
+
+        case "declaration:open": {
+          // The page is the presented one, always. A declaration is something said at the table,
+          // and the table is looking at one page — there is nothing to declare on a page in
+          // preparation, and nothing that would ever be seen.
+          const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
+          if (!liveImageId) {
+            ws.send(serializeMessage({ type: "error", message: "Nothing is on the table" }));
+            break;
+          }
+
+          // The attacker, read off the connection and never off the message. A player has exactly
+          // one token and it is the only thing they may attack from; the GM has no source token at
+          // all. This is the whole of the authorisation rule for the first thing a player writes
+          // that is not their own position — there is nothing here a client could forge.
+          let sourceId: string | null = null;
+          if (conn.role !== "gm") {
+            if (!conn.tokenId) {
+              ws.send(serializeMessage({ type: "error", message: "You have no token" }));
+              break;
+            }
+            sourceId = conn.tokenId;
+          }
+
+          const target = getToken(db, msg.targetId);
+          if (!target || target.adventure_id !== adventureId) {
+            ws.send(serializeMessage({ type: "error", message: "Token not found" }));
+            break;
+          }
+          // A player token has no image and is therefore always on the presented page.
+          if (target.image_id !== null && target.image_id !== liveImageId) {
+            ws.send(serializeMessage({ type: "error", message: "That token is not on the table" }));
+            break;
+          }
+          // The party attacks monsters and the GM attacks the party. Player against player and an
+          // NPC helping the party are both out of scope (#62), and this is where that is true.
+          const targetIsGmToken = target.token_type !== "player";
+          if (sourceId !== null && !targetIsGmToken) {
+            ws.send(serializeMessage({ type: "error", message: "You cannot attack another player" }));
+            break;
+          }
+          if (sourceId === null && targetIsGmToken) {
+            ws.send(serializeMessage({ type: "error", message: "Only the party can be attacked from a monster" }));
+            break;
+          }
+
+          const { declaration, replaced } = openDeclaration(db, {
+            imageId: liveImageId,
+            sourceId,
+            targetId: target.id,
+          });
+          // The replaced one goes first, so nobody sees two pips from one attacker in between. A
+          // replacement made on a page nobody is looking at is silent, like everything else off
+          // the presented page.
+          for (const gone of replaced) {
+            if (gone.image_id !== liveImageId) continue;
+            const retracted = serializeMessage({
+              type: "declaration:retracted",
+              declarationId: gone.id,
+            });
+            ws.send(retracted);
+            ws.publish(topic, retracted);
+          }
+          const opened = serializeMessage({ type: "declaration:opened", declaration });
+          ws.send(opened);
+          ws.publish(topic, opened);
+          break;
+        }
+
+        case "declaration:retract": {
+          const declaration = getDeclaration(db, msg.declarationId);
+          if (!declaration) {
+            ws.send(serializeMessage({ type: "error", message: "Declaration not found" }));
+            break;
+          }
+          if (!imageBelongsToAdventure(db, declaration.image_id, adventureId)) {
+            ws.send(serializeMessage({ type: "error", message: "Declaration not found" }));
+            break;
+          }
+          // Only the one who said it can take it back. The GM's are the sourceless ones, and a
+          // player's are their own token's — the same rule the declaring side is built on.
+          const mine =
+            conn.role === "gm"
+              ? declaration.source_id === null
+              : !!conn.tokenId && declaration.source_id === conn.tokenId;
+          if (!mine) {
+            ws.send(serializeMessage({ type: "error", message: "This is not your declaration" }));
+            break;
+          }
+          deleteDeclaration(db, declaration.id);
+          const retracted = serializeMessage({
+            type: "declaration:retracted",
+            declarationId: declaration.id,
+          });
+          ws.send(retracted);
+          const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
+          if (declaration.image_id === liveImageId) ws.publish(topic, retracted);
           break;
         }
 
