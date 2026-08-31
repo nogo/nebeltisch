@@ -11,11 +11,19 @@ export type TokenData = Pick<Token, 'id' | 'name' | 'color' | 'x' | 'y' | 'state
 
 /** One mark on a ring: whose attack it is, how far it has got, and the number if one was sent. */
 export interface TokenPip {
-  /** The declaration this stands for, so a finger landing on it can say which (#73). */
   id: string;
   color: string;
   state: DeclarationState;
   damage: number | null;
+  /**
+   * This exchange is waiting on whoever is looking at *this* screen (#73).
+   *
+   * Only ever set on one side of an exchange, and only on the client whose turn it is: a pulse
+   * means "you owe an input", so a pulse on somebody else's obligation would be noise during a
+   * fight. An open one pulses the token — the answer is about the token. One waiting for a number
+   * pulses the pip, because the number goes in the pip.
+   */
+  owed: boolean;
 }
 
 export interface TokenController {
@@ -66,6 +74,20 @@ const HELD_HALO_PX = 14;
  * token does: drawn in image pixels alone it is a smudge at the zoom a fight is played at.
  */
 const PIP_MIN_PX = 9;
+/** One breath. Slow enough to be a heartbeat rather than a blink at the edge of vision. */
+const PULSE_MS = 1400;
+/** A pulse redraw budget: fifteen frames a second is a breath, and a quarter of the work (#20). */
+const PULSE_FRAME_MS = 66;
+
+/** 0 to 1 and back, shared by every pulse on screen so they breathe together. */
+function pulsePhase(): number {
+  return (Math.sin((Date.now() / PULSE_MS) * Math.PI * 2) + 1) / 2;
+}
+
+/** Waiting on the person at this screen to put a number in it. */
+function pipAwaitsNumber(pip: TokenPip): boolean {
+  return pip.owed && pip.state === 'not_parried' && pip.damage === null;
+}
 
 /**
  * The shape half of a state: a bar through an unconscious token, a cross through a dead one.
@@ -150,7 +172,8 @@ function drawPips(
   y: number,
   r: number,
   scale: number,
-  pips: TokenPip[]
+  pips: TokenPip[],
+  phase: number
 ): void {
   const spots = pipLayout(x, y, r, scale, pips.length);
   ctx.save();
@@ -158,7 +181,10 @@ function drawPips(
   ctx.textBaseline = 'middle';
   ctx.lineJoin = 'round';
   pips.forEach((pip, i) => {
-    const { x: px, y: py, radius: pipR } = spots[i]!;
+    const { x: px, y: py, radius: base } = spots[i]!;
+    // A pip owing a number breathes in place rather than blinking: the number is going here, and
+    // the space it will fill is the thing to draw attention to.
+    const pipR = pipAwaitsNumber(pip) ? base * (1 + 0.22 * phase) : base;
     const parried = pip.state === 'parried';
 
     ctx.beginPath();
@@ -258,6 +284,40 @@ export function initTokenLayer(
     return hit;
   }
 
+  /**
+   * Redraws while anything on this layer is waiting on the person looking at it, and not one frame
+   * longer. A loop left running behind a quiet map costs a tablet exactly as much as a busy one
+   * (#20), so it starts and stops with the obligation rather than with the layer.
+   */
+  let pulseFrame: number | null = null;
+  let lastPulseAt = 0;
+
+  function anythingPulses(): boolean {
+    for (const [tokenId, pips] of declarations) {
+      if (!tokens.has(tokenId)) continue;
+      for (const pip of pips) if (pip.owed) return true;
+    }
+    return false;
+  }
+
+  function syncPulse(): void {
+    const wanted = anythingPulses();
+    if (wanted && pulseFrame === null) {
+      const step = () => {
+        pulseFrame = requestAnimationFrame(step);
+        const now = Date.now();
+        if (now - lastPulseAt < PULSE_FRAME_MS) return;
+        lastPulseAt = now;
+        render();
+      };
+      pulseFrame = requestAnimationFrame(step);
+    } else if (!wanted && pulseFrame !== null) {
+      cancelAnimationFrame(pulseFrame);
+      pulseFrame = null;
+      render();
+    }
+  }
+
   function render() {
     const { w, h } = getImageSize();
     if (w === 0 || h === 0) return;
@@ -271,6 +331,21 @@ export function initTokenLayer(
       const r = getRadius();
       const isGmToken = token.token_type === 'monster' || token.token_type === 'npc';
       const down = token.state !== 'alive';
+
+      const pips = declarations.get(token.id);
+      // An open attack on this token is an answer its owner owes, and the answer is about the
+      // token, so the token is what breathes.
+      if (pips && pips.some((pip) => pip.owed && pip.state === 'open')) {
+        const s = getScale() > 0 ? getScale() : 1;
+        const phase = pulsePhase();
+        ctx.save();
+        ctx.beginPath();
+        ctx.arc(token.x, token.y, r + (4 + 10 * phase) / s, 0, Math.PI * 2);
+        ctx.strokeStyle = `rgba(255,255,255,${0.5 * (1 - phase) + 0.12})`;
+        ctx.lineWidth = 2.5 / s;
+        ctx.stroke();
+        ctx.restore();
+      }
 
       if ((dragging && pressCanMove && token.id === dragTokenId) || token.id === selectedTokenId) {
         const s = getScale() > 0 ? getScale() : 1;
@@ -318,9 +393,8 @@ export function initTokenLayer(
       // which kind of out, and at fight zoom a fade on its own is a guess.
       if (token.state !== 'alive') drawStateGlyph(ctx, token.x, token.y, r, token.state);
 
-      const pips = declarations.get(token.id);
       if (pips && pips.length > 0) {
-        drawPips(ctx, token.x, token.y, r, getScale() > 0 ? getScale() : 1, pips);
+        drawPips(ctx, token.x, token.y, r, getScale() > 0 ? getScale() : 1, pips, pulsePhase());
       }
 
       // Name label below circle
@@ -388,6 +462,7 @@ export function initTokenLayer(
     getToken(tokenId: string) { return tokens.get(tokenId) ?? null; },
     setDeclarations(byTarget: Map<string, TokenPip[]>) {
       declarations = byTarget;
+      syncPulse();
       render();
     },
     setSelected(tokenId: string | null) {
@@ -471,6 +546,7 @@ export function initTokenLayer(
 
     clear() {
       tokens.clear();
+      if (pulseFrame !== null) { cancelAnimationFrame(pulseFrame); pulseFrame = null; }
       dragging = false;
       dragTokenId = null;
       dragFrom = null;

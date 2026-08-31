@@ -189,6 +189,14 @@ export interface DeclarationRetractMessage {
 }
 
 /**
+ * Takes every answered declaration off the presented page. GM only, and it cannot touch an open
+ * one — the fight tidies itself as it goes, and this is for what the last round left behind (#74).
+ */
+export interface DeclarationClearMessage {
+  type: "declaration:clear";
+}
+
+/**
  * Parried, or not parried. Sent by the owner of the *target*: a player for their own token, the GM
  * for every monster and NPC. One writer per object, and the object is the declaration.
  *
@@ -236,7 +244,8 @@ export type ClientMessage =
   | DeclarationOpenMessage
   | DeclarationRetractMessage
   | DeclarationAnswerMessage
-  | DeclarationDamageMessage;
+  | DeclarationDamageMessage
+  | DeclarationClearMessage;
 
 // ---- Server → Client ----
 
@@ -399,10 +408,16 @@ export interface DeclarationOpenedMessage {
   declaration: Declaration;
 }
 
-/** A declaration is gone: retracted, or replaced by its attacker's next one. */
-export interface DeclarationRetractedMessage {
-  type: "declaration:retracted";
-  declarationId: string;
+/**
+ * These declarations are gone. One message for every way that happens: retracted by the one who
+ * made it, swept away by that attacker's next swing, or cleared off the table by the GM.
+ *
+ * The client's job is the same in all three — stop drawing them — so it is one message and one
+ * handler rather than three of each.
+ */
+export interface DeclarationClearedMessage {
+  type: "declaration:cleared";
+  declarationIds: string[];
 }
 
 /** A declaration has been answered, or has had its number put on it. Presented page only. */
@@ -435,7 +450,7 @@ export type ServerMessage =
   | PingMapBroadcast
   | SettingsUpdatedMessage
   | DeclarationOpenedMessage
-  | DeclarationRetractedMessage
+  | DeclarationClearedMessage
   | DeclarationUpdatedMessage;
 
 export function parseMessage(raw: string): ClientMessage | null {

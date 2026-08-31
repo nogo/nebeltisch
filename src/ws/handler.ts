@@ -16,7 +16,7 @@ import {
   getGmWsForAdventure,
   getGmSocketsForAdventure,
 } from "./connections";
-import { openDeclaration, getDeclaration, getDeclarationsByImage, deleteDeclaration, answerDeclaration, setDeclarationDamage } from "../db/declarations";
+import { openDeclaration, getDeclaration, getDeclarationsByImage, getResolvedByImage, deleteDeclaration, answerDeclaration, setDeclarationDamage } from "../db/declarations";
 import { parseMessage, serializeMessage } from "./messages";
 
 // ---- Spawn position ----
@@ -254,6 +254,19 @@ export function handleWsUpgrade(
  * boundary check that keeps a typo or a forged message off everybody's screen.
  */
 const MAX_DAMAGE = 999;
+
+/** Tells the table that declarations are gone, whatever removed them. Silent on an empty list. */
+function publishCleared(
+  ws: ServerWebSocket<WsData>,
+  topic: string,
+  declarationIds: string[],
+  live = true
+): void {
+  if (declarationIds.length === 0) return;
+  const cleared = serializeMessage({ type: "declaration:cleared", declarationIds });
+  ws.send(cleared);
+  if (live) ws.publish(topic, cleared);
+}
 
 /**
  * Sends a declaration's new state to the sender and, when its page is the one on the table, to
@@ -939,11 +952,14 @@ export function createWsHandlers(deps: ServerDeps) {
             break;
           }
 
-          const declaration = openDeclaration(db, {
+          const { declaration, cleared } = openDeclaration(db, {
             imageId: liveImageId,
             sourceId,
             targetId: target.id,
           });
+          // The swept-away records go first, so nobody watches the new pip appear beside the old
+          // one. Records on a page nobody is looking at go quietly, like everything else off it.
+          publishCleared(ws, topic, cleared.filter((d) => d.image_id === liveImageId).map((d) => d.id));
           const opened = serializeMessage({ type: "declaration:opened", declaration });
           ws.send(opened);
           ws.publish(topic, opened);
@@ -971,13 +987,26 @@ export function createWsHandlers(deps: ServerDeps) {
             break;
           }
           deleteDeclaration(db, declaration.id);
-          const retracted = serializeMessage({
-            type: "declaration:retracted",
-            declarationId: declaration.id,
-          });
-          ws.send(retracted);
           const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
-          if (declaration.image_id === liveImageId) ws.publish(topic, retracted);
+          publishCleared(ws, topic, [declaration.id], declaration.image_id === liveImageId);
+          break;
+        }
+
+        case "declaration:clear": {
+          if (conn.role !== "gm") {
+            ws.send(serializeMessage({ type: "error", message: "Only GM can clear the table" }));
+            break;
+          }
+          const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
+          if (!liveImageId) {
+            ws.send(serializeMessage({ type: "error", message: "Nothing is on the table" }));
+            break;
+          }
+          // Answered ones only. What is still open is waiting on somebody, and the count beside the
+          // control is what says so — this can never destroy an exchange nobody has seen.
+          const resolved = getResolvedByImage(db, liveImageId);
+          for (const row of resolved) deleteDeclaration(db, row.id);
+          publishCleared(ws, topic, resolved.map((d) => d.id));
           break;
         }
 

@@ -68,6 +68,14 @@
         <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3"/><path d="M16 3h3a2 2 0 0 1 2 2v3"/><path d="M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M16 21h3a2 2 0 0 0 2-2v-3"/></svg>
       </button>
     </div>
+    <!-- What a fight leaves behind. Only appears while there is one: the fight tidies itself as
+         each attacker swings again, and this is for whatever the last round left (#74). -->
+    <div id="tb-declarations" class="tb-group" hidden>
+      <div class="tb-sep"></div>
+      <button id="clear-declarations-btn" title="Clear the answered attacks off the table">
+        Clear resolved<span id="open-declarations-count" class="tb-count" hidden></span>
+      </button>
+    </div>
     <div class="tb-sep"></div>
     <button id="present-btn" disabled title="Show the selected page to the table">Present</button>
     <button id="delete-btn" disabled title="Remove this page and everything on it">Delete</button>

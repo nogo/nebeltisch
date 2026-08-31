@@ -729,7 +729,19 @@ body.painting-armed .board-page { cursor: crosshair; }
 #toolbox:hover { opacity: 1 !important; pointer-events: auto; }
 
 .tb-group { display: contents; }
-#tb-history[hidden] { display: none; }
+#tb-history[hidden], #tb-declarations[hidden] { display: none; }
+/* How many attacks are still waiting on somebody. Beside `Clear resolved` because it is the thing
+   that says the fight is not over, and the reason that button cannot take everything (#74). */
+.tb-count {
+  margin-left: 6px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: rgba(74, 74, 255, 0.35);
+  color: #fff;
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.tb-count[hidden] { display: none; }
 .tb-sep {
   width: 1px;
   height: 22px;

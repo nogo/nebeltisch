@@ -125,6 +125,9 @@ const playersPopup = document.getElementById('players-popup')!;
 const playersList = document.getElementById('players-list')!;
 const copyInviteBtn = document.getElementById('copy-invite-btn')!;
 const uploadInput = document.getElementById('upload-input') as HTMLInputElement;
+const declarationsGroup = document.getElementById('tb-declarations')!;
+const clearDeclarationsBtn = document.getElementById('clear-declarations-btn') as HTMLButtonElement;
+const openDeclarationsCount = document.getElementById('open-declarations-count')!;
 
 // Notice and empty state
 const noticeEl = document.getElementById('notice')!;
@@ -252,7 +255,14 @@ tokenCtrl.enableDragAll((tokenId, x, y) => {
 //
 // The presented page's, whichever page the GM has selected: the pips are drawn on the tokens they
 // point at, so a page the GM is only preparing has none of them in its layers and shows nothing.
-const declarations = createDeclarations([gmTokenCtrl, tokenCtrl]);
+const declarations = createDeclarations([gmTokenCtrl, tokenCtrl], (declaration) => {
+  // What the GM owes: an answer for every monster and NPC that is attacked, and the number for
+  // their own attacks. Nothing else pulses — a pulse that means "look" rather than "act" is noise
+  // in a fight (#73).
+  const target = gmTokenCtrl.getToken(declaration.target_id) ?? tokenCtrl.getToken(declaration.target_id);
+  if (declaration.state === 'open') return target !== null && target.token_type !== 'player';
+  return declaration.source_id === null && declaration.state === 'not_parried' && declaration.damage === null;
+});
 
 /**
  * The exchange on this token that is waiting on the GM, if there is one.
@@ -471,6 +481,7 @@ ws.on('joined', async (msg) => {
   }
   // After the tokens: a pip is drawn in its attacker's colour, which is read off their token.
   declarations.replace(msg.declarations);
+  renderDeclarationControls();
 
   syncStartPointFromImageList();
   renderPresence(playerRoster);
@@ -511,6 +522,7 @@ ws.on('token:removed', (msg) => {
   // The server has already cascaded these away. Without it a dead orc's pip stays on the player it
   // was attacking until the next page switch.
   declarations.dropToken(id);
+  renderDeclarationControls();
 });
 
 ws.on('token:renamed', (msg) => {
@@ -530,18 +542,45 @@ ws.on('token:state:set', (msg) => {
 
 ws.on('declaration:opened', (msg) => {
   declarations.add(msg.declaration);
-  // The menu carries the lit Attack toggle, so the server's echo is what lights it.
-  if (tokenMenu.selectedId === msg.declaration.target_id) tokenMenu.render();
+  afterDeclarationChange();
 });
 
 ws.on('declaration:updated', (msg) => {
   declarations.update(msg.declaration);
-  if (tokenMenu.selectedId !== null) tokenMenu.render();
+  afterDeclarationChange();
 });
 
-ws.on('declaration:retracted', (msg) => {
-  declarations.remove(msg.declarationId);
+ws.on('declaration:cleared', (msg) => {
+  declarations.removeMany(msg.declarationIds);
+  afterDeclarationChange();
+});
+
+/**
+ * The menu shows the exchange waiting on the GM and the toolbox shows what the fight has left, so
+ * both are rebuilt whenever the list moves — and only ever from what the server said (principle 2).
+ */
+function afterDeclarationChange() {
   if (tokenMenu.selectedId !== null) tokenMenu.render();
+  renderDeclarationControls();
+}
+
+function renderDeclarationControls() {
+  const open = declarations.openCount();
+  const resolved = declarations.hasResolved();
+  // Chrome that exists only while there is a fight. With nothing on the page there is nothing to
+  // clear and nothing to count, and the toolbox is shorter for it.
+  declarationsGroup.hidden = open === 0 && !resolved;
+  clearDeclarationsBtn.disabled = !resolved;
+  clearDeclarationsBtn.title = resolved
+    ? 'Clear the answered attacks off the table'
+    : 'Nothing is answered yet';
+  openDeclarationsCount.hidden = open === 0;
+  openDeclarationsCount.textContent = String(open);
+  openDeclarationsCount.title = `${open} attack${open === 1 ? '' : 's'} still waiting on somebody`;
+}
+
+clearDeclarationsBtn.addEventListener('click', () => {
+  ws.send({ type: 'declaration:clear' });
 });
 
 ws.on('player:roster', (msg) => {
@@ -590,12 +629,14 @@ ws.on('map:switched', async (msg) => {
   tokenCtrl.render();
   // A fight belongs to the page it was declared on, so the new page brings its own or none.
   declarations.replace(msg.declarations);
+  renderDeclarationControls();
 });
 
 ws.on('map:unpresented', () => {
   activeImageId = null;
   pingCtrl.clear();
   declarations.replace([]);
+  renderDeclarationControls();
   // The GM keeps the page they were working on and the view they were at. Only the table emptied,
   // and the badge, the lamp and the button are what say so.
   board.setLive(null);

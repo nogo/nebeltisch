@@ -2058,9 +2058,9 @@ describe("WebSocket handler", () => {
       await gmRefused;
       expect(getDeclarationsByImage(ts.db, imageId)).toHaveLength(1);
 
-      const gone = waitForMessage(gm, "declaration:retracted");
+      const gone = waitForMessage(gm, "declaration:cleared");
       alice.ws.send(JSON.stringify({ type: "declaration:retract", declarationId }));
-      expect((await gone).declarationId).toBe(declarationId);
+      expect((await gone).declarationIds).toEqual([declarationId]);
       expect(getDeclarationsByImage(ts.db, imageId)).toEqual([]);
     });
 
@@ -2283,11 +2283,11 @@ describe("WebSocket handler", () => {
       alice.ws.send(JSON.stringify({ type: "declaration:damage", declarationId: parriedId, damage: 7 }));
       await refused;
 
-      // The answered one stays behind as the record while a new attack is declared.
+      // Swinging again clears the record she has moved past, so the new attack stands alone.
       const reopened = waitForMessage(gm, "declaration:opened");
       alice.ws.send(JSON.stringify({ type: "declaration:open", targetId: second }));
       const openId = (await reopened).declaration.id;
-      expect(getDeclarationsByImage(ts.db, imageId)).toHaveLength(2);
+      expect(getDeclarationsByImage(ts.db, imageId).map((d) => d.id)).toEqual([openId]);
 
       const notParried = waitForMessage(alice.ws, "declaration:updated");
       gm.send(JSON.stringify({ type: "declaration:answer", declarationId: openId, parried: false }));
@@ -2304,6 +2304,65 @@ describe("WebSocket handler", () => {
       const zero = waitForMessage(gm, "declaration:updated");
       alice.ws.send(JSON.stringify({ type: "declaration:damage", declarationId: openId, damage: 0 }));
       expect((await zero).declaration.damage).toBe(0);
+    });
+
+    it("swinging again clears what you have settled, and never what is still open", async () => {
+      const gm = await connectGm();
+      const first = await placeMonster(gm, "Ork 1");
+      const second = await placeMonster(gm, "Ork 2");
+      const alice = await connectPlayer("Alice");
+
+      const declare = async (target: string) => {
+        const opened = waitForMessage(gm, "declaration:opened");
+        alice.ws.send(JSON.stringify({ type: "declaration:open", targetId: target }));
+        return (await opened).declaration.id as string;
+      };
+
+      const settled = await declare(first);
+      const answered = waitForMessage(alice.ws, "declaration:updated");
+      gm.send(JSON.stringify({ type: "declaration:answer", declarationId: settled, parried: true }));
+      await answered;
+
+      // The next swing takes the record she has moved past with it.
+      const cleared = waitForMessage(gm, "declaration:cleared");
+      const stillOpen = await declare(second);
+      expect((await cleared).declarationIds).toEqual([settled]);
+
+      // And a second weapon in the same round leaves the first alone: nothing waiting on an answer
+      // may disappear before it gets one.
+      const alsoOpen = await declare(first);
+      expect(getDeclarationsByImage(ts.db, imageId).map((d) => d.id).sort()).toEqual(
+        [stillOpen, alsoOpen].sort()
+      );
+    });
+
+    it("Clear resolved takes the answered attacks and leaves the fight alone", async () => {
+      const gm = await connectGm();
+      monsterId = await placeMonster(gm);
+      const alice = await connectPlayer("Alice");
+
+      // One answered on the Ork, one still open on Alice.
+      const opened = waitForMessage(gm, "declaration:opened");
+      alice.ws.send(JSON.stringify({ type: "declaration:open", targetId: monsterId }));
+      const answeredId = (await opened).declaration.id;
+      const done = waitForMessage(alice.ws, "declaration:updated");
+      gm.send(JSON.stringify({ type: "declaration:answer", declarationId: answeredId, parried: true }));
+      await done;
+
+      const second = waitForMessage(alice.ws, "declaration:opened");
+      gm.send(JSON.stringify({ type: "declaration:open", targetId: alice.tokenId }));
+      const openId = (await second).declaration.id;
+
+      const refused = waitForMessage(alice.ws, "error");
+      alice.ws.send(JSON.stringify({ type: "declaration:clear" }));
+      await refused;
+      expect(getDeclarationsByImage(ts.db, imageId)).toHaveLength(2);
+
+      const cleared = waitForMessage(alice.ws, "declaration:cleared");
+      gm.send(JSON.stringify({ type: "declaration:clear" }));
+      expect((await cleared).declarationIds).toEqual([answeredId]);
+      // What is still open is waiting on somebody, and this control can never reach it.
+      expect(getDeclarationsByImage(ts.db, imageId).map((d) => d.id)).toEqual([openId]);
     });
 
     it("removing a token takes its declarations with it, as target and as source", async () => {

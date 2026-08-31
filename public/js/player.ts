@@ -230,7 +230,17 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
   // On the monsters only. The party's own layer passes no `onTapToken`, so tapping a friend opens
   // nothing: player against player is out of scope, and a menu offering nothing is not a menu.
   // Which token was hit is answered by the name already drawn under the circle.
-  const declarations = createDeclarations([tokenCtrl, gmTokenCtrl]);
+  const declarations = createDeclarations([tokenCtrl, gmTokenCtrl], (declaration) => {
+    // What this player owes: an answer for the attack aimed at their own token, and the number for
+    // the attack they made. Never both, and never anybody else's.
+    if (declaration.state === 'open') return declaration.target_id === ownTokenId;
+    return (
+      declaration.source_id !== null &&
+      declaration.source_id === ownTokenId &&
+      declaration.state === 'not_parried' &&
+      declaration.damage === null
+    );
+  });
 
   /**
    * The exchange on this token that is waiting on this player, if there is one.
@@ -506,8 +516,7 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
 
   ws.on('declaration:opened', (msg) => {
     declarations.add(msg.declaration);
-    // The menu carries the lit Attack toggle, so the server's echo is what lights it.
-    if (tokenMenu.selectedId === msg.declaration.target_id) tokenMenu.render();
+    if (tokenMenu.selectedId !== null) tokenMenu.render();
   });
 
   ws.on('declaration:updated', (msg) => {
@@ -515,8 +524,8 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     if (tokenMenu.selectedId !== null) tokenMenu.render();
   });
 
-  ws.on('declaration:retracted', (msg) => {
-    declarations.remove(msg.declarationId);
+  ws.on('declaration:cleared', (msg) => {
+    declarations.removeMany(msg.declarationIds);
     if (tokenMenu.selectedId !== null) tokenMenu.render();
   });
 

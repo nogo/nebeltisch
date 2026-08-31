@@ -21,7 +21,8 @@ export interface Declarations {
    * so the pips keep the arrival order they are read in.
    */
   update(declaration: Declaration): void;
-  remove(declarationId: string): void;
+  /** Declarations that are gone — retracted, swept by an attacker's next swing, or cleared. */
+  removeMany(declarationIds: string[]): void;
   /**
    * Drops whatever a removed token was part of, at either end.
    *
@@ -29,6 +30,10 @@ export interface Declarations {
    * a dead monster's colour on the player it was attacking.
    */
   dropToken(tokenId: string): void;
+  /** How many attacks on the page are still waiting on somebody. */
+  openCount(): number;
+  /** Whether anything answered is standing on the page — what `Clear resolved` would take. */
+  hasResolved(): boolean;
   /**
    * Everything pointing at one token, oldest first — the order the pips sit in, which is the order
    * the table spoke in. Callers filter it for the half that is theirs (#73).
@@ -47,7 +52,16 @@ export interface Declarations {
  */
 export const GM_DECLARATION_COLOR = '#c0392b';
 
-export function createDeclarations(layers: TokenController[]): Declarations {
+/**
+ * @param layers every layer that can hold a token, so an attacker's colour can be looked up
+ * @param owes whether an exchange is waiting on the person at *this* screen. The two clients
+ *   answer it differently — the GM answers for monsters and sends numbers for their own attacks,
+ *   a player does the opposite — and it is the only thing that pulses (#73).
+ */
+export function createDeclarations(
+  layers: TokenController[],
+  owes: (declaration: Declaration) => boolean
+): Declarations {
   let list: Declaration[] = [];
 
   function colorOf(sourceId: string | null): string {
@@ -67,6 +81,7 @@ export function createDeclarations(layers: TokenController[]): Declarations {
         color: colorOf(declaration.source_id),
         state: declaration.state,
         damage: declaration.damage,
+        owed: owes(declaration),
       };
       const pips = byTarget.get(declaration.target_id);
       if (pips) pips.push(pip);
@@ -90,8 +105,9 @@ export function createDeclarations(layers: TokenController[]): Declarations {
       list = list.map((d) => (d.id === declaration.id ? declaration : d));
       render();
     },
-    remove(declarationId) {
-      list = list.filter((d) => d.id !== declarationId);
+    removeMany(declarationIds) {
+      const gone = new Set(declarationIds);
+      list = list.filter((d) => !gone.has(d.id));
       render();
     },
     dropToken(tokenId) {
@@ -100,6 +116,12 @@ export function createDeclarations(layers: TokenController[]): Declarations {
     },
     on(targetId) {
       return list.filter((d) => d.target_id === targetId);
+    },
+    openCount() {
+      return list.filter((d) => d.state === 'open').length;
+    },
+    hasResolved() {
+      return list.some((d) => d.state !== 'open');
     },
     render,
   };
