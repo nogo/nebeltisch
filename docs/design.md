@@ -107,7 +107,7 @@ Two roles, two layouts, one visual language: the same dark ground, the same tran
 ## What this is not
 
 - **Not a phone app.** Phones carry the group's voice call and are not used for the map.
-- **Not a full VTT.** Scope is bounded in [project.md](project.md); a feature belonging to the rules of a game is out.
+- **Not a full VTT.** Scope is bounded in [project.md](project.md); a feature belonging to the rules of a game is out. The line runs *through* a fight rather than around it: the rules of one stay on paper, the addressing of one — which orc, from whom, did it land — is map work. A tool that records what was said is on this side of it; a tool that works out what happens next is not.
 - **Not a bright canvas tool.** The Miro reference is about how a canvas behaves, not about how it looks. Nothing gets lighter than the map.
 - **Never controls over the middle of the map.** The toolbar sits on the bottom edge, horizontally centred.
 - **No idle auto-hide.** Nothing disappears because time passed — see principle 5 for the one gesture-linked exception.

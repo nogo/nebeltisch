@@ -14,6 +14,7 @@ Devices and their priority are in [project.md](project.md). Two consequences gov
 |---------|--------|
 | 1 finger / stylus | Interact — GM: drag the start marker, a token or a page, or paint fog once the brush is armed; Player: drag token |
 | Tap the start marker | GM only: select it, revealing its lock menu |
+| Tap a token | Opens the menu on it — what *this* client may do to *that* token. Tapping it again closes it |
 | 2-finger drag | Pan |
 | Pinch | Zoom in/out |
 | Double-tap empty canvas | GM only: fit the board |
@@ -120,8 +121,11 @@ Left to right, grouped by **what each control acts on**:
 | | Place token | Arms a mode: the next tap opens a small form to place a monster or NPC |
 | The board | Upload | Adds a page; it lands on a free spot on the board |
 | | Fit | Frames every page. Same as double-tapping empty canvas |
+| The fight | Clear resolved | Takes every answered attack off the table, with the count of what is still open beside it. Absent while there is no fight; disabled while nothing is answered, and it can never reach an open declaration |
 | The table | Present | Puts the selected page on the table. Reads **Unpresent** when that page is already the live one, and takes it off. Disabled only when no page is selected |
 | | Delete | Removes the selected page and everything on it, on a second press. Disabled while that page is the live one |
+
+**The fight group exists only while there is one.** It is the one toolbar control that comes and goes with what is on the map, because a count of nothing and a button with nothing to clear are two controls costing pixels between fights. Everything else about a fight is reached by tapping the token it concerns — this is on the toolbar because it is the only act that is about *all* of them.
 
 **Brush size sits inside the fog group, not behind its own separator.** It is a property of the armed brush and says nothing when no brush is armed.
 
@@ -208,7 +212,8 @@ One exception, and it is deliberate: **the toolbar dims to 15% while a brush str
 ```
 
 - Near-zero UI. Player name + colour dot in the top-left corner. Nothing else.
-- Dragging their own token and long-pressing to ping are the only interactions besides pan/zoom.
+- Dragging their own token, long-pressing to ping, and tapping a token for the one menu a player has.
+- **That menu holds what this player has to say and nothing else.** On a monster: declare an attack, take one back, send the damage rolled. On their own token: answer the attack aimed at them. On anything else it finds nothing to offer and does not open — a menu offering nothing is not a menu.
 - No login, no registration. The player joins via the share link and picks a name and colour.
 - The viewport is bounded to the one page: no zooming out past it filling the screen, no panning it off the edge.
 
@@ -220,12 +225,17 @@ One exception, and it is deliberate: **the toolbar dims to 15% while a brush str
 
 ## Visual language
 
+**Colour is identity; shape is state.** A token's colour says whose it is and nothing else ever borrows it — what happened to that token, and what is aimed at it, are said with shape, fill and glyph. Where two things must never be confused, they differ by shape (principle 8 in [design.md](design.md)).
+
 | Property | Value | Why |
 |----------|-------|-----|
 | Background | `#0d0d1a` dark navy | Recedes, map pops |
 | Controls | Translucent, `backdrop-filter: blur(8px)`, 60% opacity bg | Visible but not competing with map |
 | Accent | `#4a4aff` blue-purple | Established |
 | Start point marker | `#ffb020` gold, flag glyph on a dashed ring; solid ring when locked | Must not read as a token. Tokens are coloured circles, so the marker differs by **shape**, not only colour |
+| Token state | Unconscious: a bar through the token. Dead: a cross. Alive: neither. Opacity drops with the state; the glyph is drawn at full strength over it | Colour is the only thing on the map that says *whose* token this is, so state may never spend it. Shape says what happened; the fade alone is a guess at fight zoom |
+| Declaration pip | A dot on the target's ring, in the **attacker's** colour, in arrival order. Open: solid. Parried: hollow, the colour reduced to a ring. Not parried: solid with a hole punched in it. The damage number fills that hole once it is sent | Three pips on one orc are three named people, with no lines drawn across a map where tokens already overlap. The GM's own attacks carry a fixed colour, having no attacking token to take one from |
+| Owing an input | The thing you owe breathes, on your screen and nobody else's: the token when it owes an answer, the pip when it owes a number | A pulse means *act*, not *look*. One that means look is noise in a fight, and one on somebody else's obligation is noise on every screen but theirs |
 | Mode: Reveal | Green-tinted brush preview | Intuitive: green = go, clear |
 | Mode: Fog | Red-tinted brush preview | Intuitive: red = stop, cover |
 | Tap targets | 44pt minimum (Apple HIG), including hit tests | A target computed in image coordinates shrinks as the map zooms out; it needs a screen-space floor |

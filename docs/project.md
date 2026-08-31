@@ -13,8 +13,8 @@ A GM and their players see the same map in a browser. The GM controls what is vi
 
 | Actor | Can do |
 |---|---|
-| GM | Own an adventure and the pages in it, decide which page the table sees, and do every kind of map work — fog, tokens, start points — on any page, presented or not |
-| Player | Join by link with a name and colour, move their own token, pan/zoom, ping |
+| GM | Own an adventure and the pages in it, decide which page the table sees, and do every kind of map work — fog, tokens, start points — on any page, presented or not. Mark any token alive, unconscious or dead. Declare an attack on a player, answer the attacks aimed at their monsters, and clear what the fight has settled |
+| Player | Join by link with a name and colour, move their own token, pan/zoom, ping. Declare an attack on a monster, answer the attacks aimed at their own token, and send the damage they rolled |
 
 Supporting properties:
 
@@ -29,6 +29,7 @@ The group already has voice — a phone call carries the conversation. What a re
 Nebeltisch supplies exactly that and nothing else.
 
 - **Against a full VTT** (Roll20, Foundry): those solve dice, sheets, initiative and combat automation, which this group does on paper. Their map-and-fog is buried under everything else.
+  The line that separates them from this is inside a fight, not outside it. A fight has *rules* — what hits, what it costs, who goes next — and it has *addressing*: which of the three orcs, from whom, and did it land. The rules stay on paper. The addressing is the thing a voice call loses when three people speak at once, and it is map work.
 - **Against screen sharing:** players cannot move their own token, fog cannot be player-specific, and nothing persists between sessions.
 - **Against nothing:** the GM describes rooms verbally and the party has no shared spatial picture.
 
@@ -66,11 +67,15 @@ No accounts today. The GM holds a password in a URL fragment; players hold an in
 
 ### Scope
 
-**In:** the map and everything the table does to it — pages, the fog brush and its history, player tokens, GM monster and NPC tokens, party start points, pings, pan and zoom, the GM's board and what it presents, the two interfaces, and self-hosted deployment. GM accounts and an adventure dashboard are committed and not yet built.
+**In:** the map and everything the table does to it — pages, the fog brush and its history, player tokens, GM monster and NPC tokens, whether a token is alive, unconscious or dead, party start points, pings, pan and zoom, declaring an attack and answering it, the GM's board and what it presents, the two interfaces, and self-hosted deployment. GM accounts and an adventure dashboard are committed and not yet built.
 
 **Out:** dice rolling, character sheets, initiative tracking, audio, rules automation, public/community hosting.
 
 **The test:** a feature that belongs to the *rules* of a game is out of scope. A feature that belongs to the *map* is a candidate.
+
+**The rule that keeps a fight on the right side of it: the system records adjudications and never computes them.** An attack, a parry and a damage number are things somebody said out loud, stored so the table does not lose them. Nothing is derived from them — no hit, no miss, no total, no threshold, no order of action — and no two of them are ever read together. **Numbers may be transmitted; they may never accumulate.** The first thing that adds one number to another has built a character sheet, whatever it is called.
+
+That is also why declarations are not the rules automation the Out list rejects. Automation would decide the outcome; this carries the sentence that announces it, in the one place where saying it out loud fails.
 
 Two things this test does not settle, and both have been decided against once already: a **GM-side mode** on top of what the server already knows, and a **second kind of page** that the player client renders differently. Both are map features by the test above and were still wrong. Reach for principle 6 and principle 3 in [design.md](design.md) before either comes back.
 

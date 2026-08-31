@@ -62,6 +62,7 @@ Client — `public/js/`
 ```
 adventures ──< images ──< token_positions >── tokens
      └────────────────< tokens
+              images ──< declarations >── tokens
 ```
 
 | Table | Key columns | Notes |
@@ -70,6 +71,7 @@ adventures ──< images ──< token_positions >── tokens
 | `images` | `filename`, `width`, `height`, `fog_mask` BLOB, `sort_order`, `start_x`, `start_y`, `start_locked`, `board_x`, `board_y` | One fog mask per map. `start_*` null means "never moved"; the map centre is the fallback and every map therefore has a start point. `start_locked` freezes it against a stray drag. `board_*` is layout on the GM's board and means nothing else — no order, no adjacency, no geography |
 | `tokens` | `token_type`, `player_link`, `image_id`, `x`, `y` | See token rules below |
 | `token_positions` | `(token_id, image_id)` PK, `x`, `y` | Where each token last stood on each map |
+| `declarations` | `image_id`, `source_id` NULL, `target_id`, `state`, `damage` | One thing somebody said out loud. All three foreign keys cascade, which is the whole of "a declaration dies with its tokens and with its page" — there is no handler code for it |
 
 **The start point is deliberately not a token kind.** It would inherit dragging, locking and its menu for free — and it would put a GM-only secret in the table whose rows are broadcast to players. Monster and NPC tokens reach the player client through `joined`, `map:switched` and `token:added`; the start point reaches only the GM, by a single `ws.send`. Keeping it in `images` makes that structural instead of a filter five code paths must each remember, where the failure is silent and shows up as a marker on a player's screen at the worst moment.
 
@@ -163,8 +165,24 @@ Map → GM tokens → fog → player tokens → pings, stacked in an image-sized
 
 ### No CRDT
 
-The GM is the only writer of fog. Each player writes only their own token. The server rejects anything else.
+The GM is the only writer of fog. Each player writes only their own token, and the declarations they are party to. The server rejects anything else.
 **Implication:** no conflict resolution anywhere. Preserve this invariant — shared write access to one object would invalidate the whole synchronisation model.
+
+**A declaration is the one object two people write, and it survives this rule because the halves are disjoint.** The attacker's owner opens it, retracts it and puts the number on it; the target's owner answers it. Neither can write the other's field and neither can write it twice — an answered declaration is immutable, and a number is written once. There is no field two writers can reach, so there is still nothing to resolve.
+
+Both halves are checked on the server against the connection, never against the message. A player's declarations come from their own token because that is the token their socket holds; the GM's come from no token at all.
+
+### Declarations record; they never compute
+
+A declaration is a source token, a target token, and how far the exchange has got. Nothing is derived from one and nothing reads two of them together — the scope rule this serves is in [project.md](project.md), and this is what the code owes it.
+
+**Nothing limits how many are open.** Two monsters swinging at one player is two attacks, two answers and two numbers; a fighter with two weapons says so twice. A round is the table's to count, and the database enforcing one open declaration per attacker was collapsing real exchanges into one.
+
+**An attacker's next declaration clears what they have settled.** That is what keeps a token from accumulating a fight's worth of pips, and it is deliberately not a timer: a round takes as long as the people on the call take, so any expiry is wrong at both ends. **Open declarations are never swept** — nothing waiting on an answer may disappear before it gets one, which is also what leaves a second attack standing while the first is unanswered.
+
+**Answered is immutable.** Parried, or not parried and possibly carrying a number, a declaration is the record of what happened. Only the GM's `Clear resolved` removes one, and it can never reach an open one, so no control in the product can destroy an exchange nobody has seen.
+
+**The GM's declarations carry no source token.** A player owns one token, so their source names itself and is worth drawing in the pip's colour. The GM owns every monster, and which one swings is narration. `source_id IS NULL` *is* the GM, and it is what makes the ownership rules above expressible without a second gesture for the GM to make.
 
 ### Only the presented page reaches the players
 
