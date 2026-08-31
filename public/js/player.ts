@@ -440,6 +440,13 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     if (tokenMenu.selectedId !== null) tokenMenu.render();
   });
 
+  // A refusal has to reach the player who caused it. Everything a player writes is checked on the
+  // server, and until now a refused write was silent on this side: the button simply failed to
+  // light, which is honest and says nothing.
+  ws.on('error', (msg) => {
+    showToast(msg.message);
+  });
+
   ws.on('ping:map', (msg) => {
     pingCtrl.addPing(msg.x, msg.y, msg.color);
   });
