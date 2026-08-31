@@ -107,23 +107,14 @@ export function createSchema(db: Database): void {
     );
   `);
 
-  // One open declaration per attacker, in the database rather than in a handler: declaring again
-  // replaces the open one, and that is how a mis-tap is corrected and how a target is changed.
+  // Nothing limits how many attacks are open at once, and the indexes that used to are dropped.
   //
-  // Two indexes because the GM has no source token. A player's attacker is their token; the GM's
-  // is the GM, who may have one open attack on each of several players at once — so for those the
-  // target is what there can only be one of. The `state = 'open'` predicate is what lets an
-  // answered declaration stay behind once #73 writes one.
-  db.run(`
-    CREATE UNIQUE INDEX IF NOT EXISTS declarations_one_open_per_source
-      ON declarations(source_id)
-      WHERE source_id IS NOT NULL AND state = 'open'
-  `);
-  db.run(`
-    CREATE UNIQUE INDEX IF NOT EXISTS declarations_one_open_gm_per_target
-      ON declarations(target_id)
-      WHERE source_id IS NULL AND state = 'open'
-  `);
+  // They enforced one open declaration per attacker, so declaring again replaced the last one. The
+  // rule reads well until two orcs swing at the same player: that is two attacks, two answers and
+  // two numbers, and the database was collapsing them into one. A round is the table's to count,
+  // not this tool's.
+  db.run(`DROP INDEX IF EXISTS declarations_one_open_per_source`);
+  db.run(`DROP INDEX IF EXISTS declarations_one_open_gm_per_target`);
 
   // Unique index prevents duplicate tokens per player per adventure
   db.run(`

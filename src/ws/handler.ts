@@ -939,23 +939,11 @@ export function createWsHandlers(deps: ServerDeps) {
             break;
           }
 
-          const { declaration, replaced } = openDeclaration(db, {
+          const declaration = openDeclaration(db, {
             imageId: liveImageId,
             sourceId,
             targetId: target.id,
           });
-          // The replaced one goes first, so nobody sees two pips from one attacker in between. A
-          // replacement made on a page nobody is looking at is silent, like everything else off
-          // the presented page.
-          for (const gone of replaced) {
-            if (gone.image_id !== liveImageId) continue;
-            const retracted = serializeMessage({
-              type: "declaration:retracted",
-              declarationId: gone.id,
-            });
-            ws.send(retracted);
-            ws.publish(topic, retracted);
-          }
           const opened = serializeMessage({ type: "declaration:opened", declaration });
           ws.send(opened);
           ws.publish(topic, opened);

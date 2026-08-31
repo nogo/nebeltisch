@@ -1996,47 +1996,46 @@ describe("WebSocket handler", () => {
       expect(getDeclarationsByImage(ts.db, imageId)).toEqual([]);
     });
 
-    it("declaring again replaces the open one rather than adding a second", async () => {
+    it("a second attack is a second attack, on another token or on the same one", async () => {
       const gm = await connectGm();
       const first = await placeMonster(gm, "Ork 1");
       const second = await placeMonster(gm, "Ork 2");
       const alice = await connectPlayer("Alice");
 
-      const opened = waitForMessage(alice.ws, "declaration:opened");
-      const gmSaw = waitForMessage(gm, "declaration:opened");
-      alice.ws.send(JSON.stringify({ type: "declaration:open", targetId: first }));
-      const firstId = (await opened).declaration.id;
-      await gmSaw;
-
-      const retracted = waitForMessage(gm, "declaration:retracted");
-      const reopened = waitForMessage(gm, "declaration:opened");
-      alice.ws.send(JSON.stringify({ type: "declaration:open", targetId: second }));
-      // The pip that went away is announced, so a mis-tap corrects itself on every screen.
-      expect((await retracted).declarationId).toBe(firstId);
-      expect((await reopened).declaration.target_id).toBe(second);
-
+      for (const target of [first, second, first]) {
+        const opened = waitForMessage(gm, "declaration:opened");
+        alice.ws.send(JSON.stringify({ type: "declaration:open", targetId: target }));
+        await opened;
+      }
+      // Nothing was replaced and nothing was refused: two weapons on one orc is two attacks, and
+      // how many a round holds is the table's to count, not this tool's.
       const rows = getDeclarationsByImage(ts.db, imageId);
-      expect(rows).toHaveLength(1);
-      expect(rows[0]!.target_id).toBe(second);
+      expect(rows).toHaveLength(3);
+      expect(rows.filter((d) => d.target_id === first)).toHaveLength(2);
     });
 
-    it("the GM holds one open attack per player, not one in total", async () => {
+    it("two monsters attack one player, and both are answered", async () => {
       const gm = await connectGm();
       const alice = await connectPlayer("Alice");
-      const bob = await connectPlayer("Bob");
 
-      for (const target of [alice.tokenId, bob.tokenId]) {
-        const opened = waitForMessage(gm, "declaration:opened");
-        gm.send(JSON.stringify({ type: "declaration:open", targetId: target }));
-        await opened;
+      const ids: string[] = [];
+      for (let i = 0; i < 2; i++) {
+        const opened = waitForMessage(alice.ws, "declaration:opened");
+        gm.send(JSON.stringify({ type: "declaration:open", targetId: alice.tokenId }));
+        ids.push((await opened).declaration.id);
       }
       expect(getDeclarationsByImage(ts.db, imageId)).toHaveLength(2);
 
-      // A second one on Alice replaces hers and leaves Bob's alone.
-      const replaced = waitForMessage(gm, "declaration:retracted");
-      gm.send(JSON.stringify({ type: "declaration:open", targetId: alice.tokenId }));
-      await replaced;
-      expect(getDeclarationsByImage(ts.db, imageId)).toHaveLength(2);
+      // Answered one at a time and independently — one parried, one through.
+      const parried = waitForMessage(gm, "declaration:updated");
+      alice.ws.send(JSON.stringify({ type: "declaration:answer", declarationId: ids[0], parried: true }));
+      await parried;
+      const through = waitForMessage(gm, "declaration:updated");
+      alice.ws.send(JSON.stringify({ type: "declaration:answer", declarationId: ids[1], parried: false }));
+      await through;
+
+      expect(getDeclaration(ts.db, ids[0]!)!.state).toBe("parried");
+      expect(getDeclaration(ts.db, ids[1]!)!.state).toBe("not_parried");
     });
 
     it("only the one who declared can retract it", async () => {
@@ -2244,6 +2243,29 @@ describe("WebSocket handler", () => {
       expect(getDeclaration(ts.db, declarationId)!.damage).toBe(7);
     });
 
+    it("the GM sends the number for their own attack, and the player it hit cannot", async () => {
+      const gm = await connectGm();
+      const alice = await connectPlayer("Alice");
+
+      const opened = waitForMessage(alice.ws, "declaration:opened");
+      gm.send(JSON.stringify({ type: "declaration:open", targetId: alice.tokenId }));
+      const declarationId = (await opened).declaration.id;
+
+      const answered = waitForMessage(gm, "declaration:updated");
+      alice.ws.send(JSON.stringify({ type: "declaration:answer", declarationId, parried: false }));
+      await answered;
+
+      // Alice answers for her token and the GM sends the number: the two halves of one exchange,
+      // and a sourceless declaration is the GM's half.
+      const refused = waitForMessage(alice.ws, "error");
+      alice.ws.send(JSON.stringify({ type: "declaration:damage", declarationId, damage: 5 }));
+      await refused;
+
+      const sent = waitForMessage(alice.ws, "declaration:updated");
+      gm.send(JSON.stringify({ type: "declaration:damage", declarationId, damage: 12 }));
+      expect((await sent).declaration.damage).toBe(12);
+    });
+
     it("a parried attack carries no number, and a number outside the range is refused", async () => {
       const gm = await connectGm();
       const first = await placeMonster(gm, "Ork 1");
@@ -2261,7 +2283,7 @@ describe("WebSocket handler", () => {
       alice.ws.send(JSON.stringify({ type: "declaration:damage", declarationId: parriedId, damage: 7 }));
       await refused;
 
-      // Answering freed the attacker: the record stays and a new attack can be declared (#62 rule 2).
+      // The answered one stays behind as the record while a new attack is declared.
       const reopened = waitForMessage(gm, "declaration:opened");
       alice.ws.send(JSON.stringify({ type: "declaration:open", targetId: second }));
       const openId = (await reopened).declaration.id;

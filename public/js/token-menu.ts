@@ -1,5 +1,5 @@
 import { createAnchoredMenu } from './anchored-menu';
-import type { MenuInput, MenuItem, MenuLabel } from './anchored-menu';
+import type { MenuGroup, MenuInput } from './anchored-menu';
 import type { TokenController, TokenData } from './tokens';
 
 /**
@@ -23,8 +23,11 @@ export interface TokenMenuOptions {
   /** Token radius in image pixels — the strip clears the circle at every zoom. */
   getRadius(): number;
   getScale(): number;
-  /** What this client offers on this token. */
-  build(token: TokenData): { items: MenuItem[]; label?: MenuLabel };
+  /**
+   * What this client offers on this token, as one row per thing it has to say. Empty means there
+   * is nothing to offer and the menu does not open.
+   */
+  build(token: TokenData): MenuGroup[];
   /**
    * The selection moved to another token, or to none.
    *
@@ -91,8 +94,11 @@ export function createTokenMenu(options: TokenMenuOptions): TokenMenu {
       if (selectedTokenId === null) { menu.close(); return; }
       const token = tokenOf(selectedTokenId);
       if (!token) { controller.select(null); return; }
-      const { items, label } = options.build(token);
-      menu.setItems(items, label);
+      const groups = options.build(token);
+      // A token with nothing to offer is not a menu. It happens where the two clients differ —
+      // a player tapping a friend's token — and an empty strip would be worse than no strip.
+      if (groups.length === 0) { controller.select(null); return; }
+      menu.setGroups(groups);
       anchorAtToken(token);
     },
 

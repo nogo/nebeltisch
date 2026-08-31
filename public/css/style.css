@@ -570,9 +570,24 @@ body.painting-armed .board-page { cursor: crosshair; }
   transform-origin: bottom center;
   z-index: 2;
   padding-bottom: 6px;
+  /* Rows: what the token is on one line, and the attack waiting on you underneath (#73). One row
+     is the usual case and looks exactly as a single strip always has. */
   display: flex;
+  flex-direction: column;
+  align-items: center;
   gap: 4px;
   white-space: nowrap;
+}
+.anchored-menu-row {
+  display: flex;
+  gap: 4px;
+}
+/* Whose attack this row is about, in the colour their pip is drawn in. */
+.anchored-menu-swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.5);
 }
 .anchored-menu[hidden] { display: none; }
 .anchored-menu-item {
@@ -642,7 +657,7 @@ body.painting-armed .board-page { cursor: crosshair; }
   font-weight: 600;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
 }
-.anchored-menu-label > span {
+.anchored-menu-label > span:not(.anchored-menu-swatch) {
   max-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;

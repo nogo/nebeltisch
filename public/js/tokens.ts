@@ -30,8 +30,6 @@ export interface TokenController {
   enableDrag(tokenId: string, onMove: (x: number, y: number) => void): void;
   enableDragAll(onMove: (tokenId: string, x: number, y: number) => void): void;
   isDragging(): boolean;
-  /** The pip this layer's current press landed on, if it landed on one. */
-  pressedPip(): string | null;
   /** The token this layer holds under that id, or null when it belongs to the other layer. */
   getToken(tokenId: string): TokenData | null;
   /** Rings the token whose menu is open. Pass null to clear; a foreign id is a no-op. */
@@ -124,8 +122,8 @@ function drawStateGlyph(
 /**
  * Where a token's pips sit, in image coordinates, in the order they are drawn.
  *
- * One function so the thing a finger lands on is the thing an eye sees. They fan out from the
- * upper right, which is the only side that is free — the name label sits below and the menu above.
+ * They fan out from the upper right, which is the only side that is free — the name label sits
+ * below the circle and the menu hangs above it.
  */
 function pipLayout(
   x: number,
@@ -207,13 +205,6 @@ export function initTokenLayer(
     insertBefore?: HTMLElement;
     /** A press that lifted without dragging. The token was not moved. */
     onTapToken?: (tokenId: string) => void;
-    /**
-     * A tap that landed on one of a token's pips rather than on the token.
-     *
-     * Pips are tested before tokens and win, because they sit inside the token's own finger-sized
-     * hit area: the ring is where they are drawn, and the grab radius reaches past it.
-     */
-    onTapPip?: (declarationId: string, tokenId: string) => void;
   }
 ): TokenController {
   const getRadius = options?.getRadius ?? (() => DEFAULT_RADIUS);
@@ -254,36 +245,6 @@ export function initTokenLayer(
    * The tie matters: standing on a friend must not cost a player the ability to drag themselves,
    * and their own is the only one they can move.
    */
-  /**
-   * The pip under this point, if a finger landed on one.
-   *
-   * Nearest wins rather than first: pips sit shoulder to shoulder around the ring, so which one was
-   * meant is a question of distance, not of drawing order.
-   */
-  function pipAtPoint(pos: { x: number; y: number }): { pip: TokenPip; token: TokenData } | null {
-    if (declarations.size === 0) return null;
-    const scale = getScale() > 0 ? getScale() : 1;
-    let bestPip: TokenPip | null = null;
-    let bestToken: TokenData | null = null;
-    let bestDistance = Infinity;
-    for (const token of tokens.values()) {
-      const pips = declarations.get(token.id);
-      if (!pips || pips.length === 0) continue;
-      const spots = pipLayout(token.x, token.y, getRadius(), scale, pips.length);
-      for (let i = 0; i < spots.length; i++) {
-        const spot = spots[i]!;
-        const dx = pos.x - spot.x;
-        const dy = pos.y - spot.y;
-        const distance = Math.sqrt(dx * dx + dy * dy);
-        if (distance >= spot.radius || distance >= bestDistance) continue;
-        bestPip = pips[i]!;
-        bestToken = token;
-        bestDistance = distance;
-      }
-    }
-    return bestPip && bestToken ? { pip: bestPip, token: bestToken } : null;
-  }
-
   function tokenAtPoint(pos: { x: number; y: number }): TokenData | null {
     const r = hitRadius();
     let hit: TokenData | null = null;
@@ -387,8 +348,6 @@ export function initTokenLayer(
   let dragTokenId: string | null = null;
   /** Whether the press that took this token may also move it. A tap-only press may not. */
   let pressCanMove = false;
-  /** Set when the press landed on a pip rather than on the token under it. */
-  let pressedPipId: string | null = null;
   let dragFrom: { x: number; y: number } | null = null;
   let hasMoved = false;
   let lastMoveTime = 0;
@@ -426,7 +385,6 @@ export function initTokenLayer(
       onMoveAnyCallback = onMove;
     },
     isDragging() { return dragging; },
-    pressedPip() { return pressedPipId; },
     getToken(tokenId: string) { return tokens.get(tokenId) ?? null; },
     setDeclarations(byTarget: Map<string, TokenPip[]>) {
       declarations = byTarget;
@@ -441,22 +399,7 @@ export function initTokenLayer(
     render,
 
     handlePointerDown(ev: PointerEvent) {
-      const pos = screenToImage(ev.clientX, ev.clientY);
-      // Pips first. They are drawn on the ring, which the token's grab radius reaches past, so a
-      // token tested first would swallow every one of them.
-      if (options?.onTapPip) {
-        const onPip = pipAtPoint(pos);
-        if (onPip) {
-          dragging = true;
-          dragTokenId = onPip.token.id;
-          pressCanMove = false;
-          pressedPipId = onPip.pip.id;
-          dragFrom = { x: ev.clientX, y: ev.clientY };
-          hasMoved = false;
-          return;
-        }
-      }
-      const hit = tokenAtPoint(pos);
+      const hit = tokenAtPoint(screenToImage(ev.clientX, ev.clientY));
       if (!hit) return;
       // Whether this press may *move* the token is a separate question from whether this layer
       // answers the press at all. A player taps a monster to open its menu and may not drag it, so
@@ -466,7 +409,6 @@ export function initTokenLayer(
       dragging = true;
       dragTokenId = hit.id;
       pressCanMove = canMove;
-      pressedPipId = null;
       dragFrom = { x: ev.clientX, y: ev.clientY };
       hasMoved = false;
       if (canMove) render(); // The halo has to appear on the grab, not on the first movement.
@@ -506,18 +448,15 @@ export function initTokenLayer(
       const tokenId = dragTokenId;
       const moved = hasMoved;
       const couldMove = pressCanMove;
-      const pipId = pressedPipId;
       dragging = false;
       dragFrom = null;
       hasMoved = false;
       dragTokenId = null;
       pressCanMove = false;
-      pressedPipId = null;
       render();
 
       if (!moved) {
-        if (pipId !== null) options?.onTapPip?.(pipId, tokenId);
-        else options?.onTapToken?.(tokenId);
+        options?.onTapToken?.(tokenId);
         return;
       }
 
@@ -537,7 +476,6 @@ export function initTokenLayer(
       dragFrom = null;
       hasMoved = false;
       pressCanMove = false;
-      pressedPipId = null;
       selectedTokenId = null;
       render();
     },

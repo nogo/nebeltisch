@@ -2,13 +2,13 @@ import { connectGM } from './websocket';
 import { initCanvas } from './canvas';
 import { initBoard } from './board';
 import { initTokenLayer } from './tokens';
-import type { TokenController } from './tokens';
+import type { TokenController, TokenData } from './tokens';
 import { initPingLayer } from './ping';
 import { createViewport } from './viewport';
 import { createAnchoredMenu } from './anchored-menu';
 import { createTokenMenu } from './token-menu';
 import { createDeclarations } from './declarations';
-import type { MenuItem } from './anchored-menu';
+import type { MenuGroup, MenuItem } from './anchored-menu';
 import type { FogStroke } from './canvas';
 import type { Declaration, TokenState } from '../../src/types';
 import * as api from './api';
@@ -215,7 +215,6 @@ const gmTokenCtrl = initTokenLayer(
     getRadius: () => tokenRadius,
     getScale: () => viewport.scale,
     onTapToken: (tokenId) => tokenMenu.toggle(tokenId),
-    onTapPip: (declarationId, tokenId) => answerPip(declarationId, tokenId),
   }
 );
 gmTokenCtrl.enableDragAll((tokenId, x, y) => {
@@ -242,7 +241,6 @@ const tokenCtrl = initTokenLayer(
     getRadius: () => tokenRadius,
     getScale: () => viewport.scale,
     onTapToken: (tokenId) => tokenMenu.toggle(tokenId),
-    onTapPip: (declarationId, tokenId) => answerPip(declarationId, tokenId),
   }
 );
 tokenCtrl.enableDragAll((tokenId, x, y) => {
@@ -257,48 +255,44 @@ tokenCtrl.enableDragAll((tokenId, x, y) => {
 const declarations = createDeclarations([gmTokenCtrl, tokenCtrl]);
 
 /**
- * The declaration whose pip was tapped, while its menu stands open on the token it points at.
+ * The exchange on this token that is waiting on the GM, if there is one.
  *
- * A monster can carry three attacks at once, so answering needs to name *which* — and the pip is
- * already the thing on screen that stands for one. Tapping it narrows the token's menu to that
- * exchange; tapping the token itself widens it back (#73).
+ * One at a time, oldest first. Three players on one orc is three answers, and they are given in
+ * the order the attacks were declared — which is the order the table spoke in. Nobody picks between
+ * two things, and nothing has to be aimed at: the row hangs off the token, and the token is the
+ * biggest thing on the map (#73).
  */
-let answeringId: string | null = null;
+function pendingRow(token: TokenData): MenuGroup | null {
+  const here = declarations.on(token.id);
+  const isGmToken = token.token_type === 'monster' || token.token_type === 'npc';
 
-/**
- * What the GM may do about one declaration. The GM owns every monster, so they answer for the
- * target of a player's attack and send the number for their own — the two halves of one exchange
- * belong to different people, and this is the GM's half of whichever it is.
- */
-function pipItems(declaration: Declaration): MenuItem[] {
-  const target = gmTokenCtrl.getToken(declaration.target_id) ?? tokenCtrl.getToken(declaration.target_id);
-  const answersForTarget = target !== null && target.token_type !== 'player';
-  if (declaration.state === 'open' && answersForTarget) {
-    return [
-      {
-        label: 'Parried',
-        title: 'This attack was parried',
-        onSelect: () => answer(declaration.id, true),
-      },
-      {
-        label: 'Not parried',
-        title: 'This attack got through',
-        onSelect: () => answer(declaration.id, false),
-      },
-    ];
+  if (isGmToken) {
+    // The GM answers for every monster and NPC, and the name says whose blow this one is.
+    const open = here.find((d) => d.state === 'open');
+    if (!open) return null;
+    const attacker = open.source_id === null ? null : tokenCtrl.getToken(open.source_id);
+    return {
+      label: attacker === null ? undefined : { text: attacker.name, swatch: attacker.color },
+      items: [
+        { label: 'Parried', title: 'This attack was parried', onSelect: () => answer(open.id, true) },
+        { label: 'Not parried', title: 'This attack got through', onSelect: () => answer(open.id, false) },
+      ],
+    };
   }
+
   // The GM's own attacks are the sourceless ones, and the number is the attacker's to send.
-  if (declaration.state === 'not_parried' && declaration.damage === null && declaration.source_id === null) {
-    return [{ label: 'Damage', title: 'Send the damage you rolled', onSelect: () => showDamageInput(declaration.id) }];
-  }
-  return [];
+  const owed = here.find(
+    (d) => d.source_id === null && d.state === 'not_parried' && d.damage === null
+  );
+  if (!owed) return null;
+  return {
+    items: [{ label: 'Damage', title: 'Send the damage you rolled', onSelect: () => showDamageInput(owed.id) }],
+  };
 }
 
 function answer(declarationId: string, parried: boolean) {
+  // No local redraw: the server's echo is what moves the row on to the next attack (principle 2).
   ws.send({ type: 'declaration:answer', declarationId, parried });
-  // Back to the token's own menu: the other half of this exchange is somebody else's to send.
-  answeringId = null;
-  tokenMenu.render();
 }
 
 function showDamageInput(declarationId: string) {
@@ -309,30 +303,15 @@ function showDamageInput(declarationId: string) {
     inputMode: 'numeric',
     onCommit: (value) => {
       const damage = Number(value);
-      // The server checks this too, and its answer is what the table sees (principle 2). This only
-      // keeps a stray letter from becoming a message.
+      // The server checks this too, and its answer is what the table sees. This only keeps a stray
+      // letter from becoming a message.
       if (Number.isInteger(damage) && damage >= 0) {
         ws.send({ type: 'declaration:damage', declarationId, damage });
       }
-      answeringId = null;
       tokenMenu.render();
     },
-    onCancel: () => {
-      answeringId = null;
-      tokenMenu.render();
-    },
+    onCancel: () => tokenMenu.render(),
   });
-}
-
-/** A tap on a pip: the menu opens on the token it sits on, narrowed to that one exchange. */
-function answerPip(declarationId: string, tokenId: string) {
-  const declaration = declarations.get(declarationId);
-  // Nothing to offer means nothing to open. A finished exchange is a record, and the pip is
-  // already showing it.
-  if (!declaration || pipItems(declaration).length === 0) return;
-  tokenMenu.select(tokenId);
-  answeringId = declarationId;
-  tokenMenu.render();
 }
 
 // --- The token menu ---
@@ -348,94 +327,97 @@ const tokenMenu = createTokenMenu({
   getRadius: () => tokenRadius,
   getScale: () => viewport.scale,
   onSelectionChange: (tokenId) => {
-    // A half-armed Remove does not survive the GM moving to another token, and neither does an
-    // exchange that was being answered.
+    // A half-armed Remove does not survive the GM moving to another token.
     removeArmed = false;
-    answeringId = null;
     // The marker's menu and this one both hang over the same page, and a token can sit under the
     // marker. `createAnchoredMenu` deliberately does not close siblings, so this is said here.
     if (tokenId !== null) selectStartMarker(false);
   },
   build: (token) => {
-    const answering = answeringId === null ? null : declarations.get(answeringId);
-    if (answering && answering.target_id === token.id) return { items: pipItems(answering) };
-
     const isGmToken = token.token_type === 'monster' || token.token_type === 'npc';
-    // A player token offers the GM one thing, and the menu is that one button.
-    //
-    // No name: it is already written under the circle, and the menu repeating it says nothing the
-    // GM cannot see. No states either — a player reports being down, and the GM adjudicating it
-    // from here was a guess #61 made about a table that does not work that way.
-    if (!isGmToken) {
-      const open = declarations.openOn(token.id, null);
-      return {
-        items: [
-          {
-            label: 'Attack',
-            // Lit while it stands, and the same press takes it back, so no press is ever a no-op
-            // and taking one back needs no control of its own.
-            current: open !== null,
-            title: open ? 'Attacking — tap to take it back' : `Declare an attack on ${token.name}`,
-            onSelect: () => {
-              removeArmed = false;
-              if (open) ws.send({ type: 'declaration:retract', declarationId: open.id });
-              else ws.send({ type: 'declaration:open', targetId: token.id });
-            },
+    const groups: MenuGroup[] = [];
+
+    if (isGmToken) {
+      const state = token.state;
+      // Nothing here sets a state on its own — a press is the whole story.
+      const items: MenuItem[] = TOKEN_STATES.map(({ value, label, icon }) => {
+        const lit = value === state;
+        return {
+          label,
+          icon,
+          // The way back to alive is the lit toggle, so no press is ever a no-op.
+          title: lit ? `${label} — tap to mark alive` : `Mark ${label.toLowerCase()}`,
+          current: lit,
+          onSelect: () => {
+            removeArmed = false;
+            ws.send({ type: 'gm_token:state', tokenId: token.id, state: lit ? 'alive' : value });
           },
-        ],
-      };
+        };
+      });
+      items.push(
+        removeArmed
+          ? {
+              // Words, not the icon, for the press that actually destroys something: a second tap on
+              // the same glyph would look like the first one failed.
+              label: 'Remove?',
+              armed: true,
+              title: 'Tap again to remove this token',
+              onSelect: () => {
+                ws.send({ type: 'gm_token:remove', tokenId: token.id });
+                tokenMenu.select(null);
+              },
+            }
+          : {
+              label: 'Remove',
+              icon: trashIconTemplate,
+              title: 'Remove this token',
+              onSelect: () => {
+                removeArmed = true;
+                tokenMenu.render();
+              },
+            }
+      );
+      // A monster's name is also the control that renames it, so the edit happens on the name
+      // rather than beside it. Numbering three orcs is what lets the party name one.
+      groups.push({
+        items,
+        label: {
+          text: token.name,
+          icon: pencilIconTemplate,
+          title: 'Rename',
+          onSelect: () => showTokenRename(token.id, token.name),
+        },
+      });
+    } else {
+      // A player token offers the GM one thing: the attack a monster is making on it. No name —
+      // it is written under the circle already — and no states: a player reports being down.
+      const items: MenuItem[] = [
+        {
+          label: 'Attack',
+          title: `Declare an attack on ${token.name}`,
+          onSelect: () => {
+            removeArmed = false;
+            ws.send({ type: 'declaration:open', targetId: token.id });
+          },
+        },
+      ];
+      // Two orcs on one player is two attacks, so declaring never replaces. Taking one back is its
+      // own control, and it takes back the last one — they are the same attack to everyone here.
+      const mine = declarations.on(token.id).filter((d) => d.source_id === null && d.state === 'open');
+      const last = mine[mine.length - 1];
+      if (last) {
+        items.push({
+          label: 'Retract',
+          title: 'Take back the last attack declared here',
+          onSelect: () => ws.send({ type: 'declaration:retract', declarationId: last.id }),
+        });
+      }
+      groups.push({ items });
     }
 
-    const state = token.state;
-    // Nothing here sets a state on its own — a press is the whole story.
-    const items: MenuItem[] = TOKEN_STATES.map(({ value, label, icon }) => {
-      const lit = value === state;
-      return {
-        label,
-        icon,
-        // The way back to alive is the lit toggle, so no press is ever a no-op.
-        title: lit ? `${label} — tap to mark alive` : `Mark ${label.toLowerCase()}`,
-        current: lit,
-        onSelect: () => {
-          removeArmed = false;
-          ws.send({ type: 'gm_token:state', tokenId: token.id, state: lit ? 'alive' : value });
-        },
-      };
-    });
-    items.push(
-      removeArmed
-        ? {
-            // Words, not the icon, for the press that actually destroys something: a second tap on
-            // the same glyph would look like the first one failed.
-            label: 'Remove?',
-            armed: true,
-            title: 'Tap again to remove this token',
-            onSelect: () => {
-              ws.send({ type: 'gm_token:remove', tokenId: token.id });
-              tokenMenu.select(null);
-            },
-          }
-        : {
-            label: 'Remove',
-            icon: trashIconTemplate,
-            title: 'Remove this token',
-            onSelect: () => {
-              removeArmed = true;
-              tokenMenu.render();
-            },
-          }
-    );
-    // A monster's name is also the control that renames it, so the edit happens on the name rather
-    // than beside it. Numbering three orcs is what makes the party able to name one.
-    return {
-      items,
-      label: {
-        text: token.name,
-        icon: pencilIconTemplate,
-        title: 'Rename',
-        onSelect: () => showTokenRename(token.id, token.name),
-      },
-    };
+    const pending = pendingRow(token);
+    if (pending) groups.push(pending);
+    return groups;
   },
 });
 

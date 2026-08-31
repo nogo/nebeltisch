@@ -29,10 +29,11 @@ export interface Declarations {
    * a dead monster's colour on the player it was attacking.
    */
   dropToken(tokenId: string): void;
-  /** This attacker's open declaration on that token, if they have one. The menu's toggle. */
-  openOn(targetId: string, sourceId: string | null): Declaration | null;
-  /** One declaration by id — what the pip a finger landed on stands for. */
-  get(declarationId: string): Declaration | null;
+  /**
+   * Everything pointing at one token, oldest first — the order the pips sit in, which is the order
+   * the table spoke in. Callers filter it for the half that is theirs (#73).
+   */
+  on(targetId: string): Declaration[];
   /** Redraws the pips. Needed after a layer is repopulated with a page's tokens. */
   render(): void;
 }
@@ -97,15 +98,8 @@ export function createDeclarations(layers: TokenController[]): Declarations {
       list = list.filter((d) => d.source_id !== tokenId && d.target_id !== tokenId);
       render();
     },
-    openOn(targetId, sourceId) {
-      return (
-        list.find(
-          (d) => d.target_id === targetId && d.source_id === sourceId && d.state === 'open'
-        ) ?? null
-      );
-    },
-    get(declarationId) {
-      return list.find((d) => d.id === declarationId) ?? null;
+    on(targetId) {
+      return list.filter((d) => d.target_id === targetId);
     },
     render,
   };

@@ -1,9 +1,10 @@
 import { connectPlayer } from './websocket';
 import { initCanvas } from './canvas';
 import { initTokenLayer } from './tokens';
+import type { TokenData } from './tokens';
 import { initPingLayer } from './ping';
 import { createTokenMenu } from './token-menu';
-import type { MenuItem } from './anchored-menu';
+import type { MenuGroup, MenuItem } from './anchored-menu';
 import { createDeclarations } from './declarations';
 import { createViewport } from './viewport';
 import { initVeil } from './veil';
@@ -197,7 +198,6 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
       getRadius: () => tokenRadius,
       getScale: () => viewport.scale,
       onTapToken: (tokenId) => tokenMenu.toggle(tokenId),
-      onTapPip: (declarationId, tokenId) => answerPip(declarationId, tokenId),
     }
   );
 
@@ -215,9 +215,9 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
       interactive: true,
       getRadius: () => tokenRadius,
       getScale: () => viewport.scale,
-      // No `onTapToken`: tapping a friend opens nothing. The pips on my own token are another
-      // matter — an attack aimed at me is mine to answer (#73).
-      onTapPip: (declarationId, tokenId) => answerPip(declarationId, tokenId),
+      // An attack aimed at me is answered from my own token, so this layer opens a menu too. On a
+      // friend's token it finds nothing to offer and opens nothing.
+      onTapToken: (tokenId) => tokenMenu.toggle(tokenId),
     }
   );
 
@@ -232,36 +232,41 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
   // Which token was hit is answered by the name already drawn under the circle.
   const declarations = createDeclarations([tokenCtrl, gmTokenCtrl]);
 
-  /** The declaration whose pip was tapped, while its menu stands open on the token it points at. */
-  let answeringId: string | null = null;
-
   /**
-   * What this player may do about one declaration: answer the attack aimed at their own token, or
-   * send the number for the attack they made. Never both — the two halves of an exchange belong to
-   * different people (#73).
+   * The exchange on this token that is waiting on this player, if there is one.
+   *
+   * One at a time, oldest first, and never more than one kind: an attack aimed at my token is mine
+   * to answer, an attack I made is mine to put a number on, and the two halves of an exchange
+   * belong to different people (#73).
    */
-  function pipItems(declaration: Declaration): MenuItem[] {
-    if (declaration.state === 'open' && declaration.target_id === ownTokenId) {
-      return [
-        { label: 'Parried', title: 'You parried this', onSelect: () => answer(declaration.id, true) },
-        { label: 'Not parried', title: 'It got through', onSelect: () => answer(declaration.id, false) },
-      ];
+  function pendingRow(token: TokenData): MenuGroup | null {
+    const here = declarations.on(token.id);
+
+    if (token.id === ownTokenId) {
+      const open = here.find((d) => d.state === 'open');
+      if (!open) return null;
+      // Nothing names the attacker. The GM's declarations carry no source, which is exactly what
+      // keeps this safe: naming the monster would hand the party one that is still under fog.
+      return {
+        items: [
+          { label: 'Parried', title: 'You parried this', onSelect: () => answer(open.id, true) },
+          { label: 'Not parried', title: 'It got through', onSelect: () => answer(open.id, false) },
+        ],
+      };
     }
-    if (
-      declaration.state === 'not_parried' &&
-      declaration.damage === null &&
-      declaration.source_id !== null &&
-      declaration.source_id === ownTokenId
-    ) {
-      return [{ label: 'Damage', title: 'Send the damage you rolled', onSelect: () => showDamageInput(declaration.id) }];
-    }
-    return [];
+
+    const owed = here.find(
+      (d) => d.source_id !== null && d.source_id === ownTokenId && d.state === 'not_parried' && d.damage === null
+    );
+    if (!owed) return null;
+    return {
+      items: [{ label: 'Damage', title: 'Send the damage you rolled', onSelect: () => showDamageInput(owed.id) }],
+    };
   }
 
   function answer(declarationId: string, parried: boolean) {
+    // No local redraw: the server's echo is what moves the row on to the next attack (principle 2).
     ws.send({ type: 'declaration:answer', declarationId, parried });
-    answeringId = null;
-    tokenMenu.render();
   }
 
   function showDamageInput(declarationId: string) {
@@ -276,23 +281,10 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
         if (Number.isInteger(damage) && damage >= 0) {
           ws.send({ type: 'declaration:damage', declarationId, damage });
         }
-        answeringId = null;
         tokenMenu.render();
       },
-      onCancel: () => {
-        answeringId = null;
-        tokenMenu.render();
-      },
+      onCancel: () => tokenMenu.render(),
     });
-  }
-
-  /** A tap on a pip: the menu opens on the token it sits on, narrowed to that one exchange. */
-  function answerPip(declarationId: string, tokenId: string) {
-    const declaration = declarations.get(declarationId);
-    if (!declaration || pipItems(declaration).length === 0) return;
-    tokenMenu.select(tokenId);
-    answeringId = declarationId;
-    tokenMenu.render();
   }
 
   const tokenMenu = createTokenMenu({
@@ -300,34 +292,39 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     layers: [gmTokenCtrl, tokenCtrl],
     getRadius: () => tokenRadius,
     getScale: () => viewport.scale,
-    onSelectionChange: () => {
-      answeringId = null;
-    },
     build: (token) => {
-      const answering = answeringId === null ? null : declarations.get(answeringId);
-      if (answering && answering.target_id === token.id) return { items: pipItems(answering) };
+      const isGmToken = token.token_type === 'monster' || token.token_type === 'npc';
+      const groups: MenuGroup[] = [];
 
-      const open = ownTokenId === null ? null : declarations.openOn(token.id, ownTokenId);
-      return {
-        items:
-          ownTokenId === null
-            ? []
-            : [
-                {
-                  label: 'Attack',
-                  // Lit while it stands, and the same press takes it back. Declaring on another
-                  // monster replaces it, so a mis-tap costs one tap either way.
-                  current: open !== null,
-                  title: open
-                    ? 'Attacking — tap to take it back'
-                    : `Declare an attack on ${token.name}`,
-                  onSelect: () => {
-                    if (open) ws.send({ type: 'declaration:retract', declarationId: open.id });
-                    else ws.send({ type: 'declaration:open', targetId: token.id });
-                  },
-                },
-              ],
-      };
+      if (isGmToken && ownTokenId !== null) {
+        const items: MenuItem[] = [
+          {
+            label: 'Attack',
+            title: `Declare an attack on ${token.name}`,
+            onSelect: () => ws.send({ type: 'declaration:open', targetId: token.id }),
+          },
+        ];
+        // Declaring never replaces, so taking one back is its own control — and it takes back the
+        // last one, because two attacks of mine on one orc are the same attack to everyone here.
+        const mine = declarations
+          .on(token.id)
+          .filter((d) => d.source_id === ownTokenId && d.state === 'open');
+        const last = mine[mine.length - 1];
+        if (last) {
+          items.push({
+            label: 'Retract',
+            title: 'Take back the last attack you declared here',
+            onSelect: () => ws.send({ type: 'declaration:retract', declarationId: last.id }),
+          });
+        }
+        groups.push({ items });
+      }
+
+      // A friend's token offers nothing and opens nothing: player against player is out of scope,
+      // and their name is written under the circle already.
+      const pending = pendingRow(token);
+      if (pending) groups.push(pending);
+      return groups;
     },
   });
 
@@ -355,11 +352,10 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     tokenCtrl.handlePointerDown(ev);
     if (!tokenCtrl.isDragging()) gmTokenCtrl.handlePointerDown(ev);
 
-    // The menu belongs to whatever it was opened on, so a press on a monster or on any pip keeps
-    // it — picking up my own token dismisses it like a press on the map does.
-    if (!gmTokenCtrl.isDragging() && tokenCtrl.pressedPip() === null) tokenMenu.select(null);
-
+    // A press that reached a token is that token's to answer — it opens, switches or closes the
+    // menu on lifting. Only a press on the map dismisses it, and only that press can be a ping.
     if (!tokenCtrl.isDragging() && !gmTokenCtrl.isDragging()) {
+      tokenMenu.select(null);
       // Asking the layers replaces the copy of the grab radius this used to keep: a token that was
       // picked up must never also drop a marker under the finger.
       longPressStartPos = { x: ev.clientX, y: ev.clientY };

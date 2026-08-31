@@ -44,6 +44,8 @@ export interface MenuItem {
  */
 export interface MenuLabel {
   text: string;
+  /** A colour dot before the text — whose attack this row is about (#73). */
+  swatch?: string;
   icon?: HTMLTemplateElement;
   title?: string;
   onSelect?(): void;
@@ -68,10 +70,24 @@ export interface MenuInput {
   onCancel(): void;
 }
 
+/**
+ * One line of the menu. A menu is usually one of these and looks exactly as it always has; a second
+ * appears when the token carries an exchange that wants an answer (#73).
+ *
+ * Rows rather than a longer strip because the two lines say different things: what this token is
+ * and what may be done to it, and then the one attack that is waiting on you.
+ */
+export interface MenuGroup {
+  label?: MenuLabel;
+  items: MenuItem[];
+}
+
 export interface AnchoredMenu {
   readonly element: HTMLElement;
   readonly isOpen: boolean;
   setItems(items: MenuItem[], label?: MenuLabel): void;
+  /** The same, in as many rows as the caller has things to say. */
+  setGroups(groups: MenuGroup[]): void;
   setInput(input: MenuInput): void;
   /** World coordinates of the point the menu hangs above. */
   anchorAt(x: number, y: number): void;
@@ -108,56 +124,74 @@ export function createAnchoredMenu(parent: HTMLElement, className: string): Anch
     element.style.transform = `translate(-50%, -100%) scale(${1 / (scale || 1)})`;
   }
 
+  function buildRow(group: MenuGroup): HTMLElement {
+    const row = document.createElement('div');
+    row.className = 'anchored-menu-row';
+    const label = group.label;
+    if (label !== undefined) {
+      const name = document.createElement(label.onSelect ? 'button' : 'span');
+      name.className = 'anchored-menu-label';
+      if (label.title) name.title = label.title;
+      if (label.swatch) {
+        // The attacker's colour, the same one their pip is drawn in: on a monster with three
+        // attacks on it, the name and the pip have to be the same person at a glance.
+        const dot = document.createElement('span');
+        dot.className = 'anchored-menu-swatch';
+        dot.style.background = label.swatch;
+        name.appendChild(dot);
+      }
+      const text = document.createElement('span');
+      text.textContent = label.text;
+      name.appendChild(text);
+      if (label.icon) name.appendChild(label.icon.content.cloneNode(true));
+      if (label.onSelect) {
+        name.classList.add('editable');
+        name.addEventListener('click', (ev) => {
+          ev.stopPropagation();
+          label.onSelect!();
+        });
+      }
+      row.appendChild(name);
+    }
+
+    for (const item of group.items) {
+      const button = document.createElement('button');
+      button.className = 'anchored-menu-item';
+      if (item.icon) {
+        button.appendChild(item.icon.content.cloneNode(true));
+        button.setAttribute('aria-label', item.label);
+      } else {
+        button.textContent = item.label;
+      }
+      if (item.title) button.title = item.title;
+      button.classList.toggle('armed', item.armed === true);
+      button.classList.toggle('current', item.current === true);
+      if (item.current !== undefined) button.setAttribute('aria-pressed', String(item.current));
+      button.disabled = item.disabled === true;
+      button.addEventListener('click', (ev) => {
+        // Anything else the GM does disarms a waiting item, and this press is not that: without
+        // stopping it, the dismissal path would read it as such and undo the arming it caused.
+        ev.stopPropagation();
+        if (item.disabled) return;
+        item.onSelect();
+      });
+      row.appendChild(button);
+    }
+    return row;
+  }
+
   const menu: AnchoredMenu = {
     element,
     get isOpen() { return open; },
 
     setItems(items, label) {
-      element.textContent = '';
-
-      if (label !== undefined) {
-        const name = document.createElement(label.onSelect ? 'button' : 'span');
-        name.className = 'anchored-menu-label';
-        if (label.title) name.title = label.title;
-        const text = document.createElement('span');
-        text.textContent = label.text;
-        name.appendChild(text);
-        if (label.icon) name.appendChild(label.icon.content.cloneNode(true));
-        if (label.onSelect) {
-          name.classList.add('editable');
-          name.addEventListener('click', (ev) => {
-            ev.stopPropagation();
-            label.onSelect!();
-          });
-        }
-        element.appendChild(name);
-      }
-
-      for (const item of items) {
-        const button = document.createElement('button');
-        button.className = 'anchored-menu-item';
-        if (item.icon) {
-          button.appendChild(item.icon.content.cloneNode(true));
-          button.setAttribute('aria-label', item.label);
-        } else {
-          button.textContent = item.label;
-        }
-        if (item.title) button.title = item.title;
-        button.classList.toggle('armed', item.armed === true);
-        button.classList.toggle('current', item.current === true);
-        if (item.current !== undefined) button.setAttribute('aria-pressed', String(item.current));
-        button.disabled = item.disabled === true;
-        button.addEventListener('click', (ev) => {
-          // Anything else the GM does disarms a waiting item, and this press is not that: without
-          // stopping it, the dismissal path would read it as such and undo the arming it caused.
-          ev.stopPropagation();
-          if (item.disabled) return;
-          item.onSelect();
-        });
-        element.appendChild(button);
-      }
+      menu.setGroups([{ items, label }]);
     },
 
+    setGroups(groups) {
+      element.textContent = '';
+      for (const group of groups) menu.element.appendChild(buildRow(group));
+    },
     setInput(input) {
       element.textContent = '';
       const field = document.createElement('input');
