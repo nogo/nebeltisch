@@ -6,6 +6,7 @@ import type { TokenController } from './tokens';
 import { initPingLayer } from './ping';
 import { createViewport } from './viewport';
 import { createAnchoredMenu } from './anchored-menu';
+import { createTokenMenu } from './token-menu';
 import type { MenuItem } from './anchored-menu';
 import type { FogStroke } from './canvas';
 import type { TokenState } from '../../src/types';
@@ -151,7 +152,7 @@ viewport.onChange(() => {
   board.applyScale(viewport.scale);
   // The marker's menu counter-scales, so zooming has to re-apply it.
   if (startSelected) renderStartMarker();
-  if (selectedTokenId !== null) renderTokenMenu();
+  if (tokenMenu.selectedId !== null) tokenMenu.render();
 });
 
 /** Frames every page. On a canvas with no edges this is the only way back to the content. */
@@ -212,12 +213,12 @@ const gmTokenCtrl = initTokenLayer(
     insertBefore: canvasCtrl.getFogCanvas(),
     getRadius: () => tokenRadius,
     getScale: () => viewport.scale,
-    onTapToken: (tokenId) => toggleTokenSelection(tokenId),
+    onTapToken: (tokenId) => tokenMenu.toggle(tokenId),
   }
 );
 gmTokenCtrl.enableDragAll((tokenId, x, y) => {
   // Only fires once the token has actually moved, so a tap leaves `token_positions` alone.
-  if (selectedTokenId === tokenId) selectToken(null);
+  if (tokenMenu.selectedId === tokenId) tokenMenu.select(null);
   ws.send({ type: 'token:move', tokenId, x, y });
 });
 
@@ -238,120 +239,96 @@ const tokenCtrl = initTokenLayer(
     interactive: true,
     getRadius: () => tokenRadius,
     getScale: () => viewport.scale,
-    onTapToken: (tokenId) => toggleTokenSelection(tokenId),
+    onTapToken: (tokenId) => tokenMenu.toggle(tokenId),
   }
 );
 tokenCtrl.enableDragAll((tokenId, x, y) => {
-  if (selectedTokenId === tokenId) selectToken(null);
+  if (tokenMenu.selectedId === tokenId) tokenMenu.select(null);
   ws.send({ type: 'token:move', tokenId, x, y });
 });
 
 // --- The token menu ---
 //
-// One menu, re-anchored to whichever token is selected — tokens are many and a menu per token
-// would be a menu per token to keep in sync. It opens on *every* token: rename and remove are
-// offered on monsters and NPCs only, but states (#61) and declarations (#62) put items here for
-// players too, and the hit-test rule is better written once than revised twice.
-const tokenMenu = createAnchoredMenu(canvasCtrl.getWrapper(), 'token-menu');
-let selectedTokenId: string | null = null;
-/**
- * Set while Remove waits for its second press, exactly as the page's Delete does.
- *
- * Removal is the one act here that cannot be taken back — tokens have no undo, and a monster
- * carries its declarations away with it (#62). Re-rendering the menu preserves this: zooming and
- * the token being dragged both redraw, and neither is the GM changing their mind.
- */
+// The menu itself is `token-menu.ts`, shared with the player client: which layer holds the token,
+// what a tap means and where the strip hangs are one rule, and both clients obey it. What is here
+// is what the *GM* offers on a token.
 let removeArmed = false;
 
-/** Whichever layer holds this token. The id lives in exactly one of them. */
-function layerHolding(tokenId: string): TokenController | null {
-  if (gmTokenCtrl.getToken(tokenId)) return gmTokenCtrl;
-  if (tokenCtrl.getToken(tokenId)) return tokenCtrl;
-  return null;
-}
-
-function toggleTokenSelection(tokenId: string) {
-  selectToken(selectedTokenId === tokenId ? null : tokenId);
-}
-
-function selectToken(tokenId: string | null) {
-  if (selectedTokenId === tokenId) return;
-  selectedTokenId = tokenId;
-  removeArmed = false;
-  gmTokenCtrl.setSelected(tokenId);
-  tokenCtrl.setSelected(tokenId);
-  // The marker's menu and this one both hang over the same page, and a token can sit under the
-  // marker. `createAnchoredMenu` deliberately does not close siblings, so this is said here.
-  if (tokenId !== null) selectStartMarker(false);
-  renderTokenMenu();
-}
-
-function renderTokenMenu() {
-  if (selectedTokenId === null) { tokenMenu.close(); return; }
-  const token = layerHolding(selectedTokenId)?.getToken(selectedTokenId);
-  if (!token) { selectToken(null); return; }
-
-  const isGmToken = token.token_type === 'monster' || token.token_type === 'npc';
-  const state = token.state;
-  // On every token, the party's included: the GM adjudicates a player's unconsciousness too, and
-  // is the only one who can. Nothing here sets a state on its own — a press is the whole story.
-  const items: MenuItem[] = TOKEN_STATES.map(({ value, label, icon }) => {
-    const lit = value === state;
+const tokenMenu = createTokenMenu({
+  parent: canvasCtrl.getWrapper(),
+  layers: [gmTokenCtrl, tokenCtrl],
+  getRadius: () => tokenRadius,
+  getScale: () => viewport.scale,
+  onSelectionChange: (tokenId) => {
+    // A half-armed Remove does not survive the GM moving to another token.
+    removeArmed = false;
+    // The marker's menu and this one both hang over the same page, and a token can sit under the
+    // marker. `createAnchoredMenu` deliberately does not close siblings, so this is said here.
+    if (tokenId !== null) selectStartMarker(false);
+  },
+  build: (token) => {
+    const isGmToken = token.token_type === 'monster' || token.token_type === 'npc';
+    const state = token.state;
+    // On every token, the party's included: the GM adjudicates a player's unconsciousness too, and
+    // is the only one who can. Nothing here sets a state on its own — a press is the whole story.
+    const items: MenuItem[] = TOKEN_STATES.map(({ value, label, icon }) => {
+      const lit = value === state;
+      return {
+        label,
+        icon,
+        // The way back to alive is the lit toggle, so no press is ever a no-op.
+        title: lit ? `${label} — tap to mark alive` : `Mark ${label.toLowerCase()}`,
+        current: lit,
+        onSelect: () => {
+          removeArmed = false;
+          ws.send({ type: 'gm_token:state', tokenId: token.id, state: lit ? 'alive' : value });
+        },
+      };
+    });
+    if (isGmToken) {
+      items.push(
+        removeArmed
+          ? {
+              // Words, not the icon, for the press that actually destroys something: a second tap
+              // on the same glyph would look like the first one failed.
+              label: 'Remove?',
+              armed: true,
+              title: 'Tap again to remove this token',
+              onSelect: () => {
+                ws.send({ type: 'gm_token:remove', tokenId: token.id });
+                tokenMenu.select(null);
+              },
+            }
+          : {
+              label: 'Remove',
+              icon: trashIconTemplate,
+              title: 'Remove this token',
+              onSelect: () => {
+                removeArmed = true;
+                tokenMenu.render();
+              },
+            }
+      );
+    }
+    // The name is the confirmation of *which* token was hit — in a cluster the labels under the
+    // circles overlap, and the ring alone says "one of these". On a monster it is also the control
+    // that renames it, so the edit happens on the name rather than beside it.
     return {
-      label,
-      icon,
-      // The way back to alive is the lit toggle, so no press is ever a no-op.
-      title: lit ? `${label} — tap to mark alive` : `Mark ${label.toLowerCase()}`,
-      current: lit,
-      onSelect: () => {
-        removeArmed = false;
-        ws.send({ type: 'gm_token:state', tokenId: token.id, state: lit ? 'alive' : value });
+      items,
+      label: {
+        text: token.name,
+        icon: isGmToken ? pencilIconTemplate : undefined,
+        title: isGmToken ? 'Rename' : undefined,
+        onSelect: isGmToken ? () => showTokenRename(token.id, token.name) : undefined,
       },
     };
-  });
-  if (isGmToken) {
-    items.push(
-      removeArmed
-        ? {
-            // Words, not the icon, for the press that actually destroys something: a second tap on
-            // the same glyph would look like the first one failed.
-            label: 'Remove?',
-            armed: true,
-            title: 'Tap again to remove this token',
-            onSelect: () => {
-              ws.send({ type: 'gm_token:remove', tokenId: token.id });
-              selectToken(null);
-            },
-          }
-        : {
-            label: 'Remove',
-            icon: trashIconTemplate,
-            title: 'Remove this token',
-            onSelect: () => {
-              removeArmed = true;
-              renderTokenMenu();
-            },
-          }
-    );
-  }
-  // The name is the confirmation of *which* token was hit — in a cluster the labels under the
-  // circles overlap, and the ring alone says "one of these". On a monster it is also the control
-  // that renames it, so the edit happens on the name rather than beside it.
-  tokenMenu.setItems(items, {
-    text: token.name,
-    icon: isGmToken ? pencilIconTemplate : undefined,
-    title: isGmToken ? 'Rename' : undefined,
-    onSelect: isGmToken ? () => showTokenRename(token.id, token.name) : undefined,
-  });
-  anchorTokenMenu(token.x, token.y);
-}
+  },
+});
 
 function showTokenRename(tokenId: string, current: string) {
-  const token = layerHolding(tokenId)?.getToken(tokenId);
-  if (!token) return;
   // A half-armed Remove does not survive the GM going off to rename instead.
   removeArmed = false;
-  tokenMenu.setInput({
+  tokenMenu.showInput({
     value: current,
     maxLength: 40,
     onCommit: (name) => {
@@ -359,18 +336,10 @@ function showTokenRename(tokenId: string, current: string) {
       // Straight back to the menu, still on this token. The name shown is whatever the layer
       // holds, so it is the server's echo that changes it — a rename the server refuses leaves
       // the old name on screen rather than a hopeful one (principle 2).
-      renderTokenMenu();
+      tokenMenu.render();
     },
-    onCancel: () => renderTokenMenu(),
+    onCancel: () => tokenMenu.render(),
   });
-  anchorTokenMenu(token.x, token.y);
-}
-
-/** Above the token, clear of the circle at every zoom. */
-function anchorTokenMenu(x: number, y: number) {
-  tokenMenu.anchorAt(x, y - tokenRadius - 6);
-  tokenMenu.applyScale(viewport.scale);
-  tokenMenu.open();
 }
 
 // --- WebSocket ---
@@ -433,12 +402,12 @@ ws.on('token:moved', (msg) => {
   // The id lives in exactly one controller; moveToken no-ops on the other.
   tokenCtrl.moveToken(msg.tokenId, msg.x, msg.y);
   gmTokenCtrl.moveToken(msg.tokenId, msg.x, msg.y);
-  if (selectedTokenId === msg.tokenId) renderTokenMenu();
+  if (tokenMenu.selectedId === msg.tokenId) tokenMenu.render();
 });
 
 ws.on('token:removed', (msg) => {
   const id = msg.tokenId;
-  if (selectedTokenId === id) selectToken(null);
+  if (tokenMenu.selectedId === id) tokenMenu.select(null);
   tokenCtrl.removeToken(id);
   gmTokenCtrl.removeToken(id);
 });
@@ -447,7 +416,7 @@ ws.on('token:renamed', (msg) => {
   // The id lives in exactly one controller; the other no-ops.
   gmTokenCtrl.renameToken(msg.tokenId, msg.name);
   tokenCtrl.renameToken(msg.tokenId, msg.name);
-  if (selectedTokenId === msg.tokenId) renderTokenMenu();
+  if (tokenMenu.selectedId === msg.tokenId) tokenMenu.render();
 });
 
 ws.on('token:state:set', (msg) => {
@@ -455,7 +424,7 @@ ws.on('token:state:set', (msg) => {
   gmTokenCtrl.setTokenState(msg.tokenId, msg.state);
   tokenCtrl.setTokenState(msg.tokenId, msg.state);
   // The menu marks the state the token is in, so the server's echo is what moves the mark.
-  if (selectedTokenId === msg.tokenId) renderTokenMenu();
+  if (tokenMenu.selectedId === msg.tokenId) tokenMenu.render();
 });
 
 ws.on('player:roster', (msg) => {
@@ -551,7 +520,7 @@ async function focusPage(id: string | null) {
   board.setFocused(null);
   canvasWrapper.hidden = true;
   // The layer holds one page's monsters at a time; the next page's arrive below.
-  selectToken(null);
+  tokenMenu.select(null);
   gmTokenCtrl.clear();
   renderPageControls();
   updateToolAvailability();
@@ -1337,7 +1306,7 @@ viewport.onInteractStart((ev: PointerEvent) => {
     // Evaluated after the token hit test, not before it: the press that becomes a tap on the
     // selected token has to survive long enough for `onTapToken` to toggle it closed.
     if (beginTokenDrag(ev)) return;
-    selectToken(null);
+    tokenMenu.select(null);
 
     const world = viewport.screenToImage(ev.clientX, ev.clientY);
     const hit = board.pageAt(world.x, world.y);
@@ -1351,7 +1320,7 @@ viewport.onInteractStart((ev: PointerEvent) => {
   if (!isPageReady()) return;
 
   if (beginTokenDrag(ev)) return;
-  selectToken(null);
+  tokenMenu.select(null);
 
   toolbox.classList.add('painting');
 
