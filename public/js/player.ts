@@ -129,6 +129,7 @@ function showError(msg = 'Invalid invite link.') {
 // --- Player session ---
 function startPlayer(adventureId: string, playerLink: string, playerName: string, playerColor: string) {
   const playerInfoEl = document.getElementById('player-info')!;
+  const connectionStatusEl = document.getElementById('connection-status')!;
   const canvasArea = document.getElementById('canvas-area')!;
 
   const dot = document.createElement('span');
@@ -355,6 +356,9 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
   }
 
   const ws = connectPlayer(adventureId, playerLink, playerName, playerColor);
+
+  ws.on('connect', () => { connectionStatusEl.className = 'status-dot connected'; });
+  ws.on('disconnect', () => { connectionStatusEl.className = 'status-dot disconnected'; });
 
   viewport.onInteractStart(ev => {
     // The party's layer first, then the monsters below it — the same precedence the GM's board

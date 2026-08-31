@@ -967,6 +967,7 @@ body.painting-armed .board-page { cursor: crosshair; }
   left: 8px;
   display: flex;
   align-items: center;
+  gap: 0.4rem;
   padding: 0.3rem 0.75rem;
   height: 36px;
   border-radius: 18px;
