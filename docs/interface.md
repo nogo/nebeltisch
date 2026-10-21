@@ -243,7 +243,7 @@ Where a signed-in GM lands. A single 480px column of tall entries broke down at 
 
 **The whole card opens the board.** Every other act is an icon in one row at the card's foot, right-aligned, always in this order:
 
-- **Invite** (link) copies the players' invite link, so sending it is not the price of opening the board.
+- **Invite** (link) copies the players' invite link, so sending it is not the price of opening the board. Where the clipboard fails, the link appears in the card as a selected field to copy by hand — never a dialog.
 - **Rename** (pencil) turns the name into a field in place. Enter or ✓ keeps it; Escape or leaving the field drops it.
 - **GMs** (person +) opens a popover off the icon: the GMs, all equal, with Leave or Remove, and a field to share by account name. With more than one GM the icon carries the count.
 - **Delete** (bin) arms on the first press — red, reading *Delete?* — and deletes on the second. Blur, Escape or four seconds disarm it.

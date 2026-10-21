@@ -233,7 +233,8 @@ span.adventure-face { border-bottom: 1px dashed rgba(42, 42, 74, 0.9); }
 .adventure-name::after { content: ''; position: absolute; inset: 0; }
 .adventure-name:hover { text-decoration: underline; }
 .adventure-meta { color: #aaa; font-size: 0.85rem; }
-.adventure-rename, .adventure-actions { position: relative; z-index: 1; }
+.adventure-rename, .adventure-actions, .adventure-invite { position: relative; z-index: 1; }
+.home input.adventure-invite { width: 100%; margin-top: 0.4rem; font-size: 0.85rem; }
 .adventure-rename { display: flex; gap: 0.25rem; }
 .adventure-rename input { flex: 1; min-width: 0; }
 /* Padded so a focus ring is not cut by the card's rounded edge. */

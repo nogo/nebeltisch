@@ -214,7 +214,7 @@ function adventureCard(adventure: api.AdventureSummary): HTMLLIElement {
   const actions = document.createElement('div');
   actions.className = 'adventure-actions';
   actions.append(
-    inviteButton(adventure),
+    inviteButton(adventure, text),
     renameButton(adventure, open, errorEl),
     gmsButton(adventure),
     deleteButton(adventure, errorEl),
@@ -247,8 +247,11 @@ function iconButton(name: keyof typeof icons, label: string, type: 'button' | 's
   return button;
 }
 
-/** The invite link without opening the board, so starting a session is not the price of sending it. */
-function inviteButton(adventure: api.AdventureSummary): HTMLButtonElement {
+/**
+ * The invite link without opening the board, so starting a session is not the price of sending it.
+ * Where the clipboard fails, the link appears in the card, selected, to copy by hand.
+ */
+function inviteButton(adventure: api.AdventureSummary, card: HTMLElement): HTMLButtonElement {
   const label = `Copy invite link for ${adventure.name}`;
   const button = iconButton('link', label);
   button.addEventListener('click', async () => {
@@ -256,8 +259,8 @@ function inviteButton(adventure: api.AdventureSummary): HTMLButtonElement {
     try {
       await navigator.clipboard.writeText(url);
     } catch {
-      // No clipboard (an insecure origin, or the browser said no): hand over the link to copy by hand.
-      window.prompt('Copy the invite link', url);
+      // No clipboard on an insecure origin, or the browser said no.
+      showLink(card, adventure, url);
       return;
     }
     button.innerHTML = icon('check');
@@ -268,6 +271,23 @@ function inviteButton(adventure: api.AdventureSummary): HTMLButtonElement {
     }, 2000);
   });
   return button;
+}
+
+/** The link as a read-only field in the card. It stays until the shelf is drawn again. */
+function showLink(card: HTMLElement, adventure: api.AdventureSummary, url: string): void {
+  let field = card.querySelector<HTMLInputElement>('.adventure-invite');
+  if (!field) {
+    field = document.createElement('input');
+    field.type = 'text';
+    field.readOnly = true;
+    field.className = 'adventure-invite';
+    field.value = url;
+    field.setAttribute('aria-label', `Invite link for ${adventure.name}`);
+    field.addEventListener('focus', () => field!.select());
+    card.append(field);
+  }
+  field.focus();
+  field.select();
 }
 
 /** Runs a change, then redraws the shelf from the server so every card tells the truth. */
