@@ -32,7 +32,9 @@ let shuttingDown = false;
 async function shutdown() {
   if (shuttingDown) return;
   shuttingDown = true;
-  server.stop();
+  // `true` closes open sockets; without it `stop()` waits on them forever. Awaited so the last
+  // stroke and every GM close-handler flush land before the final one below.
+  await server.stop(true);
   try {
     await deps.fog.flushAll();
   } catch (err) {
