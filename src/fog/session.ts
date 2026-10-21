@@ -1,7 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { FogMask, FogStroke } from "../types";
 import { getImage } from "../db/images";
-import { repairImageDimensions } from "../images";
+import { fitsInMask, repairImageDimensions } from "../images";
 import { createMask, applyStrokes } from "./mask";
 import { saveFogMask, loadFogMask, serializeMask } from "./serialize";
 
@@ -204,6 +204,9 @@ function createAdventureFog(
     }
     if (image.width === 0 || image.height === 0) {
       throw new Error(`Image ${imageId} has unknown dimensions; skipping fog mask`);
+    }
+    if (!fitsInMask(image.width, image.height)) {
+      throw new Error(`Image ${imageId} is too large for a fog mask`);
     }
     return createFogSession(db, imageId, createMask(image.width, image.height));
   }

@@ -57,6 +57,14 @@ describe("open", () => {
     expect((await fog.open(broken)).readMask().width).toBe(10);
   });
 
+  // A row stored before uploads were capped, or repaired from a forged header, must not reach the
+  // allocation either.
+  test("a page too large for a mask is refused, not allocated", async () => {
+    const huge = makeImage("huge.png", 60_000, 60_000);
+    const fog = createFogRegistry(db).forAdventure(adventureId);
+    await expect(fog.open(huge)).rejects.toThrow("too large");
+  });
+
   test("reopening after eviction reloads the persisted mask", async () => {
     const fog = createFogRegistry(db).forAdventure(adventureId);
     const session = await fog.open(imageId);

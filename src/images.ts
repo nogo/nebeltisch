@@ -4,6 +4,20 @@ import type { Database } from "bun:sqlite";
 import { getImage, updateImageDimensions } from "./db/images";
 
 /**
+ * The most pixels a page may have, because its fog mask is one byte per pixel and is held in
+ * memory whole.
+ *
+ * The dimensions come from a header the uploader wrote, so without a ceiling one forged file asks
+ * for a 4 GB mask on a host shared with other services. Twenty-five million is a 5000×5000 page:
+ * a 25 MB mask, and eight resident at once (`MAX_RESIDENT_MASKS`) stay near 200 MB.
+ */
+export const MAX_PAGE_PIXELS = 25_000_000;
+
+export function fitsInMask(width: number, height: number): boolean {
+  return width * height <= MAX_PAGE_PIXELS;
+}
+
+/**
  * Image dimensions read straight from the file header, so no image library is
  * needed — see the zero-dependency rule in docs/architecture.md.
  *

@@ -16,7 +16,7 @@ import {
 } from "./db/images";
 import { getGmTokensByImage, deleteTokensByImage } from "./db/tokens";
 import { nextFreeSpot } from "./board";
-import { parseImageDimensions } from "./images";
+import { fitsInMask, parseImageDimensions } from "./images";
 import type { ServerDeps } from "./deps";
 
 const publicDir = join(import.meta.dir, "..", "public");
@@ -218,9 +218,11 @@ async function handleAdventureRoutes(
 
       const buffer = await file.arrayBuffer();
       const buf = Buffer.from(buffer);
-      writeFileSync(filePath, buf);
-
       const { width, height } = parseImageDimensions(buf);
+      if (!fitsInMask(width, height)) {
+        return error("This page is too large — keep it under 25 megapixels", 413);
+      }
+      writeFileSync(filePath, buf);
 
       // A new page lands on the board at a free spot, ready to be dragged where it belongs —
       // never on top of one that is already there.

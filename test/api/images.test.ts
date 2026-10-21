@@ -55,6 +55,27 @@ describe("Image API", () => {
     expect(data.filename).not.toBe("test.png"); // server-generated UUID name
   });
 
+  // The header is the client's word. A forged one used to make the fog layer allocate up to 4 GB
+  // for one mask, on a host shared with other services.
+  it("POST upload refuses a page whose header claims more pixels than a mask may hold", async () => {
+    const forged = Buffer.from(PNG_BYTES);
+    forged.writeUInt32BE(60_000, 16);
+    forged.writeUInt32BE(60_000, 20);
+    const formData = new FormData();
+    formData.append("file", new File([forged], "huge.png", { type: "image/png" }));
+
+    const res = await fetch(`${ts.url}/api/adventures/${adventureId}/images`, {
+      method: "POST",
+      headers: { "X-GM-Password": gmPassword },
+      body: formData,
+    });
+    expect(res.status).toBe(413);
+    const stored = ts.db
+      .query<{ n: number }, string>(`SELECT COUNT(*) AS n FROM images WHERE original_name = ?`)
+      .get("huge.png");
+    expect(stored!.n).toBe(0);
+  });
+
   it("POST upload with no file returns 400", async () => {
     const formData = new FormData();
 
