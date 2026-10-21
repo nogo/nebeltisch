@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { ownsSource, ownsTarget } from "../../src/rules/declarations";
+import { attackRefusal, ownsSource, ownsTarget } from "../../src/rules/declarations";
 
 const gm = { role: "gm" as const };
 const alice = { role: "player" as const, tokenId: "alice" };
@@ -37,5 +37,25 @@ describe("ownsTarget", () => {
     expect(ownsTarget(alice, { id: "bob", token_type: "player" })).toBe(false);
     expect(ownsTarget(alice, monster)).toBe(false);
     expect(ownsTarget(tokenless, aliceToken)).toBe(false);
+  });
+});
+
+describe("attackRefusal", () => {
+  it("lets the party attack monsters and NPCs", () => {
+    expect(attackRefusal("alice", monster)).toBeNull();
+    expect(attackRefusal("alice", npc)).toBeNull();
+  });
+
+  it("lets the GM attack the party", () => {
+    expect(attackRefusal(null, aliceToken)).toBeNull();
+  });
+
+  it("refuses player against player", () => {
+    expect(attackRefusal("bob", aliceToken)).toBe("You cannot attack another player");
+  });
+
+  it("refuses the GM attacking their own monsters and NPCs", () => {
+    expect(attackRefusal(null, monster)).toBe("Only the party can be attacked from a monster");
+    expect(attackRefusal(null, npc)).toBe("Only the party can be attacked from a monster");
   });
 });

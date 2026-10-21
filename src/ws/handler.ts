@@ -20,7 +20,7 @@ import { openDeclaration, getDeclaration, getDeclarationsByImage, getResolvedByI
 import { parseMessage, serializeMessage } from "./messages";
 import { arrivalPosition, landParty } from "../rules/landing";
 import { reachesTable } from "../rules/audience";
-import { ownsSource, ownsTarget } from "../rules/declarations";
+import { attackRefusal, ownsSource, ownsTarget } from "../rules/declarations";
 
 // ---- Spawn position ----
 
@@ -846,20 +846,13 @@ export function createWsHandlers(deps: ServerDeps) {
               ws.send(serializeMessage({ type: "error", message: "Token not found" }));
               break;
             }
-            // A player token has no image and is therefore always on the presented page.
-            if (target.image_id !== null && target.image_id !== liveImageId) {
+            if (!reachesTable(target.image_id, liveImageId)) {
               ws.send(serializeMessage({ type: "error", message: "That token is not on the table" }));
               break;
             }
-            // The party attacks monsters and the GM attacks the party. Player against player and an
-            // NPC helping the party are both out of scope (#62), and this is where that is true.
-            const targetIsGmToken = target.token_type !== "player";
-            if (sourceId !== null && !targetIsGmToken) {
-              ws.send(serializeMessage({ type: "error", message: "You cannot attack another player" }));
-              break;
-            }
-            if (sourceId === null && targetIsGmToken) {
-              ws.send(serializeMessage({ type: "error", message: "Only the party can be attacked from a monster" }));
+            const refusal = attackRefusal(sourceId, target);
+            if (refusal) {
+              ws.send(serializeMessage({ type: "error", message: refusal }));
               break;
             }
 

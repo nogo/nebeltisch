@@ -25,3 +25,15 @@ export function ownsTarget(actor: Actor, target: { id: string; token_type: strin
     ? actor.role !== "gm" && actor.tokenId === target.id
     : actor.role === "gm";
 }
+
+/**
+ * Why an attack from `sourceId` on `target` is refused, or null when it may be declared. The party
+ * attacks monsters and NPCs, and the GM attacks the party. Player against player and an NPC helping
+ * the party are both out of scope (#62), and this is where that is true.
+ */
+export function attackRefusal(sourceId: string | null, target: { token_type: string }): string | null {
+  const targetIsPlayer = target.token_type === "player";
+  if (sourceId !== null && targetIsPlayer) return "You cannot attack another player";
+  if (sourceId === null && !targetIsPlayer) return "Only the party can be attacked from a monster";
+  return null;
+}

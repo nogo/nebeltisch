@@ -29,7 +29,7 @@ Server — `src/`
 | `routes.ts` | HTTP routing by path segments, REST endpoints, the HTML pages and `/dist`; plus `staticRoutes`, the uploads directory handed to `Bun.serve` |
 | `images.ts` | Image dimensions from file headers (PNG/JPEG/WebP). Pure parsing plus a repair path; used by both `routes.ts` and `fog/` |
 | `board.ts` | Where a page lands on the board when nobody has arranged it. Pure geometry; used by the upload route and the migration |
-| `rules/` | Pure table rules with no I/O, which the client may import: `landing.ts` (where the party lands — arrival on the start point, return to a remembered walk), `audience.ts` (whether the players hear an edit), `declarations.ts` (who writes which half of a declaration) |
+| `rules/` | Pure table rules with no I/O, which the client may import: `landing.ts` (where the party lands — arrival on the start point, return to a remembered walk), `audience.ts` (whether the players hear an edit), `declarations.ts` (who may attack whom, and who writes which half of a declaration) |
 | `types.ts` | Shared domain types: `FogMask`, `FogStroke`, `Adventure`, `ImageRecord`, `Token`, `WsData` |
 | `db/database.ts` | Opens the database and applies the schema |
 | `db/schema.ts` | DDL plus additive migrations |
