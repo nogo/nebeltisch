@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, jest } from "bun:test";
 import type { Database } from "bun:sqlite";
 import { initDatabase } from "../../src/db/database";
 import { createAdventure } from "../../src/db/adventures";
@@ -297,7 +297,14 @@ describe("residency", () => {
 });
 
 describe("idle lifetime", () => {
-  const settle = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  beforeEach(() => jest.useFakeTimers());
+  afterEach(() => jest.useRealTimers());
+
+  // Moves the clock, then lets the flush that disposal starts run to the end.
+  const settle = async (ms: number) => {
+    jest.advanceTimersByTime(ms);
+    await new Promise((r) => setImmediate(r));
+  };
 
   test("masks are freed once the last connection has been gone for the grace period", async () => {
     const fog = createFogRegistry(db, undefined, { idleDisposeMs: 20 }).forAdventure(
