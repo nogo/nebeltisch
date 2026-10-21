@@ -29,7 +29,7 @@ Gap: no complexity, mutation or flakiness command yet.
 - Wire message types are `noun:verb` (`token:move`, `declaration:open`); the server's reply uses the past tense (`token:moved`).
 
 ### Errors
-- A WebSocket handler answers a refused message with `{ type: "error", message }` to the sender and `break`s. It does not throw.
+- A WebSocket handler answers a refused message with `refuse(ws, message)` — `{ type: "error", message }` to the sender alone — and `break`s. It does not throw.
 - An HTTP route answers with `{ error }` JSON and a status code.
 - A swallowed error carries a comment that says why it is safe to ignore.
 

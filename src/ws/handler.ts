@@ -90,6 +90,11 @@ function sendRosterToGm(db: Database, adventureId: string): void {
   );
 }
 
+/** Answers a message the server will not act on: the sender alone hears why, and nothing changes. */
+function refuse(ws: ServerWebSocket<WsData>, message: string): void {
+  ws.send(serializeMessage({ type: "error", message }));
+}
+
 function sendToGms(adventureId: string, message: string): void {
   for (const gmWs of getGmSocketsForAdventure(adventureId)) gmWs.send(message);
 }
@@ -348,7 +353,7 @@ export function createWsHandlers(deps: ServerDeps) {
 
       const parsed = parseMessage(typeof raw === "string" ? raw : raw.toString());
       if ("error" in parsed) {
-        ws.send(serializeMessage({ type: "error", message: parsed.error }));
+        refuse(ws, parsed.error);
         return;
       }
       const msg = parsed.message;
@@ -362,18 +367,18 @@ export function createWsHandlers(deps: ServerDeps) {
       try {
         switch (msg.type) {
           case "join": {
-            ws.send(serializeMessage({ type: "error", message: "Already joined" }));
+            refuse(ws, "Already joined");
             break;
           }
 
           case "fog:stroke": {
             if (conn.role !== "gm") {
-              ws.send(serializeMessage({ type: "error", message: "Only GM can send fog strokes" }));
+              refuse(ws, "Only GM can send fog strokes");
               break;
             }
             const page = resolvePage(db, adventureId, msg.imageId);
             if (!page) {
-              ws.send(serializeMessage({ type: "error", message: "No such page" }));
+              refuse(ws, "No such page");
               break;
             }
             let session: FogSession;
@@ -382,7 +387,7 @@ export function createWsHandlers(deps: ServerDeps) {
             } catch {
               // A map whose dimensions never parsed has no mask to paint on. Left
               // unguarded this rejection escapes the handler and exits the process.
-              ws.send(serializeMessage({ type: "error", message: "Map dimensions unknown" }));
+              refuse(ws, "Map dimensions unknown");
               break;
             }
             session.applyStrokes([msg.stroke]);
@@ -398,19 +403,19 @@ export function createWsHandlers(deps: ServerDeps) {
 
           case "fog:stroke:batch": {
             if (conn.role !== "gm") {
-              ws.send(serializeMessage({ type: "error", message: "Only GM can send fog strokes" }));
+              refuse(ws, "Only GM can send fog strokes");
               break;
             }
             const page = resolvePage(db, adventureId, msg.imageId);
             if (!page) {
-              ws.send(serializeMessage({ type: "error", message: "No such page" }));
+              refuse(ws, "No such page");
               break;
             }
             let session: FogSession;
             try {
               session = await fog.open(page.imageId);
             } catch {
-              ws.send(serializeMessage({ type: "error", message: "Map dimensions unknown" }));
+              refuse(ws, "Map dimensions unknown");
               break;
             }
             session.applyStrokes(msg.strokes);
@@ -429,12 +434,12 @@ export function createWsHandlers(deps: ServerDeps) {
 
           case "token:move": {
             if (conn.role !== "gm" && (!conn.tokenId || conn.tokenId !== msg.tokenId)) {
-              ws.send(serializeMessage({ type: "error", message: "You do not own this token" }));
+              refuse(ws, "You do not own this token");
               break;
             }
             const token = getAdventureToken(db, adventureId, msg.tokenId);
             if (!token) {
-              ws.send(serializeMessage({ type: "error", message: "Token not found" }));
+              refuse(ws, "Token not found");
               break;
             }
             updateTokenPosition(db, msg.tokenId, msg.x, msg.y);
@@ -462,7 +467,7 @@ export function createWsHandlers(deps: ServerDeps) {
 
           case "settings:update": {
             if (conn.role !== "gm") {
-              ws.send(serializeMessage({ type: "error", message: "Only GM can change settings" }));
+              refuse(ws, "Only GM can change settings");
               break;
             }
             const newSize = Math.min(100, Math.max(5, Math.round(msg.tokenSize)));
@@ -475,14 +480,14 @@ export function createWsHandlers(deps: ServerDeps) {
 
           case "map:switch": {
             if (conn.role !== "gm") {
-              ws.send(serializeMessage({ type: "error", message: "Only GM can switch maps" }));
+              refuse(ws, "Only GM can switch maps");
               break;
             }
             const prevImageId = presentedPage(db, adventureId);
             try {
               setActiveImage(db, adventureId, msg.imageId);
             } catch {
-              ws.send(serializeMessage({ type: "error", message: "Invalid image" }));
+              refuse(ws, "Invalid image");
               break;
             }
 
@@ -539,7 +544,7 @@ export function createWsHandlers(deps: ServerDeps) {
 
           case "map:unpresent": {
             if (conn.role !== "gm") {
-              ws.send(serializeMessage({ type: "error", message: "Only GM can clear the table" }));
+              refuse(ws, "Only GM can clear the table");
               break;
             }
             setActiveImage(db, adventureId, null);
@@ -553,18 +558,18 @@ export function createWsHandlers(deps: ServerDeps) {
 
           case "map:start_point": {
             if (conn.role !== "gm") {
-              ws.send(serializeMessage({ type: "error", message: "Only GM can set the start point" }));
+              refuse(ws, "Only GM can set the start point");
               break;
             }
             const image = getImage(db, msg.imageId);
             if (!image || image.adventure_id !== adventureId) {
-              ws.send(serializeMessage({ type: "error", message: "Image not found" }));
+              refuse(ws, "Image not found");
               break;
             }
             // The lock outlives the browser tab that set it, so the server enforces it rather than
             // trusting a client not to send (principle 1).
             if (image.start_locked) {
-              ws.send(serializeMessage({ type: "error", message: "This start point is locked" }));
+              refuse(ws, "This start point is locked");
               break;
             }
             const point =
@@ -597,12 +602,12 @@ export function createWsHandlers(deps: ServerDeps) {
 
           case "map:start_point:lock": {
             if (conn.role !== "gm") {
-              ws.send(serializeMessage({ type: "error", message: "Only GM can lock the start point" }));
+              refuse(ws, "Only GM can lock the start point");
               break;
             }
             const image = getImage(db, msg.imageId);
             if (!image || image.adventure_id !== adventureId) {
-              ws.send(serializeMessage({ type: "error", message: "Image not found" }));
+              refuse(ws, "Image not found");
               break;
             }
             setStartLocked(db, msg.imageId, msg.locked);
@@ -623,12 +628,12 @@ export function createWsHandlers(deps: ServerDeps) {
 
           case "player:remove": {
             if (conn.role !== "gm") {
-              ws.send(serializeMessage({ type: "error", message: "Only GM can remove players" }));
+              refuse(ws, "Only GM can remove players");
               break;
             }
             const target = getAdventureToken(db, adventureId, msg.tokenId);
             if (!target) {
-              ws.send(serializeMessage({ type: "error", message: "Token not found" }));
+              refuse(ws, "Token not found");
               break;
             }
 
@@ -683,12 +688,12 @@ export function createWsHandlers(deps: ServerDeps) {
           case "fog:undo":
           case "fog:redo": {
             if (conn.role !== "gm") {
-              ws.send(serializeMessage({ type: "error", message: "Only GM can undo fog strokes" }));
+              refuse(ws, "Only GM can undo fog strokes");
               break;
             }
             const page = resolvePage(db, adventureId, msg.imageId);
             if (!page) {
-              ws.send(serializeMessage({ type: "error", message: "No such page" }));
+              refuse(ws, "No such page");
               break;
             }
             const imageId = page.imageId;
@@ -696,7 +701,7 @@ export function createWsHandlers(deps: ServerDeps) {
             try {
               session = await fog.open(imageId);
             } catch {
-              ws.send(serializeMessage({ type: "error", message: "Image not found" }));
+              refuse(ws, "Image not found");
               break;
             }
 
@@ -721,12 +726,12 @@ export function createWsHandlers(deps: ServerDeps) {
 
           case "gm_token:place": {
             if (conn.role !== "gm") {
-              ws.send(serializeMessage({ type: "error", message: "Only GM can place tokens" }));
+              refuse(ws, "Only GM can place tokens");
               break;
             }
             const page = resolvePage(db, adventureId, msg.imageId);
             if (!page) {
-              ws.send(serializeMessage({ type: "error", message: "No such page to place token on" }));
+              refuse(ws, "No such page to place token on");
               break;
             }
             const color = msg.tokenType === 'monster' ? '#c0392b' : '#7f8c9a';
@@ -748,12 +753,12 @@ export function createWsHandlers(deps: ServerDeps) {
 
           case "gm_token:remove": {
             if (conn.role !== "gm") {
-              ws.send(serializeMessage({ type: "error", message: "Only GM can remove GM tokens" }));
+              refuse(ws, "Only GM can remove GM tokens");
               break;
             }
             const target = getAdventureToken(db, adventureId, msg.tokenId);
             if (!target || target.token_type === 'player') {
-              ws.send(serializeMessage({ type: "error", message: "GM token not found" }));
+              refuse(ws, "GM token not found");
               break;
             }
             deleteToken(db, msg.tokenId);
@@ -766,21 +771,21 @@ export function createWsHandlers(deps: ServerDeps) {
 
           case "gm_token:rename": {
             if (conn.role !== "gm") {
-              ws.send(serializeMessage({ type: "error", message: "Only GM can rename GM tokens" }));
+              refuse(ws, "Only GM can rename GM tokens");
               break;
             }
             const target = getAdventureToken(db, adventureId, msg.tokenId);
             if (!target || target.token_type === 'player') {
               // A player token is refused here rather than filtered by the caller: its name is half
               // of `playerLink|playerName`, which is how its owner reconnects.
-              ws.send(serializeMessage({ type: "error", message: "GM token not found" }));
+              refuse(ws, "GM token not found");
               break;
             }
             // The first client-supplied string this handler stores. Principle 9 — cap it at the
             // length the placement form already accepts rather than trusting what arrives.
             const name = msg.name.trim().slice(0, 40);
             if (name === "") {
-              ws.send(serializeMessage({ type: "error", message: "A name is required" }));
+              refuse(ws, "A name is required");
               break;
             }
             renameToken(db, msg.tokenId, name);
@@ -796,12 +801,12 @@ export function createWsHandlers(deps: ServerDeps) {
 
           case "gm_token:state": {
             if (conn.role !== "gm") {
-              ws.send(serializeMessage({ type: "error", message: "Only GM can set a token state" }));
+              refuse(ws, "Only GM can set a token state");
               break;
             }
             const target = getAdventureToken(db, adventureId, msg.tokenId);
             if (!target) {
-              ws.send(serializeMessage({ type: "error", message: "Token not found" }));
+              refuse(ws, "Token not found");
               break;
             }
             // A player token is accepted here — deliberately, and unlike rename. The GM adjudicates
@@ -824,7 +829,7 @@ export function createWsHandlers(deps: ServerDeps) {
             // preparation, and nothing that would ever be seen.
             const liveImageId = presentedPage(db, adventureId);
             if (!liveImageId) {
-              ws.send(serializeMessage({ type: "error", message: "Nothing is on the table" }));
+              refuse(ws, "Nothing is on the table");
               break;
             }
 
@@ -835,7 +840,7 @@ export function createWsHandlers(deps: ServerDeps) {
             let sourceId: string | null = null;
             if (conn.role !== "gm") {
               if (!conn.tokenId) {
-                ws.send(serializeMessage({ type: "error", message: "You have no token" }));
+                refuse(ws, "You have no token");
                 break;
               }
               sourceId = conn.tokenId;
@@ -843,16 +848,16 @@ export function createWsHandlers(deps: ServerDeps) {
 
             const target = getAdventureToken(db, adventureId, msg.targetId);
             if (!target) {
-              ws.send(serializeMessage({ type: "error", message: "Token not found" }));
+              refuse(ws, "Token not found");
               break;
             }
             if (!reachesTable(target.image_id, liveImageId)) {
-              ws.send(serializeMessage({ type: "error", message: "That token is not on the table" }));
+              refuse(ws, "That token is not on the table");
               break;
             }
             const refusal = attackRefusal(sourceId, target);
             if (refusal) {
-              ws.send(serializeMessage({ type: "error", message: refusal }));
+              refuse(ws, refusal);
               break;
             }
 
@@ -873,16 +878,16 @@ export function createWsHandlers(deps: ServerDeps) {
           case "declaration:retract": {
             const declaration = getDeclaration(db, msg.declarationId);
             if (!declaration) {
-              ws.send(serializeMessage({ type: "error", message: "Declaration not found" }));
+              refuse(ws, "Declaration not found");
               break;
             }
             if (!imageBelongsToAdventure(db, declaration.image_id, adventureId)) {
-              ws.send(serializeMessage({ type: "error", message: "Declaration not found" }));
+              refuse(ws, "Declaration not found");
               break;
             }
             // Only the one who said it can take it back.
             if (!ownsSource(conn, declaration.source_id)) {
-              ws.send(serializeMessage({ type: "error", message: "This is not your declaration" }));
+              refuse(ws, "This is not your declaration");
               break;
             }
             deleteDeclaration(db, declaration.id);
@@ -892,12 +897,12 @@ export function createWsHandlers(deps: ServerDeps) {
 
           case "declaration:clear": {
             if (conn.role !== "gm") {
-              ws.send(serializeMessage({ type: "error", message: "Only GM can clear the table" }));
+              refuse(ws, "Only GM can clear the table");
               break;
             }
             const liveImageId = presentedPage(db, adventureId);
             if (!liveImageId) {
-              ws.send(serializeMessage({ type: "error", message: "Nothing is on the table" }));
+              refuse(ws, "Nothing is on the table");
               break;
             }
             // Answered ones only. What is still open is waiting on somebody, and the count beside the
@@ -911,23 +916,23 @@ export function createWsHandlers(deps: ServerDeps) {
           case "declaration:answer": {
             const declaration = getDeclaration(db, msg.declarationId);
             if (!declaration || !imageBelongsToAdventure(db, declaration.image_id, adventureId)) {
-              ws.send(serializeMessage({ type: "error", message: "Declaration not found" }));
+              refuse(ws, "Declaration not found");
               break;
             }
             // Immutable once answered. A record of what happened is not a control, and only
             // clearing removes it (#73).
             if (declaration.state !== "open") {
-              ws.send(serializeMessage({ type: "error", message: "This attack has already been answered" }));
+              refuse(ws, "This attack has already been answered");
               break;
             }
             const target = getToken(db, declaration.target_id);
             if (!target) {
-              ws.send(serializeMessage({ type: "error", message: "Token not found" }));
+              refuse(ws, "Token not found");
               break;
             }
             // The target's owner answers, and nobody else.
             if (!ownsTarget(conn, target)) {
-              ws.send(serializeMessage({ type: "error", message: "This attack is not aimed at you" }));
+              refuse(ws, "This attack is not aimed at you");
               break;
             }
             answerDeclaration(db, declaration.id, msg.parried);
@@ -938,29 +943,29 @@ export function createWsHandlers(deps: ServerDeps) {
           case "declaration:damage": {
             const declaration = getDeclaration(db, msg.declarationId);
             if (!declaration || !imageBelongsToAdventure(db, declaration.image_id, adventureId)) {
-              ws.send(serializeMessage({ type: "error", message: "Declaration not found" }));
+              refuse(ws, "Declaration not found");
               break;
             }
             // Only where a number has a meaning: a parried attack rolled none, and an open one has
             // not been answered yet. Written once, for the same reason answering is.
             if (declaration.state !== "not_parried") {
-              ws.send(serializeMessage({ type: "error", message: "No damage to send on this attack" }));
+              refuse(ws, "No damage to send on this attack");
               break;
             }
             if (declaration.damage !== null) {
-              ws.send(serializeMessage({ type: "error", message: "The damage has already been sent" }));
+              refuse(ws, "The damage has already been sent");
               break;
             }
             // The other half of the pair: the source's owner sends the number they rolled.
             if (!ownsSource(conn, declaration.source_id)) {
-              ws.send(serializeMessage({ type: "error", message: "This is not your attack" }));
+              refuse(ws, "This is not your attack");
               break;
             }
             // The first client-supplied *number* on the wire. Checked rather than clamped: a 7 that
             // silently became a 999 would be a lie the table acts on (principle 9, #12).
             const damage = msg.damage;
             if (!Number.isInteger(damage) || damage < 0 || damage > MAX_DAMAGE) {
-              ws.send(serializeMessage({ type: "error", message: `Damage must be a whole number from 0 to ${MAX_DAMAGE}` }));
+              refuse(ws, `Damage must be a whole number from 0 to ${MAX_DAMAGE}`);
               break;
             }
             setDeclarationDamage(db, declaration.id, damage);
@@ -990,7 +995,7 @@ export function createWsHandlers(deps: ServerDeps) {
         }
       } catch (err) {
         console.error(`ws: ${msg.type} failed`, err);
-        ws.send(serializeMessage({ type: "error", message: "Something went wrong" }));
+        refuse(ws, "Something went wrong");
       }
     },
 
