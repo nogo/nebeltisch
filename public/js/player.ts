@@ -173,7 +173,6 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
   let tokenRadius = 20;
   let activeImageId: string | null = null;
   let ownTokenId: string | null = null;
-  let imageList: api.ImageRecord[] = [];
 
   const canvasCtrl = initCanvas(canvasArea, { mode: 'player' });
 
@@ -402,6 +401,25 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     gmTokenCtrl.handlePointerUp();
   });
 
+  /**
+   * Draws the presented page's map; false when it could not be fetched. The server hands a player
+   * this one page's file and no other (#4), so there is nothing to list first.
+   */
+  async function drawMap(imageId: string): Promise<boolean> {
+    let url: string;
+    try {
+      url = await api.loadPlayerImage(adventureId, imageId, playerLink);
+    } catch {
+      return false;
+    }
+    try {
+      await canvasCtrl.loadImage(url);
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+    return true;
+  }
+
   ws.on('joined', async (msg) => {
     const adv = msg.adventure;
     document.title = `${adv.name} — Player`;
@@ -409,23 +427,13 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     tokenRadius = adv.tokenSize ?? 20;
     ownTokenId = typeof msg.yourTokenId === 'string' ? msg.yourTokenId : null;
 
-    try {
-      imageList = await api.listImagesAsPlayer(adventureId, playerLink);
-    } catch {
-      imageList = [];
-    }
-
     let mapLoaded = false;
-    if (activeImageId) {
-      const img = imageList.find(i => i.id === activeImageId);
-      if (img) {
-        await canvasCtrl.loadImage(`/uploads/${img.filename}`);
-        viewport.resetView();
-        if (typeof msg.fogMask === 'string') {
-          await canvasCtrl.applyFogMask(msg.fogMask);
-        }
-        mapLoaded = true;
+    if (activeImageId && await drawMap(activeImageId)) {
+      viewport.resetView();
+      if (typeof msg.fogMask === 'string') {
+        await canvasCtrl.applyFogMask(msg.fogMask);
       }
+      mapLoaded = true;
     }
 
     // The name alone. A player checks this screen to know they joined the right table, and a
@@ -557,12 +565,7 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     activeImageId = msg.imageId;
     pingCtrl.clear();
     tokenMenu.select(null);
-    try {
-      imageList = await api.listImagesAsPlayer(adventureId, playerLink);
-    } catch {}
-    const img = imageList.find(i => i.id === activeImageId);
-    if (img) {
-      await canvasCtrl.loadImage(`/uploads/${img.filename}`);
+    if (await drawMap(msg.imageId)) {
       viewport.resetView();
       if (typeof msg.fogMask === 'string') {
         await canvasCtrl.applyFogMask(msg.fogMask);

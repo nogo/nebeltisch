@@ -26,7 +26,7 @@ Server — `src/`
 |---|---|
 | `index.ts` | The composition root: builds `ServerDeps`, runs `Bun.serve()`, routes `/ws` to the upgrade handler and everything else to `routes.ts`, flushes fog on SIGINT/SIGTERM |
 | `deps.ts` | `ServerDeps` — the database, uploads directory, fog registry, passkey challenge store and public origin, built once and passed down |
-| `routes.ts` | HTTP routing by path segments, REST endpoints, the HTML pages and `/dist`; plus `staticRoutes`, the uploads directory handed to `Bun.serve` |
+| `routes.ts` | HTTP routing by path segments, REST endpoints, the HTML pages, `/dist`, and each page's map file to whoever may see it |
 | `images.ts` | Image dimensions from file headers (PNG/JPEG/WebP). Pure parsing plus a repair path; used by both `routes.ts` and `fog/` |
 | `board.ts` | Where a page lands on the board when nobody has arranged it. Pure geometry; used by the upload route and the migration |
 | `rules/` | Pure table rules with no I/O, which the client may import: `landing.ts` (where the party lands — arrival on the start point, return to a remembered walk), `audience.ts` (whether the players hear an edit), `declarations.ts` (who may attack whom, and who writes which half of a declaration) |
@@ -174,8 +174,8 @@ Map → GM tokens → fog → player tokens → pings, stacked in an image-sized
 ### REST DTOs are deliberately not shared
 
 `Adventure` and `ImageRecord` in `public/js/api.ts` stay separate from the same-named row types in `src/types.ts`.
-**Why:** those are database rows. The routes return whole rows today — that is the leak in #5 — so sharing them would make it the contract instead of a bug, and `fog_mask: Buffer` has no meaning in a browser.
-**Implication:** the client types describe what a client is entitled to. When #5 is fixed the server response narrows to meet them, rather than the client widening to match the table.
+**Why:** those are database rows. Whole rows sent a map's `filename` and `fog_mask` to every player until #5, and `fog_mask: Buffer` has no meaning in a browser.
+**Implication:** the client types describe what a client is entitled to, and the server narrows its answer to meet them (`pageForGm` in `routes.ts`) rather than the client widening to match the table.
 
 ### No CRDT
 
@@ -245,7 +245,7 @@ A GM signs in once and the server sets an `HttpOnly`, `SameSite=Strict` session 
 
 **Passkeys without a library.** The browser's `getPublicKey()` gives SubjectPublicKeyInfo, which `crypto.subtle` imports directly, so there is no CBOR to parse. ES256 and RS256 only, user verification required, attestation not checked. `@simplewebauthn/server` was rejected for the zero-dependency rule.
 
-**Registration is open, and the deployment stays behind HTTP basic auth** until Nebeltisch is opened publicly. That gate decides who reaches the form; it does not isolate accounts from each other, which is why #4 and #5 become cross-tenant disclosure at public launch rather than now. No rate limit exists for the same reason.
+**Registration is open, and the deployment stays behind HTTP basic auth** until Nebeltisch is opened publicly. That gate decides who reaches the form; it does not isolate accounts from each other. No rate limit exists for that reason.
 
 ### Additive, idempotent migrations
 

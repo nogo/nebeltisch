@@ -6,13 +6,12 @@ import type { TokenData } from './tokens';
  *
  * These are **not** imported from `src/types.ts`, unlike the WebSocket contract and `Token`.
  *
- * `Adventure` and `ImageRecord` there are database row types. The REST routes happen to return
- * whole rows today, which is the defect in #5 — `fog_mask` and every map's `filename` reach the
- * player. Importing the row types here would make that leak the contract rather than a bug, and
- * `fog_mask: Buffer` does not exist in a browser anyway.
+ * `Adventure` and `ImageRecord` there are database row types. Importing them here would make every
+ * column the contract — a map's `filename` and its `fog_mask` reached players that way until #5 —
+ * and `fog_mask: Buffer` does not exist in a browser anyway.
  *
  * So these stay narrower on purpose: they describe what a client is entitled to, not what the
- * table holds. When #5 is fixed, the server response should narrow to meet them.
+ * table holds, and the server narrows its answers to meet them.
  */
 export interface Adventure {
   id: string;
@@ -24,7 +23,6 @@ export interface Adventure {
 export interface ImageRecord {
   id: string;
   adventure_id: string;
-  filename: string;
   original_name: string;
   width: number;
   height: number;
@@ -63,8 +61,8 @@ export interface AdventureSummary {
   player_link: string;
   created_at: string;
   page_count: number;
-  /** The first map's file under `/uploads/`, or null while there is none. */
-  thumbnail: string | null;
+  /** The first map's page id, for `imageUrl`; null while there is none. */
+  thumbnail_id: string | null;
   /** Every GM, all equal, in the order they joined (#77). */
   gms: Gm[];
 }
@@ -145,11 +143,19 @@ export async function getAdventureByPlayerLink(playerLink: string): Promise<{ id
   return (await checkOk(res)).json();
 }
 
-export async function listImagesAsPlayer(adventureId: string, playerLink: string): Promise<ImageRecord[]> {
-  const res = await fetch(`/api/adventures/${adventureId}/images`, {
-    headers: { 'X-Player-Link': playerLink },
-  });
-  return (await checkOk(res)).json();
+/** A page's map, for a GM: the session cookie goes with an `<img>` request by itself (#4). */
+export function imageUrl(adventureId: string, imageId: string): string {
+  return `/api/adventures/${encodeURIComponent(adventureId)}/images/${encodeURIComponent(imageId)}/file`;
+}
+
+/**
+ * The presented page's map, for a player, as an object URL to draw from. A player has no session,
+ * so the invite link goes in a header — an `<img>` cannot send one, and a link in the address
+ * ends up in logs. Revoke the URL once the map is drawn.
+ */
+export async function loadPlayerImage(adventureId: string, imageId: string, playerLink: string): Promise<string> {
+  const res = await fetch(imageUrl(adventureId, imageId), { headers: { 'X-Player-Link': playerLink } });
+  return URL.createObjectURL(await (await checkOk(res)).blob());
 }
 
 /** Board layout is REST: players never see the board, so none of it belongs on the wire. */

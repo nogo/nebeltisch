@@ -29,23 +29,9 @@ import { currentUser, fromOwnSite } from "./auth/session";
 import { nextFreeSpot } from "./board";
 import { fitsInMask, parseImageDimensions } from "./images";
 import type { ServerDeps } from "./deps";
+import type { ImageRecord } from "./types";
 
 const publicDir = join(import.meta.dir, "..", "public");
-
-/**
- * Uploaded pages, served by Bun rather than by hand.
- *
- * A page is megabytes and the hand-written version sent no validator with it, so every
- * reload refetched the whole map. This sends `ETag` and `Last-Modified` and answers a
- * conditional request with `304`, and it refuses a non-canonical path before it reaches
- * the filesystem — which is what the manual `..` check it replaced was for.
- *
- * `/dist/` stays in `handleRequest` deliberately: it is build output, and `Bun.serve`
- * throws at startup when a `dir` route points at a directory that does not exist yet.
- */
-export function staticRoutes(uploadsDir: string) {
-  return { "/uploads/*": { dir: uploadsDir } };
-}
 
 export function handleRequest(
   req: Request,
@@ -333,7 +319,7 @@ async function handleAdventureRoutes(
         boardX: spot.x,
         boardY: spot.y,
       });
-      return json(imageRecord, 201);
+      return json(pageForGm(imageRecord), 201);
     }
 
     // GET /api/adventures/:id/images
@@ -342,28 +328,47 @@ async function handleAdventureRoutes(
       segments[3] === "images" &&
       segments.length === 4
     ) {
+      // The GM's alone. A player learns the presented page's id from the WebSocket and fetches
+      // only that page's file; a list handed them every page's name, fog and start point (#5, #57).
+      const adventure = asGm(id);
+      if (adventure instanceof Response) return adventure;
+      return json(getImagesByAdventure(db, id).map(pageForGm));
+    }
+
+    // GET /api/adventures/:id/images/:imageId/file — a page's map, to whoever may see it (#4)
+    //
+    // The only way to a map's bytes: any page to its GMs, the presented page to a player who holds
+    // the invite link, nothing to anyone else. The file is found through the `images` row, never
+    // through a name taken from the request.
+    if (
+      req.method === "GET" &&
+      segments[3] === "images" &&
+      segments[5] === "file" &&
+      segments.length === 6
+    ) {
       const adventure = getAdventure(db, id);
-      if (!adventure) return error("Not found", 404);
-
+      const image = getImage(db, segments[4]);
       const playerLink = req.headers.get("X-Player-Link");
+      if (!user && !playerLink) return error("Not signed in", 401);
+      const mayView =
+        adventure !== null && image !== null && image.adventure_id === id &&
+        ((user !== null && isGm(db, id, user.id)) ||
+          (playerLink !== null && playerLink === adventure.player_link && adventure.active_image_id === image.id));
+      // One answer for "not there" and "not yours", so a guess learns nothing.
+      if (!mayView) return error("Not found", 404);
 
-      let forGm = true;
-      if (!user || !isGm(db, id, user.id)) {
-        if (!playerLink) return error("Not signed in", 401);
-        const linked = getAdventureByPlayerLink(db, playerLink);
-        if (!linked || linked.id !== id) return error("Unauthorized", 401);
-        forGm = false;
-      }
-
-      const images = getImagesByAdventure(db, id);
-      if (forGm) return json(images);
-
-      // The WebSocket path is careful never to publish a start point — "players must never learn
-      // where the party will appear" — and this route was handing them every one over REST. The
-      // client reads none of these fields (#57).
-      return json(
-        images.map(({ start_x, start_y, start_locked, ...rest }) => rest)
-      );
+      // A page's file never changes under its id, so the id is its validator: a reload that still
+      // holds the map gets 304, not megabytes again.
+      const headers = {
+        "Content-Type": imageType(image.filename),
+        "X-Content-Type-Options": "nosniff",
+        "Cache-Control": "private, max-age=31536000, immutable",
+        ETag: `"${image.id}"`,
+      };
+      if (req.headers.get("If-None-Match") === headers.ETag) return new Response(null, { status: 304, headers });
+      const file = Bun.file(join(uploadsDir, image.filename));
+      if (!(await file.exists())) return error("Not found", 404);
+      return new Response(file, { headers });
     }
 
     // DELETE /api/adventures/:id/images/:imageId
@@ -524,4 +529,24 @@ async function readJson<T>(req: Request): Promise<T | null> {
   } catch {
     return null;
   }
+}
+
+/**
+ * A page as a GM's browser receives it. The file's name stays on the server — the map comes from
+ * `.../images/:imageId/file` — and the fog comes over its own route, decoded from the live mask.
+ */
+function pageForGm({ filename, fog_mask, ...page }: ImageRecord): Omit<ImageRecord, "filename" | "fog_mask"> {
+  return page;
+}
+
+/**
+ * The type a map is served as, from its extension. The extension comes from the uploader's file
+ * name, so anything that is not a known image goes out as bytes — a `.html` "image" must never
+ * reach a browser as a page.
+ */
+function imageType(filename: string): string {
+  const types: Record<string, string> = {
+    png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif",
+  };
+  return types[filename.split(".").pop()!.toLowerCase()] ?? "application/octet-stream";
 }

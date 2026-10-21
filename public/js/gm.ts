@@ -723,7 +723,7 @@ async function focusPage(id: string | null) {
   // already moved. The two reads below have always been caught for the same reason.
   let loaded = false;
   try {
-    loaded = await canvasCtrl.loadImage(`/uploads/${record.filename}`, isCurrent);
+    loaded = await canvasCtrl.loadImage(api.imageUrl(adventureId, record.id), isCurrent);
   } catch (e) {
     console.error('Could not load this page\'s image', e);
     if (isCurrent()) showNotice(`Could not load "${record.original_name}". Tap the page to try again.`);

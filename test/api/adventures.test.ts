@@ -4,7 +4,7 @@ import { existsSync } from "fs";
 import { join } from "path";
 import { createAdventure, getAdventure, isGm } from "../../src/db/adventures";
 import { createToken } from "../../src/db/tokens";
-import { createImageRecord } from "../../src/db/images";
+import { createImageRecord, getImage } from "../../src/db/images";
 
 describe("Adventure API", () => {
   let ts: TestServer;
@@ -197,7 +197,7 @@ describe("Dashboard (#55)", () => {
   it("tells two campaigns apart without opening them, and carries the invite link", async () => {
     const gm = signIn(ts.db);
     const adventure = createAdventure(ts.db, { name: "Lost Mines", gmId: gm.user.id });
-    createImageRecord(ts.db, { adventureId: adventure.id, filename: "a.png", originalName: "a.png", width: 1, height: 1 });
+    const first = createImageRecord(ts.db, { adventureId: adventure.id, filename: "a.png", originalName: "a.png", width: 1, height: 1 });
     createImageRecord(ts.db, { adventureId: adventure.id, filename: "b.png", originalName: "b.png", width: 1, height: 1 });
 
     const [entry] = await (await list(gm.cookie)).json();
@@ -207,7 +207,7 @@ describe("Dashboard (#55)", () => {
       player_link: adventure.player_link,
       created_at: adventure.created_at,
       page_count: 2,
-      thumbnail: "a.png",
+      thumbnail_id: first.id,
       gms: [{ id: gm.user.id, name: gm.user.name }],
     });
   });
@@ -307,7 +307,7 @@ describe("Managing an adventure (#76, #77)", () => {
       const uploaded = await (await fetch(`${ts.url}/api/adventures/${adventure.id}/images`, {
         method: "POST", headers: { Cookie: gm.cookie }, body: form,
       })).json();
-      const file = join(ts.uploadsDir, uploaded.filename);
+      const file = join(ts.uploadsDir, getImage(ts.db, uploaded.id)!.filename);
       expect(existsSync(file)).toBe(true);
 
       // The hard case: presented, with a monster and a player standing on it.

@@ -54,7 +54,10 @@ describe("Image API", () => {
     expect(data.id).toBeDefined();
     expect(data.adventure_id).toBe(adventureId);
     expect(data.original_name).toBe("test.png");
-    expect(data.filename).not.toBe("test.png"); // server-generated UUID name
+    // The file's name and the fog stay on the server (#5); the map is fetched by page id.
+    expect(data.filename).toBeUndefined();
+    expect(data.fog_mask).toBeUndefined();
+    expect(getImage(ts.db, data.id)!.filename).not.toBe("test.png"); // server-generated UUID name
   });
 
   // The header is the client's word. A forged one used to make the fog layer allocate up to 4 GB
@@ -127,7 +130,7 @@ describe("Image API", () => {
       body: formData,
     });
     const image = await uploadRes.json();
-    const filePath = join(ts.uploadsDir, image.filename);
+    const filePath = join(ts.uploadsDir, getImage(ts.db, image.id)!.filename);
     expect(existsSync(filePath)).toBe(true);
 
     const deleteRes = await fetch(
@@ -179,7 +182,7 @@ describe("Image API", () => {
       body: formData,
     });
     const image = await uploadRes.json();
-    const filePath = join(ts.uploadsDir, image.filename);
+    const filePath = join(ts.uploadsDir, getImage(ts.db, image.id)!.filename);
     setActiveImage(ts.db, adventureId, image.id);
 
     const deleteRes = await fetch(
@@ -195,49 +198,101 @@ describe("Image API", () => {
     expect(getAdventure(ts.db, adventureId)?.active_image_id).toBe(image.id);
   });
 
-  it("uploaded file is served at /uploads/:filename", async () => {
-    const formData = new FormData();
-    formData.append("file", makeImageFile());
-    const uploadRes = await fetch(`${ts.url}/api/adventures/${adventureId}/images`, {
-      method: "POST",
-      headers: { Cookie: gmCookie },
-      body: formData,
+  describe("a page's map (#4, #5)", () => {
+    async function upload(adventure = adventureId, file = makeImageFile()): Promise<{ id: string }> {
+      const formData = new FormData();
+      formData.append("file", file);
+      const res = await fetch(`${ts.url}/api/adventures/${adventure}/images`, {
+        method: "POST",
+        headers: { Cookie: gmCookie },
+        body: formData,
+      });
+      return res.json();
+    }
+
+    const fileOf = (imageId: string, headers: Record<string, string> = {}, adventure = adventureId) =>
+      fetch(`${ts.url}/api/adventures/${adventure}/images/${imageId}/file`, { headers });
+    const asPlayer = () => ({ "X-Player-Link": getAdventure(ts.db, adventureId)!.player_link });
+
+    it("a GM gets any page of their adventure, as an image", async () => {
+      const image = await upload();
+      const res = await fileOf(image.id, { Cookie: gmCookie });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toBe("image/png");
+      expect(Buffer.from(await res.arrayBuffer()).equals(PNG_BYTES)).toBe(true);
     });
-    const image = await uploadRes.json();
 
-    const fileRes = await fetch(`${ts.url}/uploads/${image.filename}`);
-    expect(fileRes.status).toBe(200);
-    expect(fileRes.headers.get("content-type")).toContain("image");
-  });
+    // A page is megabytes and the party reloads constantly — tablet sleep, router blip.
+    it("a page is revalidated, not refetched", async () => {
+      const image = await upload();
+      const first = await fileOf(image.id, { Cookie: gmCookie });
+      const etag = first.headers.get("etag");
+      expect(etag).toBeTruthy();
 
-  // A page is megabytes and the party reloads constantly — tablet sleep, router blip. The
-  // validator is the whole reason this route is Bun's `dir` rather than hand-written, so it
-  // is what the test asserts.
-  it("a page is revalidated, not refetched", async () => {
-    const formData = new FormData();
-    formData.append("file", makeImageFile());
-    const uploadRes = await fetch(`${ts.url}/api/adventures/${adventureId}/images`, {
-      method: "POST",
-      headers: { Cookie: gmCookie },
-      body: formData,
+      const second = await fileOf(image.id, { Cookie: gmCookie, "If-None-Match": etag! });
+      expect(second.status).toBe(304);
+      expect((await second.arrayBuffer()).byteLength).toBe(0);
     });
-    const image = await uploadRes.json();
 
-    const first = await fetch(`${ts.url}/uploads/${image.filename}`);
-    const etag = first.headers.get("etag");
-    expect(etag).toBeTruthy();
+    it("a player gets the presented page, and no other", async () => {
+      const shown = await upload();
+      const hidden = await upload();
+      setActiveImage(ts.db, adventureId, shown.id);
 
-    const second = await fetch(`${ts.url}/uploads/${image.filename}`, {
-      headers: { "If-None-Match": etag! },
+      expect((await fileOf(shown.id, asPlayer())).status).toBe(200);
+      expect((await fileOf(hidden.id, asPlayer())).status).toBe(404);
+
+      // The page the party has left is closed to them again.
+      setActiveImage(ts.db, adventureId, hidden.id);
+      expect((await fileOf(shown.id, asPlayer())).status).toBe(404);
     });
-    expect(second.status).toBe(304);
-    expect((await second.arrayBuffer()).byteLength).toBe(0);
-  });
 
-  // The hand-written route this replaced rejected `..` itself. Bun refuses a non-canonical
-  // path before it reaches the filesystem; keep the guarantee asserted either way.
-  it("refuses a path that climbs out of the uploads directory", async () => {
-    const res = await fetch(`${ts.url}/uploads/..%2F..%2Fpackage.json`);
-    expect(res.status).toBe(404);
+    it("an invite link opens nothing in another adventure", async () => {
+      const other = createAdventure(ts.db, { name: "Other table", gmId: gmUserId });
+      const image = await upload(other.id);
+      setActiveImage(ts.db, other.id, image.id);
+      expect((await fileOf(image.id, asPlayer(), other.id)).status).toBe(404);
+      // Nor does naming this adventure while asking for the other's page.
+      expect((await fileOf(image.id, asPlayer())).status).toBe(404);
+    });
+
+    it("another GM, or nobody at all, gets nothing", async () => {
+      const image = await upload();
+      const stranger = signIn(ts.db);
+      expect((await fileOf(image.id, { Cookie: stranger.cookie })).status).toBe(404);
+      expect((await fileOf(image.id)).status).toBe(401);
+    });
+
+    it("the uploads directory is not served", async () => {
+      const image = await upload();
+      const res = await fetch(`${ts.url}/uploads/${getImage(ts.db, image.id)!.filename}`);
+      expect(res.status).toBe(404);
+    });
+
+    // The extension comes from the uploader's file name, and Bun derives the upload's type from it,
+    // so `.svg` passes as an image. Served by extension, an SVG runs its script on the site's origin.
+    it("a file named like an SVG is served as bytes, never as a document", async () => {
+      const image = await upload(adventureId, new File([PNG_BYTES], "map.svg", { type: "image/svg+xml" }));
+      const res = await fileOf(image.id, { Cookie: gmCookie });
+      expect(res.status).toBe(200);
+      expect(res.headers.get("content-type")).toBe("application/octet-stream");
+      expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    });
+
+    it("a player gets no list of pages", async () => {
+      const res = await fetch(`${ts.url}/api/adventures/${adventureId}/images`, { headers: asPlayer() });
+      expect(res.status).toBe(401);
+    });
+
+    it("the GM's list carries no file name and no fog", async () => {
+      await upload();
+      const res = await fetch(`${ts.url}/api/adventures/${adventureId}/images`, { headers: { Cookie: gmCookie } });
+      const pages = await res.json();
+      expect(pages.length).toBeGreaterThan(0);
+      for (const page of pages) {
+        expect(page.filename).toBeUndefined();
+        expect(page.fog_mask).toBeUndefined();
+      }
+    });
   });
 });

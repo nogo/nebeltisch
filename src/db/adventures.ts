@@ -91,8 +91,8 @@ export interface AdventureSummary {
   player_link: string;
   created_at: string;
   page_count: number;
-  /** The file of the first map uploaded, for the thumbnail; null while it has none. */
-  thumbnail: string | null;
+  /** The first map's page id, for the card's face; null while it has none. */
+  thumbnail_id: string | null;
   gms: { id: string; name: string }[];
 }
 
@@ -101,8 +101,8 @@ export function getAdventuresOfGm(db: Database, userId: string): AdventureSummar
   const rows = db.query<Omit<AdventureSummary, "gms">, string>(
     `SELECT a.id, a.name, a.player_link, a.created_at,
             (SELECT COUNT(*) FROM images i WHERE i.adventure_id = a.id) AS page_count,
-            (SELECT i.filename FROM images i WHERE i.adventure_id = a.id
-             ORDER BY i.sort_order, i.created_at, i.rowid LIMIT 1) AS thumbnail
+            (SELECT i.id FROM images i WHERE i.adventure_id = a.id
+             ORDER BY i.sort_order, i.created_at, i.rowid LIMIT 1) AS thumbnail_id
      FROM adventures a JOIN adventure_gms g ON g.adventure_id = a.id
      WHERE g.user_id = ? ORDER BY a.created_at DESC, a.rowid DESC`
   ).all(userId);

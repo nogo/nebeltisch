@@ -1,4 +1,4 @@
-import type { ImageRecord } from './api';
+import { imageUrl, type ImageRecord } from './api';
 import type { WorldBounds } from './viewport';
 
 /**
@@ -84,7 +84,7 @@ export function initBoard(container: HTMLElement): BoardController {
     el.dataset.id = record.id;
 
     const img = document.createElement('img');
-    img.src = `/uploads/${record.filename}`;
+    img.src = imageUrl(record.adventure_id, record.id);
     img.alt = record.original_name;
     img.draggable = false;
     el.appendChild(img);

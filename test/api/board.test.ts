@@ -156,8 +156,9 @@ describe("Board API", () => {
 
   describe("the player image list", () => {
     // The WebSocket path never publishes a start point — "players must never learn where the party
-    // will appear" — and this route was handing them every one (#57).
-    it("carries no start point", async () => {
+    // will appear" — and this route was handing them every one (#57). It no longer answers a player
+    // at all: the presented page's map is the only thing a player fetches (#5).
+    it("answers a player with nothing, so no start point", async () => {
       const adventure = createAdventure(ts.db, { name: "Leak", gmId: gmUserId });
       const page = createImageRecord(ts.db, {
         adventureId: adventure.id,
@@ -170,16 +171,12 @@ describe("Board API", () => {
         page.id,
       ]);
 
-      const asPlayer = await fetch(`${ts.url}/api/adventures/${adventure.id}/images`, {
+      const res = await fetch(`${ts.url}/api/adventures/${adventure.id}/images`, {
         headers: { "X-Player-Link": adventure.player_link },
-      }).then((r) => r.json());
+      });
 
-      expect(asPlayer).toHaveLength(1);
-      expect(asPlayer[0].id).toBe(page.id);
-      expect(asPlayer[0].start_x).toBeUndefined();
-      expect(asPlayer[0].start_y).toBeUndefined();
-      expect(asPlayer[0].start_locked).toBeUndefined();
-      expect(JSON.stringify(asPlayer)).not.toContain("111");
+      expect(res.status).toBe(401);
+      expect(await res.text()).not.toContain("111");
     });
 
     it("still carries the start point for the GM", async () => {

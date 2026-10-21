@@ -180,10 +180,10 @@ function adventureCard(adventure: api.AdventureSummary): HTMLLIElement {
 
   // The first map is the card's face, so two campaigns are told apart before their names are
   // read. Decorative: the name says it all.
-  const face = document.createElement(adventure.thumbnail ? 'img' : 'span');
+  const face = document.createElement(adventure.thumbnail_id ? 'img' : 'span');
   face.className = 'adventure-face';
   if (face instanceof HTMLImageElement) {
-    face.src = `/uploads/${encodeURIComponent(adventure.thumbnail!)}`;
+    face.src = api.imageUrl(adventure.id, adventure.thumbnail_id!);
     face.alt = '';
     face.loading = 'lazy';
     face.width = 320;
