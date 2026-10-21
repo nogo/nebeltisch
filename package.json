@@ -8,7 +8,7 @@
     "build:client": "bun build public/js/gm.ts public/js/player.ts --outdir public/dist --splitting --target browser"
   },
   "devDependencies": {
-    "@types/bun": "^1.4.0",
+    "@types/bun": "^1.4.3",
     "typescript": "^7.0.2"
   }
 }
