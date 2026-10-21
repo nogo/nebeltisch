@@ -12,6 +12,8 @@ import type { MenuGroup, MenuItem } from './anchored-menu';
 import type { FogStroke } from './canvas';
 import type { Declaration, TokenState } from '../../src/types';
 import * as api from './api';
+// The one runtime import from src/: pure, import-free geometry, so the ring cannot drift (landing.ts).
+import { ringRadius } from '../../src/landing';
 
 // --- URL params ---
 // The hash is never transmitted to the server (HTTP spec), so keeping the
@@ -933,11 +935,6 @@ canvasCtrl.getWrapper().appendChild(startMarker);
 // be open at once and neither can forget the viewport opt-out that makes its buttons clickable.
 const startMenu = createAnchoredMenu(canvasCtrl.getWrapper(), 'start-menu');
 
-/** Mirrors gatherRingRadius on the server so the ring shows the real landing area. */
-function gatherRingRadius(count: number): number {
-  return tokenRadius * Math.max(2.2, Math.max(count, 1) * 0.45);
-}
-
 /** The grabbable part is the flag glyph, not the landing ring, which overlaps the party. */
 function startGlyphRadius(): number {
   return Math.max(16, tokenRadius * 1.6) / 2;
@@ -966,7 +963,7 @@ function renderStartMarker() {
     startMenu.close();
     return;
   }
-  const size = gatherRingRadius(playerRoster.length) * 2;
+  const size = ringRadius(playerRoster.length, tokenRadius) * 2;
   startMarker.style.width = `${size}px`;
   startMarker.style.height = `${size}px`;
   startMarker.style.left = `${startPoint.x}px`;

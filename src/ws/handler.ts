@@ -18,6 +18,7 @@ import {
 } from "./connections";
 import { openDeclaration, getDeclaration, getDeclarationsByImage, getResolvedByImage, deleteDeclaration, answerDeclaration, setDeclarationDamage } from "../db/declarations";
 import { parseMessage, serializeMessage } from "./messages";
+import { arrivalPosition, landParty } from "../landing";
 
 // ---- Spawn position ----
 
@@ -34,16 +35,7 @@ function placeArrivingToken(
   if (adventure.active_image_id) {
     const img = getImage(db, adventure.active_image_id);
     if (img && img.width > 0 && img.height > 0) {
-      const tokenSize = adventure.token_size ?? 20;
-      const ring = scatterPositions(
-        existingCount + 1,
-        img.start_x ?? img.width / 2,
-        img.start_y ?? img.height / 2,
-        img.width,
-        img.height,
-        tokenSize
-      );
-      return ring[existingCount];
+      return arrivalPosition(existingCount, img, adventure.token_size ?? 20);
     }
   }
   // No page to stand on: near the corner, jittered so arrivals do not stack.
@@ -53,41 +45,6 @@ function placeArrivingToken(
     x: Math.round(100 + Math.cos(angle) * radius),
     y: Math.round(100 + Math.sin(angle) * radius),
   };
-}
-
-/**
- * Places `count` tokens around a target point without stacking them, clamped
- * inside the image so a switch to a smaller map can never strand a token
- * off-canvas where nobody can reach it.
- */
-export function scatterPositions(
-  count: number,
-  cx: number,
-  cy: number,
-  width: number,
-  height: number,
-  tokenSize: number
-): Array<{ x: number; y: number }> {
-  const margin = Math.min(tokenSize, width / 2, height / 2);
-  // Every token stands around the point, never on it, so the marker underneath
-  // stays visible. The ring grows with the party so neighbours never overlap:
-  // circumference / count must exceed a token's diameter plus a gap.
-  const ring = tokenSize * Math.max(2.2, count * 0.45);
-  const out: Array<{ x: number; y: number }> = [];
-  for (let i = 0; i < count; i++) {
-    // Start at the top and go clockwise — predictable, so the GM can learn it.
-    const angle = (i / count) * Math.PI * 2 - Math.PI / 2;
-    out.push({
-      x: Math.round(Math.min(width - margin, Math.max(margin, cx + Math.cos(angle) * ring))),
-      y: Math.round(Math.min(height - margin, Math.max(margin, cy + Math.sin(angle) * ring))),
-    });
-  }
-  return out;
-}
-
-/** Radius the clients draw to show where the party will land. */
-export function gatherRingRadius(count: number, tokenSize: number): number {
-  return tokenSize * Math.max(2.2, Math.max(count, 1) * 0.45);
 }
 
 // ---- Roster helpers ----
@@ -528,33 +485,14 @@ export function createWsHandlers(deps: ServerDeps) {
                 image = getImage(db, msg.imageId) ?? image;
               }
               if (image && image.width > 0 && image.height > 0) {
-                const tokenSize = getAdventure(db, adventureId)?.token_size ?? 20;
-                const remembered = getRememberedPositions(db, msg.imageId);
-                // Only tokens that have never stood on this map get placed at the
-                // start point; the rest return to where they last were.
-                const arriving = playerTokens.filter((t) => !remembered.has(t.id));
-                const positions = scatterPositions(
-                  arriving.length,
-                  image.start_x ?? image.width / 2,
-                  image.start_y ?? image.height / 2,
-                  image.width,
-                  image.height,
-                  tokenSize
+                const landed = landParty(
+                  playerTokens.map((t) => t.id),
+                  getRememberedPositions(db, msg.imageId),
+                  image,
+                  getAdventure(db, adventureId)?.token_size ?? 20
                 );
-                const margin = Math.min(tokenSize, image.width / 2, image.height / 2);
-                let arrivingIndex = 0;
-                for (const t of playerTokens) {
-                  const previous = remembered.get(t.id);
-                  const pos = previous
-                    ? {
-                        // Only rescue positions outside the image. The player chose
-                        // this spot and token:move does not clamp, so the margin
-                        // applied to arrivals must not drag them off it.
-                        x: Math.round(Math.min(image.width, Math.max(0, previous.x))),
-                        y: Math.round(Math.min(image.height, Math.max(0, previous.y))),
-                      }
-                    : positions[arrivingIndex++];
-                  updateTokenPosition(db, t.id, pos.x, pos.y);
+                for (const [tokenId, pos] of landed) {
+                  updateTokenPosition(db, tokenId, pos.x, pos.y);
                   // Arrival is deliberately *not* remembered (#46). Recording it made the very first
                   // visit consume the start point permanently, including a visit the GM made alone to
                   // paint fog. `token:move` is the only writer of token_positions, so a remembered
