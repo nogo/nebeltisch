@@ -4,7 +4,9 @@ Base: [TypeScript handbook](https://www.typescriptlang.org/docs/handbook/) under
 
 ## Check
 
-`bun install --frozen-lockfile && bun run test` — typechecks `src`, `test` and `public/js` with `tsc --noEmit`, then runs `bun test`. Must pass before a change is done.
+`bun install --frozen-lockfile && bun run test` — typechecks `src`, `test` and `public/js` with `tsc --noEmit`, then runs `bun test` under a 120-second limit. Must pass before a change is done.
+
+The limit sits outside Bun on purpose. The test servers share the runner's process, so code that loops without yielding — a tail call that never ends, say — freezes the per-test timeout with it, and the suite would hang instead of failing.
 
 ## Measure
 

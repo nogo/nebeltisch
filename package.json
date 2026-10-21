@@ -4,7 +4,7 @@
     "dev": "bun run build:client && bun run --hot src/index.ts",
     "start": "bun run src/index.ts",
     "typecheck": "tsc --noEmit",
-    "test": "bun run typecheck && bun test",
+    "test": "bun run typecheck && timeout 120 bun test",
     "build:client": "bun build public/js/gm.ts public/js/player.ts --outdir public/dist --splitting --target browser"
   },
   "devDependencies": {
