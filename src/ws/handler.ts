@@ -139,10 +139,16 @@ function resolvePage(
   imageId: string
 ): { imageId: string; isLive: boolean } | null {
   if (!imageBelongsToAdventure(db, imageId, adventureId)) return null;
-  return {
-    imageId,
-    isLive: getAdventure(db, adventureId)?.active_image_id === imageId,
-  };
+  return { imageId, isLive: reachesTable(db, adventureId, imageId) };
+}
+
+/**
+ * Whether the players hear about something on this page — the one place that rule lives. `null`
+ * is a player token's page: it stands on whatever is presented, so it is always heard. So is a
+ * monster row with no image, which predates per-map GM tokens.
+ */
+function reachesTable(db: Database, adventureId: string, imageId: string | null): boolean {
+  return imageId === null || getAdventure(db, adventureId)?.active_image_id === imageId;
 }
 
 // ---- WebSocket upgrade (called from fetch handler) ----
@@ -258,8 +264,7 @@ function publishDeclaration(
   if (!declaration) return;
   const updated = serializeMessage({ type: "declaration:updated", declaration });
   ws.send(updated);
-  const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
-  if (declaration.image_id === liveImageId) ws.publish(topic, updated);
+  if (reachesTable(db, adventureId, declaration.image_id)) ws.publish(topic, updated);
 }
 
 // ---- WebSocket handlers ----
@@ -464,7 +469,6 @@ export function createWsHandlers(deps: ServerDeps) {
               break;
             }
             updateTokenPosition(db, msg.tokenId, msg.x, msg.y);
-            const activeImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
             const moved = serializeMessage({
               type: "token:moved",
               tokenId: msg.tokenId,
@@ -476,15 +480,14 @@ export function createWsHandlers(deps: ServerDeps) {
             if (token.image_id === null) {
               // A player token belongs to the adventure and stands on whatever is presented, so its
               // walk is remembered against that page — the only writer of `token_positions` (#46).
+              const activeImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
               if (activeImageId) {
                 rememberTokenPosition(db, msg.tokenId, activeImageId, msg.x, msg.y);
               }
-              ws.publish(topic, moved);
-            } else if (token.image_id === activeImageId) {
-              // A monster belongs to one page. Dragging one on a page in preparation is stored and
-              // silent, the same rule fog follows — and it is not a walk, so nothing is remembered.
-              ws.publish(topic, moved);
             }
+            // A monster belongs to one page. Dragging one on a page in preparation is stored and
+            // silent, the same rule fog follows — and it is not a walk, so nothing is remembered.
+            if (reachesTable(db, adventureId, token.image_id)) ws.publish(topic, moved);
             break;
           }
 
@@ -810,12 +813,8 @@ export function createWsHandlers(deps: ServerDeps) {
             deleteToken(db, msg.tokenId);
             const removedMsg = serializeMessage({ type: "token:removed", tokenId: msg.tokenId });
             ws.send(removedMsg);
-            // A monster the players never received must not have its removal announced either. A row
-            // with no image predates per-map GM tokens and still belongs to whatever is presented.
-            const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
-            if (target.image_id === null || target.image_id === liveImageId) {
-              ws.publish(topic, removedMsg);
-            }
+            // A monster the players never received must not have its removal announced either.
+            if (reachesTable(db, adventureId, target.image_id)) ws.publish(topic, removedMsg);
             break;
           }
 
@@ -845,11 +844,7 @@ export function createWsHandlers(deps: ServerDeps) {
               name,
             });
             ws.send(renamedMsg);
-            // Same rule as removal: a monster on a page in preparation is stored and silent.
-            const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
-            if (target.image_id === null || target.image_id === liveImageId) {
-              ws.publish(topic, renamedMsg);
-            }
+            if (reachesTable(db, adventureId, target.image_id)) ws.publish(topic, renamedMsg);
             break;
           }
 
@@ -873,12 +868,7 @@ export function createWsHandlers(deps: ServerDeps) {
               state,
             });
             ws.send(stateMsg);
-            // Same rule as rename. A player token has no image and is therefore always on the
-            // presented page; a monster prepared on another page is stored and silent.
-            const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
-            if (target.image_id === null || target.image_id === liveImageId) {
-              ws.publish(topic, stateMsg);
-            }
+            if (reachesTable(db, adventureId, target.image_id)) ws.publish(topic, stateMsg);
             break;
           }
 
@@ -962,8 +952,7 @@ export function createWsHandlers(deps: ServerDeps) {
               break;
             }
             deleteDeclaration(db, declaration.id);
-            const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
-            publishCleared(ws, topic, [declaration.id], declaration.image_id === liveImageId);
+            publishCleared(ws, topic, [declaration.id], reachesTable(db, adventureId, declaration.image_id));
             break;
           }
 
