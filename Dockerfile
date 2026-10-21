@@ -1,5 +1,5 @@
 # Stage 1: Build client assets
-FROM oven/bun:1-slim AS build
+FROM oven/bun:1.4.3-slim AS build
 WORKDIR /app
 
 COPY package.json bun.lock tsconfig.json ./
@@ -11,7 +11,7 @@ COPY public/ ./public/
 RUN bun run build:client
 
 # Stage 2: Runtime
-FROM oven/bun:1-slim AS runtime
+FROM oven/bun:1.4.3-slim AS runtime
 WORKDIR /app
 
 COPY --from=build --chown=bun:bun /app/src/ ./src/
