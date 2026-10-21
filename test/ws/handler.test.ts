@@ -2,9 +2,9 @@ import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
 import { startWsTestServer, type WsTestServer } from "../helpers";
 import { createAdventure, getAdventure } from "../../src/db/adventures";
-import { createImageRecord } from "../../src/db/images";
-import { getTokensByAdventure } from "../../src/db/tokens";
-import { getDeclarationsByImage, getDeclaration } from "../../src/db/declarations";
+import { createImageRecord, getImage } from "../../src/db/images";
+import { createToken, getToken, getTokensByAdventure } from "../../src/db/tokens";
+import { answerDeclaration, getDeclarationsByImage, getDeclaration, openDeclaration } from "../../src/db/declarations";
 // Fog state is reached through the test server’s own registry, not a module global.
 import { loadFogMask } from "../../src/fog/serialize";
 import { isRevealed } from "../../src/fog/mask";
@@ -2499,6 +2499,187 @@ describe("WebSocket handler", () => {
 
       gm.send(JSON.stringify({ type: "player:remove", tokenId: alice.tokenId }));
       await until(() => getDeclarationsByImage(ts.db, imageId).length === 0);
+    });
+  });
+
+  // Each of these pins one check that `bun run mutate src/ws/handler.ts` showed no test would miss.
+  describe("what a connection may reach", () => {
+    beforeEach(() => {
+      ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
+    });
+
+    async function connectGm() {
+      const gm = track(await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword }));
+      await waitForMessage(gm, "joined");
+      return gm;
+    }
+
+    async function connectPlayer(name: string) {
+      const ws = track(
+        await connectWS(ts.wsUrl, { adventureId, role: "player", playerLink, playerName: name, playerColor: "#ff0000" })
+      );
+      const joined = await waitForMessage(ws, "joined");
+      return { ws, joined, tokenId: joined.yourTokenId as string };
+    }
+
+    /** A second table on the same server, with one page and a token of each kind on it. */
+    function otherTable() {
+      const other = createAdventure(ts.db, { name: "Other table", gmPassword: "other-pw" });
+      const page = createImageRecord(ts.db, {
+        adventureId: other.id, filename: "theirs.png", originalName: "theirs.png", width: 100, height: 100,
+      }).id;
+      const player = createToken(ts.db, { adventureId: other.id, name: "Zed", color: "#00ff00" });
+      const monster = createToken(ts.db, {
+        adventureId: other.id, name: "Wolf", color: "#c0392b", tokenType: "monster", imageId: page,
+      });
+      return { page, player, monster };
+    }
+
+    it("the GM sets the token size for everybody, clamped to 5–100", async () => {
+      const gm = await connectGm();
+      const alice = await connectPlayer("Alice");
+
+      const heard = waitForMessage(alice.ws, "settings:updated");
+      gm.send(JSON.stringify({ type: "settings:update", tokenSize: 300 }));
+      expect((await heard).tokenSize).toBe(100);
+      expect(getAdventure(ts.db, adventureId)?.token_size).toBe(100);
+    });
+
+    it("a player cannot change the token size", async () => {
+      const alice = await connectPlayer("Alice");
+      const refused = waitForMessage(alice.ws, "error");
+      alice.ws.send(JSON.stringify({ type: "settings:update", tokenSize: 50 }));
+      await refused;
+      expect(getAdventure(ts.db, adventureId)?.token_size).toBe(20);
+    });
+
+    it("a GM cannot move or lock the start point of another table's page", async () => {
+      const { page } = otherTable();
+      const gm = await connectGm();
+
+      const moved = waitForMessage(gm, "error");
+      gm.send(JSON.stringify({ type: "map:start_point", imageId: page, x: 10, y: 10 }));
+      expect((await moved).message).toBe("Image not found");
+      const locked = waitForMessage(gm, "error");
+      gm.send(JSON.stringify({ type: "map:start_point:lock", imageId: page, locked: true }));
+      expect((await locked).message).toBe("Image not found");
+
+      expect(getImage(ts.db, page)).toMatchObject({ start_x: null, start_y: null, start_locked: 0 });
+    });
+
+    it("removing a GM token refuses a player's token", async () => {
+      const gm = await connectGm();
+      const alice = await connectPlayer("Alice");
+
+      const refused = waitForMessage(gm, "error");
+      gm.send(JSON.stringify({ type: "gm_token:remove", tokenId: alice.tokenId }));
+      expect((await refused).message).toBe("GM token not found");
+      expect(getToken(ts.db, alice.tokenId)).not.toBeNull();
+    });
+
+    it("a GM cannot answer or put a number on another table's declaration", async () => {
+      const { page, player, monster } = otherTable();
+      // Aimed at their monster, which a GM answers for; and the GM's own, which a GM numbers.
+      const open = openDeclaration(ts.db, { imageId: page, sourceId: player.id, targetId: monster.id }).declaration;
+      const hit = openDeclaration(ts.db, { imageId: page, sourceId: null, targetId: player.id }).declaration;
+      answerDeclaration(ts.db, hit.id, false);
+      const gm = await connectGm();
+
+      const answered = waitForMessage(gm, "error");
+      gm.send(JSON.stringify({ type: "declaration:answer", declarationId: open.id, parried: true }));
+      expect((await answered).message).toBe("Declaration not found");
+      const numbered = waitForMessage(gm, "error");
+      gm.send(JSON.stringify({ type: "declaration:damage", declarationId: hit.id, damage: 5 }));
+      expect((await numbered).message).toBe("Declaration not found");
+
+      expect(getDeclaration(ts.db, open.id)?.state).toBe("open");
+      expect(getDeclaration(ts.db, hit.id)?.damage).toBeNull();
+    });
+
+    it("damage of exactly 999 is accepted", async () => {
+      const gm = await connectGm();
+      const alice = await connectPlayer("Alice");
+      const hit = openDeclaration(ts.db, { imageId, sourceId: null, targetId: alice.tokenId }).declaration;
+      answerDeclaration(ts.db, hit.id, false);
+
+      const updated = waitForMessage(gm, "declaration:updated");
+      gm.send(JSON.stringify({ type: "declaration:damage", declarationId: hit.id, damage: 999 }));
+      expect((await updated).declaration.damage).toBe(999);
+    });
+
+    it("the roster lists the party only, and shows a player who left as offline", async () => {
+      const gm = await connectGm();
+      const placed = waitForMessage(gm, "gm_token:added");
+      gm.send(JSON.stringify({ type: "gm_token:place", imageId, name: "Ork", tokenType: "monster", x: 40, y: 40 }));
+      await placed;
+
+      const joinedRoster = waitForMessage(gm, "player:roster");
+      const alice = await connectPlayer("Alice");
+      expect((await joinedRoster).players).toEqual([
+        { tokenId: alice.tokenId, name: "Alice", color: "#ff0000", online: true },
+      ]);
+
+      const leftRoster = waitForMessage(gm, "player:roster");
+      await closeWs(alice.ws);
+      expect((await leftRoster).players).toEqual([
+        { tokenId: alice.tokenId, name: "Alice", color: "#ff0000", online: false },
+      ]);
+    });
+
+    it("two players joining one after the other do not land on the same spot", async () => {
+      const alice = await connectPlayer("Alice");
+      const bob = await connectPlayer("Bob");
+      const a = alice.joined.tokens.find((t: any) => t.id === alice.tokenId);
+      const b = bob.joined.tokens.find((t: any) => t.id === bob.tokenId);
+      expect([a.x, a.y]).not.toEqual([b.x, b.y]);
+    });
+
+    it("a GM connecting, and a player reconnecting, announce nobody new", async () => {
+      const gm = await connectGm();
+      const alice = await connectPlayer("Alice");
+      await closeWs(alice.ws);
+      const bob = await connectPlayer("Bob");
+      const heard = record(bob.ws);
+
+      await connectGm();
+      const back = await connectPlayer("Alice");
+      expect(back.tokenId).toBe(alice.tokenId);
+
+      // Alice's return is news (`player:joined`); a second copy of her token is not (`token:added`).
+      expect(await heardSoFar(gm, bob.ws, heard)).toEqual(["player:joined"]);
+    });
+
+    it("a player without a name is refused at the door", async () => {
+      const url = new URL(`${ts.wsUrl}/ws`.replace("ws://", "http://"));
+      for (const [k, v] of Object.entries({ adventureId, role: "player", playerLink, playerColor: "#ff0000" })) {
+        url.searchParams.set(k, v);
+      }
+      expect((await fetch(url.toString())).status).toBe(400);
+    });
+
+    it("a ping says who sent it: the GM as GM, a player by name", async () => {
+      const gm = await connectGm();
+      const alice = await connectPlayer("Alice");
+
+      const fromGm = waitForMessage(alice.ws, "ping:map");
+      const echo = waitForMessage(gm, "ping:map");
+      gm.send(JSON.stringify({ type: "ping:map", x: 1, y: 1, color: "#000000" }));
+      expect((await fromGm).name).toBe("GM");
+      await echo;
+      const fromAlice = waitForMessage(gm, "ping:map");
+      alice.ws.send(JSON.stringify({ type: "ping:map", x: 1, y: 1, color: "#ff0000" }));
+      expect((await fromAlice).name).toBe("Alice");
+    });
+
+    it("a monster and an NPC are told apart by colour", async () => {
+      const gm = await connectGm();
+      const colours: string[] = [];
+      for (const tokenType of ["monster", "npc"]) {
+        const added = waitForMessage(gm, "gm_token:added");
+        gm.send(JSON.stringify({ type: "gm_token:place", imageId, name: tokenType, tokenType, x: 40, y: 40 }));
+        colours.push((await added).token.color);
+      }
+      expect(colours).toEqual(["#c0392b", "#7f8c9a"]);
     });
   });
 });
