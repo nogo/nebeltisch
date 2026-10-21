@@ -9,7 +9,8 @@ export interface CanvasController {
   /** Returns false without changing the canvas when the request became stale while decoding. */
   applyFogMask(base64: string, isCurrent?: () => boolean): Promise<boolean>;
   applyStroke(stroke: FogStroke): void;
-  drawBrushPreview(imgX: number, imgY: number, radius: number, viewportScale?: number): void;
+  /** The ring under the cursor or finger, green to reveal and red to re-fog (#42). */
+  drawBrushPreview(imgX: number, imgY: number, radius: number, mode: FogStroke['mode'], viewportScale?: number): void;
   clearBrushPreview(): void;
   getEventTarget(): HTMLCanvasElement;
   getFogCanvas(): HTMLCanvasElement;
@@ -162,16 +163,20 @@ export function initCanvas(container: HTMLElement, options?: { mode?: 'gm' | 'pl
       fogCtx.restore();
     },
 
-    drawBrushPreview(imgX: number, imgY: number, radius: number, viewportScale?: number) {
+    drawBrushPreview(imgX: number, imgY: number, radius: number, mode: FogStroke['mode'], viewportScale?: number) {
       if (imgW === 0) return;
       previewCtx.clearRect(0, 0, imgW, imgH);
       previewCtx.save();
-      previewCtx.strokeStyle = 'rgba(255,255,255,0.7)';
-      // Draw at 2px screen width regardless of zoom level
-      const invScale = viewportScale && viewportScale > 0 ? 1 / viewportScale : 1;
-      previewCtx.lineWidth = Math.max(1, 2 * invScale);
+      // Widths in screen pixels regardless of zoom level
+      const px = viewportScale && viewportScale > 0 ? 1 / viewportScale : 1;
       previewCtx.beginPath();
       previewCtx.arc(imgX, imgY, radius, 0, Math.PI * 2);
+      // A dark halo under the colour, so the ring reads over a bright map and over black fog alike.
+      previewCtx.strokeStyle = 'rgba(0,0,0,0.6)';
+      previewCtx.lineWidth = Math.max(2, 4 * px);
+      previewCtx.stroke();
+      previewCtx.strokeStyle = mode === 'reveal' ? '#22c55e' : '#e74c3c';
+      previewCtx.lineWidth = Math.max(1, 2 * px);
       previewCtx.stroke();
       previewCtx.restore();
     },

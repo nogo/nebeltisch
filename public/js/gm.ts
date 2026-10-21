@@ -1565,7 +1565,7 @@ viewport.onPointerMove((ev: PointerEvent) => {
   if (!brushArmed) return;
 
   const pos = screenToPage(ev.clientX, ev.clientY);
-  canvasCtrl.drawBrushPreview(pos.x, pos.y, brushRadius, viewport.scale);
+  canvasCtrl.drawBrushPreview(pos.x, pos.y, brushRadius, brushMode, viewport.scale);
 
   if (longPressTimer !== null && longPressStartPos !== null) {
     const dx = ev.clientX - longPressStartPos.x;
