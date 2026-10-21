@@ -18,7 +18,9 @@ import {
 } from "./connections";
 import { openDeclaration, getDeclaration, getDeclarationsByImage, getResolvedByImage, deleteDeclaration, answerDeclaration, setDeclarationDamage } from "../db/declarations";
 import { parseMessage, serializeMessage } from "./messages";
-import { arrivalPosition, landParty } from "../landing";
+import { arrivalPosition, landParty } from "../rules/landing";
+import { reachesTable } from "../rules/audience";
+import { ownsSource, ownsTarget } from "../rules/declarations";
 
 // ---- Spawn position ----
 
@@ -110,16 +112,12 @@ function resolvePage(
   imageId: string
 ): { imageId: string; isLive: boolean } | null {
   if (!imageBelongsToAdventure(db, imageId, adventureId)) return null;
-  return { imageId, isLive: reachesTable(db, adventureId, imageId) };
+  return { imageId, isLive: reachesTable(imageId, presentedPage(db, adventureId)) };
 }
 
-/**
- * Whether the players hear about something on this page — the one place that rule lives. `null`
- * is a player token's page: it stands on whatever is presented, so it is always heard. So is a
- * monster row with no image, which predates per-map GM tokens.
- */
-function reachesTable(db: Database, adventureId: string, imageId: string | null): boolean {
-  return imageId === null || getAdventure(db, adventureId)?.active_image_id === imageId;
+/** The page the players are looking at, or null when nothing is on the table. */
+function presentedPage(db: Database, adventureId: string): string | null {
+  return getAdventure(db, adventureId)?.active_image_id ?? null;
 }
 
 // ---- WebSocket upgrade (called from fetch handler) ----
@@ -235,7 +233,7 @@ function publishDeclaration(
   if (!declaration) return;
   const updated = serializeMessage({ type: "declaration:updated", declaration });
   ws.send(updated);
-  if (reachesTable(db, adventureId, declaration.image_id)) ws.publish(topic, updated);
+  if (reachesTable(declaration.image_id, presentedPage(db, adventureId))) ws.publish(topic, updated);
 }
 
 // ---- WebSocket handlers ----
@@ -451,14 +449,14 @@ export function createWsHandlers(deps: ServerDeps) {
             if (token.image_id === null) {
               // A player token belongs to the adventure and stands on whatever is presented, so its
               // walk is remembered against that page — the only writer of `token_positions` (#46).
-              const activeImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
+              const activeImageId = presentedPage(db, adventureId);
               if (activeImageId) {
                 rememberTokenPosition(db, msg.tokenId, activeImageId, msg.x, msg.y);
               }
             }
             // A monster belongs to one page. Dragging one on a page in preparation is stored and
             // silent, the same rule fog follows — and it is not a walk, so nothing is remembered.
-            if (reachesTable(db, adventureId, token.image_id)) ws.publish(topic, moved);
+            if (reachesTable(token.image_id, presentedPage(db, adventureId))) ws.publish(topic, moved);
             break;
           }
 
@@ -480,7 +478,7 @@ export function createWsHandlers(deps: ServerDeps) {
               ws.send(serializeMessage({ type: "error", message: "Only GM can switch maps" }));
               break;
             }
-            const prevImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
+            const prevImageId = presentedPage(db, adventureId);
             try {
               setActiveImage(db, adventureId, msg.imageId);
             } catch {
@@ -762,7 +760,7 @@ export function createWsHandlers(deps: ServerDeps) {
             const removedMsg = serializeMessage({ type: "token:removed", tokenId: msg.tokenId });
             ws.send(removedMsg);
             // A monster the players never received must not have its removal announced either.
-            if (reachesTable(db, adventureId, target.image_id)) ws.publish(topic, removedMsg);
+            if (reachesTable(target.image_id, presentedPage(db, adventureId))) ws.publish(topic, removedMsg);
             break;
           }
 
@@ -792,7 +790,7 @@ export function createWsHandlers(deps: ServerDeps) {
               name,
             });
             ws.send(renamedMsg);
-            if (reachesTable(db, adventureId, target.image_id)) ws.publish(topic, renamedMsg);
+            if (reachesTable(target.image_id, presentedPage(db, adventureId))) ws.publish(topic, renamedMsg);
             break;
           }
 
@@ -816,7 +814,7 @@ export function createWsHandlers(deps: ServerDeps) {
               state,
             });
             ws.send(stateMsg);
-            if (reachesTable(db, adventureId, target.image_id)) ws.publish(topic, stateMsg);
+            if (reachesTable(target.image_id, presentedPage(db, adventureId))) ws.publish(topic, stateMsg);
             break;
           }
 
@@ -824,7 +822,7 @@ export function createWsHandlers(deps: ServerDeps) {
             // The page is the presented one, always. A declaration is something said at the table,
             // and the table is looking at one page — there is nothing to declare on a page in
             // preparation, and nothing that would ever be seen.
-            const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
+            const liveImageId = presentedPage(db, adventureId);
             if (!liveImageId) {
               ws.send(serializeMessage({ type: "error", message: "Nothing is on the table" }));
               break;
@@ -889,18 +887,13 @@ export function createWsHandlers(deps: ServerDeps) {
               ws.send(serializeMessage({ type: "error", message: "Declaration not found" }));
               break;
             }
-            // Only the one who said it can take it back. The GM's are the sourceless ones, and a
-            // player's are their own token's — the same rule the declaring side is built on.
-            const mine =
-              conn.role === "gm"
-                ? declaration.source_id === null
-                : !!conn.tokenId && declaration.source_id === conn.tokenId;
-            if (!mine) {
+            // Only the one who said it can take it back.
+            if (!ownsSource(conn, declaration.source_id)) {
               ws.send(serializeMessage({ type: "error", message: "This is not your declaration" }));
               break;
             }
             deleteDeclaration(db, declaration.id);
-            publishCleared(ws, topic, [declaration.id], reachesTable(db, adventureId, declaration.image_id));
+            publishCleared(ws, topic, [declaration.id], reachesTable(declaration.image_id, presentedPage(db, adventureId)));
             break;
           }
 
@@ -909,7 +902,7 @@ export function createWsHandlers(deps: ServerDeps) {
               ws.send(serializeMessage({ type: "error", message: "Only GM can clear the table" }));
               break;
             }
-            const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
+            const liveImageId = presentedPage(db, adventureId);
             if (!liveImageId) {
               ws.send(serializeMessage({ type: "error", message: "Nothing is on the table" }));
               break;
@@ -939,13 +932,8 @@ export function createWsHandlers(deps: ServerDeps) {
               ws.send(serializeMessage({ type: "error", message: "Token not found" }));
               break;
             }
-            // The target's owner answers, and nobody else: a player for their own token, the GM for
-            // every monster and NPC. One writer per object, and the object is the declaration.
-            const answersForTarget =
-              target.token_type === "player"
-                ? conn.role !== "gm" && !!conn.tokenId && conn.tokenId === target.id
-                : conn.role === "gm";
-            if (!answersForTarget) {
+            // The target's owner answers, and nobody else.
+            if (!ownsTarget(conn, target)) {
               ws.send(serializeMessage({ type: "error", message: "This attack is not aimed at you" }));
               break;
             }
@@ -970,13 +958,8 @@ export function createWsHandlers(deps: ServerDeps) {
               ws.send(serializeMessage({ type: "error", message: "The damage has already been sent" }));
               break;
             }
-            // The other half of the pair: the source's owner sends the number they rolled. The GM's
-            // declarations have no source token, and the GM is who owns those.
-            const sendsForSource =
-              declaration.source_id === null
-                ? conn.role === "gm"
-                : conn.role !== "gm" && !!conn.tokenId && conn.tokenId === declaration.source_id;
-            if (!sendsForSource) {
+            // The other half of the pair: the source's owner sends the number they rolled.
+            if (!ownsSource(conn, declaration.source_id)) {
               ws.send(serializeMessage({ type: "error", message: "This is not your attack" }));
               break;
             }

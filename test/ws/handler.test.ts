@@ -8,7 +8,7 @@ import { getDeclarationsByImage, getDeclaration } from "../../src/db/declaration
 // Fog state is reached through the test server’s own registry, not a module global.
 import { loadFogMask } from "../../src/fog/serialize";
 import { isRevealed } from "../../src/fog/mask";
-import { ringRadius } from "../../src/landing";
+import { ringRadius } from "../../src/rules/landing";
 
 // ---- WebSocket test helpers ----
 

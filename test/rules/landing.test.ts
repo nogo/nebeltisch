@@ -1,5 +1,5 @@
 import { describe, it, expect } from "bun:test";
-import { arrivalPosition, landParty, ringRadius, scatterPositions } from "../src/landing";
+import { arrivalPosition, landParty, ringRadius, scatterPositions } from "../../src/rules/landing";
 
 describe("scatterPositions", () => {
   it("places tokens around the target, never on it", () => {

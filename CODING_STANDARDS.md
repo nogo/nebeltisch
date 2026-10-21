@@ -19,7 +19,8 @@ Gap: no complexity, mutation or flakiness command yet.
 - `src/db/*.ts` holds one table's queries each, as plain functions that take `db: Database` first. SQL lives only there and in `db/schema.ts`.
 - Dependencies are passed in through `ServerDeps` (`src/deps.ts`), built once in `src/index.ts`. Modules do not open their own database or registry.
 - `src/fog/` and `src/board.ts` do not import the HTTP or WebSocket layers.
-- Every wire message is a member of `ClientMessage` or `ServerMessage` in `src/ws/messages.ts`. The client imports those types with `import type`; it never restates a payload. Its one runtime import from `src/` is `src/landing.ts`, which stays import-free.
+- `src/rules/` holds pure table rules: values in, values out, no runtime import but another rule (`test/rules/purity.test.ts`). The handler reads the database and passes the values in.
+- Every wire message is a member of `ClientMessage` or `ServerMessage` in `src/ws/messages.ts`. The client imports those types with `import type`; it never restates a payload. Its only runtime imports from `src/` come from `src/rules/`.
 
 ### Naming
 - Files and functions in camelCase; database columns and row fields in snake_case, as SQLite returns them.

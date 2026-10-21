@@ -12,8 +12,8 @@ import type { MenuGroup, MenuItem } from './anchored-menu';
 import type { FogStroke } from './canvas';
 import type { Declaration, TokenState } from '../../src/types';
 import * as api from './api';
-// The one runtime import from src/: pure, import-free geometry, so the ring cannot drift (landing.ts).
-import { ringRadius } from '../../src/landing';
+// Rules are the client's only runtime imports from src/: pure and I/O-free (src/rules/).
+import { ringRadius } from '../../src/rules/landing';
 
 // --- URL params ---
 // The hash is never transmitted to the server (HTTP spec), so keeping the

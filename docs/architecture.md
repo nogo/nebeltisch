@@ -29,7 +29,7 @@ Server — `src/`
 | `routes.ts` | HTTP routing by path segments, REST endpoints, the HTML pages and `/dist`; plus `staticRoutes`, the uploads directory handed to `Bun.serve` |
 | `images.ts` | Image dimensions from file headers (PNG/JPEG/WebP). Pure parsing plus a repair path; used by both `routes.ts` and `fog/` |
 | `board.ts` | Where a page lands on the board when nobody has arranged it. Pure geometry; used by the upload route and the migration |
-| `landing.ts` | Where the party lands on a page: arrival on the start point, return to a remembered walk. Pure and import-free; the GM client imports it too |
+| `rules/` | Pure table rules with no I/O, which the client may import: `landing.ts` (where the party lands — arrival on the start point, return to a remembered walk), `audience.ts` (whether the players hear an edit), `declarations.ts` (who writes which half of a declaration) |
 | `types.ts` | Shared domain types: `FogMask`, `FogStroke`, `Adventure`, `ImageRecord`, `Token`, `WsData` |
 | `db/database.ts` | Opens the database and applies the schema |
 | `db/schema.ts` | DDL plus additive migrations |
@@ -157,7 +157,7 @@ Map → GM tokens → fog → player tokens → pings, stacked in an image-sized
 `public/js/websocket.ts` imports `ClientMessage` and `ServerMessage` from `src/ws/messages.ts` with `import type`, and `on()` is generic over the union: `ws.on('map:switched', msg => …)` gives `msg` the exact `MapSwitchedMessage` shape.
 **Why:** the client used to re-declare each payload inline at the call site — roughly thirty hand-written casts — and they drifted from the server without anything failing. `import type` is erased at build, so no server code enters the bundle.
 
-**One runtime import crosses the boundary: `src/landing.ts`.** The GM's start marker draws the ring the server lands the party on, and it used to carry its own copy of the formula, kept equal by a comment. Importing the server's function makes the two one. It is safe because `landing.ts` imports nothing, so nothing else can ride along into the bundle — a module that wants to join it must be pure and import-free too.
+**Runtime imports cross the boundary from `src/rules/` only.** A rule both sides need is written once there: the GM's start marker draws the ring the server lands the party on, and it used to carry its own copy of the formula, kept equal by a comment. It is safe because a rule imports nothing at run time except another rule — types are erased — so no server code can ride along into the bundle. `test/rules/purity.test.ts` enforces that, and it is the folder's whole admission test: a rule takes values and returns values, and anything that reads the database stays in its caller.
 **Implication:** a field the server does not send, and a `send()` of a message outside `ClientMessage`, are both compile errors. New wire messages must be added to the union before either side can use them, which is principle 4 extended across the boundary.
 
 ### REST DTOs are deliberately not shared
