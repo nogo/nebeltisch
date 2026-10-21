@@ -61,6 +61,15 @@ function closeWs(ws: WebSocket): Promise<void> {
   });
 }
 
+/** Waits for a condition instead of a length of time, so a slow machine is slower, never wrong. */
+async function until(condition: () => boolean | Promise<boolean>, timeout = 3000): Promise<void> {
+  const deadline = Date.now() + timeout;
+  while (!(await condition())) {
+    if (Date.now() > deadline) throw new Error("Timed out waiting for a condition");
+    await Bun.sleep(5);
+  }
+}
+
 // ---- Tests ----
 
 describe("WebSocket handler", () => {
@@ -74,6 +83,32 @@ describe("WebSocket handler", () => {
   function track(ws: WebSocket): WebSocket {
     openSockets.push(ws);
     return ws;
+  }
+
+  /** Whether the resident mask shows (x, y) revealed: the stroke is applied, saved or not. */
+  function revealed(page: string, x: number, y: number, adventure = adventureId): boolean {
+    const mask = ts.fog.forAdventure(adventure).peek(page)?.readMask();
+    return mask !== undefined && isRevealed(mask, x, y);
+  }
+
+  /** Everything a socket hears from now on, so a test can assert it heard nothing. */
+  function record(ws: WebSocket): string[] {
+    const heard: string[] = [];
+    ws.addEventListener("message", (event) => {
+      heard.push(JSON.parse(event.data as string).type);
+    });
+    return heard;
+  }
+
+  /**
+   * What the player heard before now. Call it once the action's effect is visible: its publish, if
+   * it had one, has gone out by then, and a ping from the GM on the same topic arrives after it.
+   */
+  async function heardSoFar(gm: WebSocket, player: WebSocket, heard: string[]): Promise<string[]> {
+    const barrier = waitForMessage(player, "ping:map");
+    gm.send(JSON.stringify({ type: "ping:map", x: 0, y: 0, color: "#000000" }));
+    await barrier;
+    return heard.filter((type) => type !== "ping:map");
   }
 
   beforeEach(() => {
@@ -553,8 +588,7 @@ describe("WebSocket handler", () => {
       })
     );
 
-    // Give the stroke time to be applied
-    await new Promise((r) => setTimeout(r, 50));
+    await until(() => revealed(imageId, 50, 50));
 
     // Player joins late
     const player = track(
@@ -589,7 +623,7 @@ describe("WebSocket handler", () => {
       imageId,
       stroke: { x: 50, y: 50, radius: 20, mode: "reveal" },
     }));
-    await new Promise((r) => setTimeout(r, 50));
+    await until(() => revealed(imageId, 50, 50));
 
     await ts.fog.flushAll();
 
@@ -697,6 +731,8 @@ describe("WebSocket handler", () => {
       imageId: otherImageId,
       stroke: { x: 50, y: 50, radius: 20, mode: "reveal" },
     }));
+    // Applied and pending, so a flush that reached the wrong adventure would have something to write.
+    await until(() => revealed(otherImageId, 50, 50, other.id));
 
     const gm = track(
       await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
@@ -707,12 +743,11 @@ describe("WebSocket handler", () => {
       imageId,
       stroke: { x: 50, y: 50, radius: 20, mode: "reveal" },
     }));
-    await new Promise((r) => setTimeout(r, 50));
+    await until(() => revealed(imageId, 50, 50));
 
     await closeWs(gm);
-    await new Promise((r) => setTimeout(r, 50));
+    await until(async () => (await loadFogMask(ts.db, imageId)) !== null);
 
-    expect(await loadFogMask(ts.db, imageId)).not.toBeNull();
     expect(await loadFogMask(ts.db, otherImageId)).toBeNull();
   });
 
@@ -729,16 +764,11 @@ describe("WebSocket handler", () => {
       imageId,
       stroke: { x: 50, y: 50, radius: 20, mode: "reveal" },
     }));
-    await new Promise((r) => setTimeout(r, 50));
+    await until(() => revealed(imageId, 50, 50));
 
     // Disconnect GM → triggers flush
     await closeWs(gm);
-    // Wait for async flush to complete
-    await new Promise((r) => setTimeout(r, 100));
-
-    // Verify fog is in DB
-    const loaded = await loadFogMask(ts.db, imageId);
-    expect(loaded).not.toBeNull();
+    await until(async () => (await loadFogMask(ts.db, imageId)) !== null);
 
     // GM reconnects and receives the persisted fog mask
     const gm2 = track(
@@ -1020,18 +1050,6 @@ describe("WebSocket handler", () => {
       return { gm, player: ws };
     }
 
-    /** Everything a socket hears from now on, so a test can assert it heard nothing. */
-    function record(ws: WebSocket): string[] {
-      const heard: string[] = [];
-      ws.addEventListener("message", (event) => {
-        heard.push(JSON.parse(event.data as string).type);
-      });
-      return heard;
-    }
-
-    /** Long enough for anything the server was going to publish to have arrived. */
-    const settle = () => new Promise((r) => setTimeout(r, 120));
-
     it("a stroke on a page that is not presented is stored and never published", async () => {
       const { gm, player } = await connectGmAnd("Alice");
       const heard = record(player);
@@ -1043,9 +1061,9 @@ describe("WebSocket handler", () => {
           stroke: { x: 50, y: 50, radius: 20, mode: "reveal" },
         })
       );
-      await settle();
+      await until(() => revealed(prepImageId, 50, 50));
 
-      expect(heard).toEqual([]);
+      expect(await heardSoFar(gm, player, heard)).toEqual([]);
       // Stored, though — the whole point is that it is there when the page is presented.
       await ts.fog.flushAll();
       expect(isRevealed((await loadFogMask(ts.db, prepImageId))!, 50, 50)).toBe(true);
@@ -1067,9 +1085,9 @@ describe("WebSocket handler", () => {
           ],
         })
       );
-      await settle();
+      await until(() => revealed(prepImageId, 60, 60));
 
-      expect(heard).toEqual([]);
+      expect(await heardSoFar(gm, player, heard)).toEqual([]);
       await ts.fog.flushAll();
       const mask = (await loadFogMask(ts.db, prepImageId))!;
       expect(isRevealed(mask, 20, 20)).toBe(true);
@@ -1116,10 +1134,9 @@ describe("WebSocket handler", () => {
 
       const heard = record(player);
       await undoOrRedo(gm, "fog:undo", prepImageId);
-      await settle();
 
       // The player saw no reset: the page that was rolled back is not the one on the table.
-      expect(heard).toEqual([]);
+      expect(await heardSoFar(gm, player, heard)).toEqual([]);
       expect(isRevealed(await currentMask(prepImageId), 20, 20)).toBe(false);
       expect(isRevealed(await currentMask(imageId), 50, 50)).toBe(true);
 
@@ -1169,8 +1186,7 @@ describe("WebSocket handler", () => {
       );
       const placed = (await added).token;
       expect(placed.image_id).toBe(prepImageId);
-      await settle();
-      expect(heard).toEqual([]);
+      expect(await heardSoFar(gm, player, heard)).toEqual([]);
 
       const switched = waitForMessage(player, "map:switched");
       gm.send(JSON.stringify({ type: "map:switch", imageId: prepImageId }));
@@ -1213,9 +1229,9 @@ describe("WebSocket handler", () => {
       const heard = record(player);
       gm.send(JSON.stringify({ type: "token:move", tokenId, x: 70, y: 70 }));
       gm.send(JSON.stringify({ type: "gm_token:remove", tokenId }));
-      await settle();
+      await until(() => !getTokensByAdventure(ts.db, adventureId).some((t) => t.id === tokenId));
 
-      expect(heard).toEqual([]);
+      expect(await heardSoFar(gm, player, heard)).toEqual([]);
       expect(getTokensByAdventure(ts.db, adventureId).find((t) => t.id === tokenId)).toBeUndefined();
     });
 
@@ -1268,9 +1284,8 @@ describe("WebSocket handler", () => {
       const renamed = waitForMessage(gm, "token:renamed");
       gm.send(JSON.stringify({ type: "gm_token:rename", tokenId, name: "Ork 2" }));
       expect((await renamed).name).toBe("Ork 2");
-      await settle();
 
-      expect(heard).toEqual([]);
+      expect(await heardSoFar(gm, player, heard)).toEqual([]);
       expect(getTokensByAdventure(ts.db, adventureId).find((t) => t.id === tokenId)?.name)
         .toBe("Ork 2");
     });
@@ -1436,9 +1451,8 @@ describe("WebSocket handler", () => {
       const marked = waitForMessage(gm, "token:state:set");
       gm.send(JSON.stringify({ type: "gm_token:state", tokenId, state: "dead" }));
       await marked;
-      await settle();
 
-      expect(heard).toEqual([]);
+      expect(await heardSoFar(gm, player, heard)).toEqual([]);
       expect(getTokensByAdventure(ts.db, adventureId).find((t) => t.id === tokenId)?.state)
         .toBe("dead");
     });
@@ -2484,9 +2498,7 @@ describe("WebSocket handler", () => {
       expect(getDeclarationsByImage(ts.db, imageId)).toHaveLength(1);
 
       gm.send(JSON.stringify({ type: "player:remove", tokenId: alice.tokenId }));
-      await new Promise((r) => setTimeout(r, 120));
-      expect(getDeclarationsByImage(ts.db, imageId)).toEqual([]);
+      await until(() => getDeclarationsByImage(ts.db, imageId).length === 0);
     });
   });
-
 });
