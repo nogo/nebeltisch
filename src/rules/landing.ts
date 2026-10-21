@@ -19,7 +19,8 @@ export interface LandingPage {
   start_y: number | null;
 }
 
-function startOf(page: LandingPage): Point {
+/** Where the party lands on a page, and where the GM's marker stands. */
+export function startOf(page: LandingPage): Point {
   return { x: page.start_x ?? page.width / 2, y: page.start_y ?? page.height / 2 };
 }
 

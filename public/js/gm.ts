@@ -13,7 +13,7 @@ import type { FogStroke } from './canvas';
 import type { Declaration, TokenState } from '../../src/types';
 import * as api from './api';
 // Rules are the client's only runtime imports from src/: pure and I/O-free (src/rules/).
-import { ringRadius } from '../../src/rules/landing';
+import { ringRadius, startOf } from '../../src/rules/landing';
 
 // --- URL params ---
 // The hash is never transmitted to the server (HTTP spec), so keeping the
@@ -1022,11 +1022,7 @@ function syncStartPointFromImageList() {
     renderStartMarker();
     return;
   }
-  // The same fallback the server uses to place the party, made visible.
-  startPoint = {
-    x: img.start_x ?? img.width / 2,
-    y: img.start_y ?? img.height / 2,
-  };
+  startPoint = startOf(img);
   startLocked = img.start_locked === 1;
   renderStartMarker();
 }
