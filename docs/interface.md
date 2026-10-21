@@ -223,6 +223,37 @@ One exception, and it is deliberate: **the toolbar dims to 15% while a brush str
 
 ---
 
+## Layout: GM dashboard
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ Nebeltisch           [+ New adventure] [Name] [Log out]  │
+│ ┌────────┐ ┌────────┐ ┌────────┐ ┌────────┐              │
+│ │  map   │ │  map   │ │  map   │ │  map   │              │
+│ │ Name   │ │ Name   │ │ Name   │ │ Name   │              │
+│ │ meta   │ │ meta   │ │ meta   │ │ meta   │              │
+│ │  icons │ │  icons │ │  icons │ │  icons │              │
+│ └────────┘ └────────┘ └────────┘ └────────┘              │
+└──────────────────────────────────────────────────────────┘
+```
+
+Where a signed-in GM lands. A single 480px column of tall entries broke down at seven adventures; this replaced it.
+
+**The maps are the list.** A shelf of cards, as many columns as fit at 240px or more, up to 1280px wide; two columns at 480px, one at 360px. A card's face is its first map at 16:10, a dashed empty frame while it has none. Below it the name and one meta line — maps · created · *with* the other GMs — which drops at 480px. Two campaigns are told apart by their map before their name.
+
+**The whole card opens the board.** Every other act is an icon in one row at the card's foot, right-aligned, always in this order:
+
+- **Invite** (link) copies the players' invite link, so sending it is not the price of opening the board.
+- **Rename** (pencil) turns the name into a field in place. Enter or ✓ keeps it; Escape or leaving the field drops it.
+- **GMs** (person +) opens a popover off the icon: the GMs, all equal, with Leave or Remove, and a field to share by account name. With more than one GM the icon carries the count.
+- **Delete** (bin) arms on the first press — red, reading *Delete?* — and deletes on the second. Blur, Escape or four seconds disarm it.
+
+**The row sits under the name, not on the map.** Glass chips on the map's corner were tried and lost: they covered the thing that tells the cards apart. A ⋯ menu holding rename, share and delete lost too — one tap more for acts the icons make visible.
+
+**The header holds the two acts that are not about one adventure.** *New adventure* opens a name field below it and goes straight to the new board. The GM's name is a link to the account page, a page of its own with a back link to the dashboard: add a passkey, set a password. A page, not a popover: the account is not about anything on the shelf behind it. *Log out* sits beside the name, one tap from the shelf.
+
+---
+
 ## Visual language
 
 **Colour is identity; shape is state.** A token's colour says whose it is and nothing else ever borrows it — what happened to that token, and what is aimed at it, are said with shape, fill and glyph. Where two things must never be confused, they differ by shape (principle 8 in [design.md](design.md)).

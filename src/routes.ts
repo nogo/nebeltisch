@@ -55,7 +55,9 @@ export function handleRequest(
   const { pathname } = url;
   const segments = pathname.split("/").filter(Boolean);
 
-  if (req.method === "GET" && pathname === "/") {
+  // The account is a page of its own, but the home page's script draws it: it shares the
+  // sign-in that guards it.
+  if (req.method === "GET" && (pathname === "/" || pathname === "/account")) {
     try {
       const html = readFileSync(join(publicDir, "index.html"), "utf-8");
       return new Response(html, { headers: { "Content-Type": "text/html" } });

@@ -9,8 +9,11 @@
 </head>
 <body class="home">
   <main class="home-main">
-    <h1>Nebeltisch</h1>
-    <p class="tagline">Fog of war for your tabletop</p>
+    <!-- Above signing in only: the dashboard and the account page carry their own header. -->
+    <header id="intro">
+      <h1>Nebeltisch</h1>
+      <p class="tagline">Fog of war for your tabletop</p>
+    </header>
 
     <!-- Signed out: log in, or create an account. A passkey first, a password behind it. -->
     <div id="signed-out" hidden>
@@ -60,27 +63,34 @@
       <button type="button" id="phrase-done">I wrote it down</button>
     </section>
 
-    <!-- Signed in: the dashboard (#55). -->
+    <!-- Signed in, at /: the dashboard (#55). A shelf of adventures, the first map as each one's face. -->
     <div id="dashboard" hidden>
-      <p class="signed-in">
-        <span>Signed in as <strong id="user-name"></strong></span>
-        <button type="button" id="logout" class="quiet">Log out</button>
-      </p>
+      <header class="home-top">
+        <h1>Nebeltisch</h1>
+        <button type="button" id="new-adventure" aria-expanded="false" aria-controls="create-form"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>New adventure</button>
+        <a id="account-link" class="home-button" href="/account" title="Your account"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg><span id="account-name"></span></a>
+        <button type="button" id="logout" class="quiet home-button"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M9 4H5v16h4"/><path d="M14 8l4 4-4 4"/><path d="M18 12H8"/></svg>Log out</button>
+      </header>
+      <form id="create-form" hidden>
+        <label class="visually-hidden" for="adv-name">Name of the new adventure</label>
+        <input type="text" id="adv-name" required maxlength="80" placeholder="The Lost Mines" autocomplete="off">
+        <button type="submit">Create</button>
+        <p id="create-error" class="error" role="alert"></p>
+      </form>
+      <p id="adventures-empty" class="prose" hidden>You have no adventures yet. Give your first one a name above — you can add maps once it is open.</p>
+      <h2 class="visually-hidden">Your adventures</h2>
+      <ul id="adventures" class="adventure-shelf"></ul>
+      <p id="adventures-status" class="prose" aria-live="polite"></p>
+    </div>
 
-      <section class="card" aria-labelledby="adventures-title">
-        <h2 id="adventures-title">Your adventures</h2>
-        <p id="adventures-empty" class="prose" hidden>You have no adventures yet. Give your first one a name below — you can add maps once it is open.</p>
-        <ul id="adventures" class="adventure-list"></ul>
-        <p id="adventures-status" class="prose" aria-live="polite"></p>
-        <form id="create-form">
-          <label>New adventure<input type="text" id="adv-name" required placeholder="The Lost Mines" autocomplete="off"></label>
-          <button type="submit">Create</button>
-          <p id="create-error" class="error" role="alert"></p>
-        </form>
-      </section>
-
+    <!-- Signed in, at /account: a page of its own, because it is about no adventure on the shelf. -->
+    <div id="account" hidden>
+      <header class="home-top">
+        <a class="home-link" href="/">← Your adventures</a>
+      </header>
       <section class="card" aria-labelledby="account-title">
         <h2 id="account-title">Your account</h2>
+        <p class="prose">Signed in as <strong id="user-name"></strong>.</p>
         <p id="account-summary" class="prose"></p>
         <button type="button" id="add-passkey" class="quiet" data-passkey>Add a passkey</button>
         <details class="fallback">

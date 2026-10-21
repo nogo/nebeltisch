@@ -169,56 +169,107 @@ body.home {
   color: #fff;
   word-break: break-all;
 }
-.signed-in {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  margin-bottom: 1rem;
-  color: #bbb;
-  font-size: 0.9rem;
-}
-.signed-in strong { color: #fff; }
-.adventure-list { list-style: none; margin-bottom: 1rem; }
-.adventure-list:empty { display: none; }
-.adventure-list li.adventure {
-  display: grid;
-  grid-template-columns: 80px minmax(0, 1fr);
-  grid-template-areas: "thumb name" "thumb meta" "invite invite" "manage manage";
-  align-items: center;
-  column-gap: 0.75rem;
-  row-gap: 0.25rem;
-  padding: 0.75rem 0;
-  border-bottom: 1px solid rgba(74, 74, 255, 0.12);
-}
-.adventure-thumb {
-  grid-area: thumb;
-  width: 80px;
-  height: 60px;
-  object-fit: cover;
-  border-radius: 6px;
-  background: rgba(13, 13, 26, 0.8);
-  border: 1px solid rgba(74, 74, 255, 0.12);
-}
-.adventure-name {
-  grid-area: name;
-  align-self: end;
-  color: #fff;
-  font-weight: 600;
-  text-decoration: none;
+/* The dashboard takes the screen's width; signing in and the account stay one narrow column. */
+.home-main.wide { max-width: 1280px; margin: 0; }
+.home-top { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem 0.75rem; margin-bottom: 1.25rem; }
+.home-top h1 { font-size: 1.35rem; margin: 0 auto 0 0; text-align: left; }
+.home-link {
+  min-height: 44px; display: inline-flex; align-items: center; padding: 0 0.6rem;
+  border-radius: 8px; color: #aab0ff; text-decoration: none; font-size: 0.9rem;
   overflow-wrap: anywhere;
 }
+.home-link:hover { background: rgba(74, 74, 255, 0.15); }
+/* The account link looks like the Log out button beside it: both are buttons to the eye. */
+.home .home-button {
+  min-height: 44px; display: inline-flex; align-items: center; gap: 0.4rem; padding: 0 0.9rem;
+  border: 1px solid rgba(170, 176, 255, 0.4); border-radius: 8px; background: transparent;
+  color: #aab0ff; font: inherit; font-size: 0.9rem; font-weight: 500; text-decoration: none; cursor: pointer;
+}
+.home .home-button:hover { background: rgba(74, 74, 255, 0.15); }
+.home-button svg { flex: none; }
+#new-adventure { display: inline-flex; align-items: center; gap: 0.4rem; }
+#new-adventure, #create-form button {
+  white-space: nowrap;
+  min-height: 44px; padding: 0 1rem; border: 0; border-radius: 8px;
+  background: #4a4aff; color: #fff; font: inherit; font-size: 0.9rem; font-weight: 600; cursor: pointer;
+}
+#new-adventure:hover, #create-form button:hover { background: #3333cc; }
+#create-form { display: flex; flex-wrap: wrap; gap: 0.5rem; max-width: 480px; margin: 0 0 1rem auto; }
+#create-form[hidden] { display: none; }
+#create-form input { flex: 1; min-width: 0; }
+#create-form .error { flex-basis: 100%; }
+#dashboard > .prose { color: #bbb; font-size: 0.9rem; margin-bottom: 1rem; }
+#dashboard > .prose:empty { display: none; }
+.home input[type=text] {
+  min-height: 44px; padding: 0 0.75rem;
+  background: rgba(13, 13, 26, 0.8); border: 1px solid rgba(42, 42, 74, 0.9); border-radius: 8px;
+  color: #e0e0e0; font: inherit;
+}
+.home input[type=text]:focus { border-color: #4a4aff; outline: none; box-shadow: 0 0 0 2px rgba(74, 74, 255, 0.4); }
+#account .card { animation: none; }
+.visually-hidden {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap;
+}
+
+/* The shelf: as many columns as fit at 240px, two on a narrow screen, one on a phone. */
+.adventure-shelf {
+  list-style: none; display: grid; gap: 1rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(240px, 100%), 1fr));
+}
+.adventure-shelf:empty { display: none; }
+.adventure-card {
+  position: relative; display: flex; flex-direction: column; overflow: hidden;
+  background: rgba(26, 26, 46, 0.6); border: 1px solid rgba(74, 74, 255, 0.12); border-radius: 12px;
+}
+.adventure-card:hover { border-color: rgba(170, 176, 255, 0.4); }
+.adventure-face {
+  display: block; width: 100%; height: auto; aspect-ratio: 16 / 10; object-fit: cover;
+  background: rgba(13, 13, 26, 0.8);
+}
+span.adventure-face { border-bottom: 1px dashed rgba(42, 42, 74, 0.9); }
+.adventure-text { padding: 0.6rem 0.75rem 0.25rem; }
+.adventure-name { color: #fff; font-weight: 600; text-decoration: none; overflow-wrap: anywhere; }
+/* The whole card opens the board; the icons and the rename field sit above this cover. */
+.adventure-name::after { content: ''; position: absolute; inset: 0; }
 .adventure-name:hover { text-decoration: underline; }
-.adventure-meta { grid-area: meta; align-self: start; color: #aaa; font-size: 0.85rem; }
-.adventure > button.quiet { grid-area: invite; justify-self: start; margin-top: 0.5rem; }
-.adventure-manage { grid-area: manage; margin-top: 0.25rem; }
+.adventure-meta { color: #aaa; font-size: 0.85rem; }
+.adventure-rename, .adventure-actions { position: relative; z-index: 1; }
+.adventure-rename { display: flex; gap: 0.25rem; }
+.adventure-rename input { flex: 1; min-width: 0; }
+/* Padded so a focus ring is not cut by the card's rounded edge. */
+.adventure-actions { margin-top: auto; display: flex; justify-content: flex-end; gap: 0.125rem; padding: 0 0.375rem 0.375rem; }
+.icon-button {
+  min-width: 44px; min-height: 44px; padding: 0 0.5rem;
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.3rem;
+  background: transparent; color: #aab0ff; border: 0; border-radius: 8px;
+  font: inherit; font-size: 0.85rem; font-weight: 600; cursor: pointer;
+}
+.icon-button:hover { background: rgba(74, 74, 255, 0.15); }
+.icon-button svg { flex: none; }
+.icon-button.danger { color: #ff8a80; }
+.icon-button.danger[data-armed], .icon-button.danger[data-armed]:hover { background: #c0392b; color: #fff; }
+@media (max-width: 480px) {
+  .home-main.wide { padding: 1rem 0.75rem; }
+  .adventure-shelf { grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+  .adventure-meta { display: none; }
+}
+@media (max-width: 360px) { .adventure-shelf { grid-template-columns: 1fr; } }
+
+/* Hung off a card's GMs icon by home.ts, which sets left and top. */
+.gms-popover {
+  position: fixed; inset: auto; margin: 0;
+  width: min(320px, calc(100vw - 16px)); max-height: calc(100vh - 16px); overflow: auto;
+  padding: 1rem; color: #e0e0e0;
+  background: #1a1a2e; border: 1px solid rgba(74, 74, 255, 0.12); border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+}
+.gms-popover h3 { font-size: 1rem; color: #fff; margin-bottom: 0.25rem; overflow-wrap: anywhere; }
+.gms-popover label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; color: #aaa; }
 .inline-form { display: flex; align-items: flex-end; gap: 0.5rem; margin-bottom: 0.75rem; }
 .inline-form label { flex: 1; min-width: 0; margin-bottom: 0; }
 .gm-title { color: #aaa; font-size: 0.85rem; margin-bottom: 0.25rem; }
 .gm-list { list-style: none; margin-bottom: 0.75rem; }
 .gm-list li { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.25rem 0; color: #bbb; font-size: 0.9rem; }
-.home button.quiet.danger { color: #ff8a80; border-color: rgba(255, 138, 128, 0.5); }
-.home button.quiet.danger[data-armed] { background: #c0392b; color: #fff; border-color: #c0392b; }
 .home :focus-visible { outline: 2px solid #aab0ff; outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

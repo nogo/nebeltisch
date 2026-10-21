@@ -2,8 +2,9 @@ import * as api from './api';
 import { createPasskey, passkeysAvailable, usePasskey } from './passkey';
 
 /**
- * The home page: log in or sign up while signed out, the adventure dashboard once signed in
- * (#54, #55). Three views, one visible at a time, chosen by what `/api/auth/me` says.
+ * The home page: log in or sign up while signed out; once signed in, the adventure dashboard at
+ * `/` and the account page at `/account` (#54, #55). Four views, one visible at a time, chosen by
+ * what `/api/auth/me` says and then by the address.
  *
  * A passkey is the default; the password sits behind "Use a password instead". Where the browser
  * has no passkeys — or the page is not on HTTPS — the password forms are simply open.
@@ -18,11 +19,15 @@ interface PublicUser {
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string) => document.getElementById(id) as T;
 
-const views = { signedOut: $('signed-out'), phrase: $('phrase'), dashboard: $('dashboard') };
+const views = { signedOut: $('signed-out'), phrase: $('phrase'), dashboard: $('dashboard'), account: $('account') };
 let user: PublicUser | null = null;
 
 function show(view: keyof typeof views): void {
   for (const [name, el] of Object.entries(views)) el.hidden = name !== view;
+  const signedIn = view === 'dashboard' || view === 'account';
+  $('intro').hidden = signedIn; // both carry their own header
+  // The shelf takes the screen's width; every other view is one narrow column.
+  document.querySelector('main')!.classList.toggle('wide', view === 'dashboard');
 }
 
 /** POST or PUT a JSON body; resolves to the parsed answer, or throws with the server's message. */
@@ -51,7 +56,7 @@ async function attempt(errorEl: HTMLElement, work: () => Promise<void>): Promise
   }
 }
 
-/** Where every way in ends: the phrase first when there is a new one, then the dashboard. */
+/** Where every way in ends: the phrase first when there is a new one, then the page asked for. */
 function signedIn(answer: { user: PublicUser; recoveryPhrase?: string }): void {
   user = answer.user;
   if (answer.recoveryPhrase) {
@@ -60,7 +65,7 @@ function signedIn(answer: { user: PublicUser; recoveryPhrase?: string }): void {
     $('phrase-done').focus();
     return;
   }
-  void openDashboard();
+  void openSignedIn();
 }
 
 // ---- Signed out ----
@@ -124,26 +129,33 @@ $('signup-password').addEventListener('click', signUpWithPassword);
 
 $('phrase-done').addEventListener('click', () => {
   $('phrase-value').textContent = '';
-  void openDashboard();
+  void openSignedIn();
 });
 
 // ---- Signed in ----
 
 const dateFormat = new Intl.DateTimeFormat(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
 
-async function openDashboard(): Promise<void> {
+/** The account at `/account`, the dashboard anywhere else. */
+async function openSignedIn(): Promise<void> {
   if (!user) return;
-  $('user-name').textContent = user.name;
-  renderAccount();
+  if (location.pathname === '/account') {
+    renderAccount();
+    show('account');
+    return;
+  }
+  $('account-name').textContent = user.name;
   show('dashboard');
   await renderAdventures();
 }
+
+/** The list as last drawn, so the GMs popover can redraw from it after a change. */
+let adventures: api.AdventureSummary[] = [];
 
 async function renderAdventures(): Promise<void> {
   const list = $('adventures');
   const status = $('adventures-status');
   status.textContent = 'Loading…';
-  let adventures: api.AdventureSummary[];
   try {
     adventures = await api.listMyAdventures();
   } catch {
@@ -152,96 +164,207 @@ async function renderAdventures(): Promise<void> {
   }
   status.textContent = '';
   $('adventures-empty').hidden = adventures.length > 0;
-  list.replaceChildren(...adventures.map(adventureEntry));
+  // With nothing on the shelf, starting one is the only thing to do.
+  if (adventures.length === 0) openCreateForm();
+  list.replaceChildren(...adventures.map(adventureCard));
+  refreshGms();
 }
 
-function adventureEntry(adventure: api.AdventureSummary): HTMLLIElement {
+/**
+ * One adventure on the shelf. The whole card opens the board; every other act is an icon in the
+ * row at its foot, in a fixed order: invite, rename, GMs, delete.
+ */
+function adventureCard(adventure: api.AdventureSummary): HTMLLIElement {
   const li = document.createElement('li');
-  li.className = 'adventure';
-  const href = `/gm#id=${encodeURIComponent(adventure.id)}`;
+  li.className = 'adventure-card';
 
-  // The first map, so two campaigns are told apart at a glance. Decorative: the name says it all.
-  const thumb = document.createElement(adventure.thumbnail ? 'img' : 'span');
-  thumb.className = 'adventure-thumb';
-  if (thumb instanceof HTMLImageElement) {
-    thumb.src = `/uploads/${encodeURIComponent(adventure.thumbnail!)}`;
-    thumb.alt = '';
-    thumb.loading = 'lazy';
-    thumb.width = 80;
-    thumb.height = 60;
+  // The first map is the card's face, so two campaigns are told apart before their names are
+  // read. Decorative: the name says it all.
+  const face = document.createElement(adventure.thumbnail ? 'img' : 'span');
+  face.className = 'adventure-face';
+  if (face instanceof HTMLImageElement) {
+    face.src = `/uploads/${encodeURIComponent(adventure.thumbnail!)}`;
+    face.alt = '';
+    face.loading = 'lazy';
+    face.width = 320;
+    face.height = 200;
   }
 
   const open = document.createElement('a');
-  open.href = href;
+  open.href = `/gm#id=${encodeURIComponent(adventure.id)}`;
   open.className = 'adventure-name';
   open.textContent = adventure.name;
 
-  const meta = document.createElement('span');
+  const meta = document.createElement('p');
   meta.className = 'adventure-meta';
-  const pages = adventure.page_count === 1 ? '1 map' : `${adventure.page_count} maps`;
+  const pages = adventure.page_count === 0 ? 'No maps yet' : adventure.page_count === 1 ? '1 map' : `${adventure.page_count} maps`;
   // SQLite's datetime('now') is UTC without a zone marker.
   const created = dateFormat.format(new Date(`${adventure.created_at.replace(' ', 'T')}Z`));
   const others = adventure.gms.filter((gm) => gm.id !== user?.id).map((gm) => gm.name);
-  meta.textContent = [pages, `created ${created}`, ...(others.length ? [`with ${others.join(', ')}`] : [])].join(' · ');
+  meta.textContent = [pages, created, ...(others.length ? [`with ${others.join(', ')}`] : [])].join(' · ');
 
-  // The invite link without opening the board, so starting a session is not the price of
-  // sending it to a player.
-  const invite = quietButton('Copy invite link');
-  invite.addEventListener('click', async () => {
-    const url = `${location.origin}/join/${encodeURIComponent(adventure.player_link)}`;
-    try {
-      await navigator.clipboard.writeText(url);
-      invite.textContent = 'Copied';
-    } catch {
-      invite.textContent = url;
-    }
-    setTimeout(() => { invite.textContent = 'Copy invite link'; }, 2000);
-  });
-
-  li.append(thumb, open, meta, invite, manageSection(adventure));
-  return li;
-}
-
-/** The adventure whose Manage panel is open, so a change that redraws the list keeps it open. */
-let managing: string | null = null;
-
-/** Rename, share, the GMs and delete — folded away, because they are rare (#76, #77). */
-function manageSection(adventure: api.AdventureSummary): HTMLDetailsElement {
-  const details = document.createElement('details');
-  details.className = 'fallback adventure-manage';
-  details.open = managing === adventure.id;
-  details.addEventListener('toggle', () => {
-    if (details.open) managing = adventure.id;
-    else if (managing === adventure.id) managing = null;
-  });
-  const summary = document.createElement('summary');
-  summary.textContent = 'Manage';
   const errorEl = document.createElement('p');
   errorEl.className = 'error';
   errorEl.setAttribute('role', 'alert');
 
-  /** Runs a change, then redraws the list from the server so every entry tells the truth. */
-  const change = (work: () => Promise<unknown>) =>
-    attempt(errorEl, async () => {
-      await work();
-      await renderAdventures();
+  const text = document.createElement('div');
+  text.className = 'adventure-text';
+  text.append(open, meta, errorEl);
+
+  const actions = document.createElement('div');
+  actions.className = 'adventure-actions';
+  actions.append(
+    inviteButton(adventure),
+    renameButton(adventure, open, errorEl),
+    gmsButton(adventure),
+    deleteButton(adventure, errorEl),
+  );
+
+  li.append(face, text, actions);
+  return li;
+}
+
+const icons = {
+  link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+  edit: '<path d="M4 20h4L19 9l-4-4L4 16z"/><path d="M13 7l4 4"/>',
+  gms: '<circle cx="9" cy="8" r="4"/><path d="M2 21a7 7 0 0 1 14 0"/><path d="M19 8v6M16 11h6"/>',
+  trash: '<path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/>',
+  check: '<path d="M5 12l5 5 9-10"/>',
+};
+
+function icon(name: keyof typeof icons): string {
+  return `<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">${icons[name]}</svg>`;
+}
+
+/** A button that shows only an icon; `label` is its name for a screen reader and its tooltip. */
+function iconButton(name: keyof typeof icons, label: string, type: 'button' | 'submit' = 'button'): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.type = type;
+  button.className = 'icon-button';
+  button.innerHTML = icon(name);
+  button.setAttribute('aria-label', label);
+  button.title = label;
+  return button;
+}
+
+/** The invite link without opening the board, so starting a session is not the price of sending it. */
+function inviteButton(adventure: api.AdventureSummary): HTMLButtonElement {
+  const label = `Copy invite link for ${adventure.name}`;
+  const button = iconButton('link', label);
+  button.addEventListener('click', async () => {
+    const url = `${location.origin}/join/${encodeURIComponent(adventure.player_link)}`;
+    try {
+      await navigator.clipboard.writeText(url);
+    } catch {
+      // No clipboard (an insecure origin, or the browser said no): hand over the link to copy by hand.
+      window.prompt('Copy the invite link', url);
+      return;
+    }
+    button.innerHTML = icon('check');
+    button.setAttribute('aria-label', 'Copied');
+    setTimeout(() => {
+      button.innerHTML = icon('link');
+      button.setAttribute('aria-label', label);
+    }, 2000);
+  });
+  return button;
+}
+
+/** Runs a change, then redraws the shelf from the server so every card tells the truth. */
+function change(errorEl: HTMLElement, work: () => Promise<unknown>): Promise<void> {
+  return attempt(errorEl, async () => {
+    await work();
+    await renderAdventures();
+  });
+}
+
+/** The name turns into a field in place. Enter or ✓ keeps it; Escape or leaving the field drops it. */
+function renameButton(adventure: api.AdventureSummary, name: HTMLAnchorElement, errorEl: HTMLElement): HTMLButtonElement {
+  const button = iconButton('edit', `Rename ${adventure.name}`);
+  button.addEventListener('click', () => {
+    if (!name.isConnected) return;
+    const form = document.createElement('form');
+    form.className = 'adventure-rename';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.required = true;
+    input.maxLength = 80;
+    input.value = adventure.name;
+    input.setAttribute('aria-label', `New name for ${adventure.name}`);
+    const save = iconButton('check', 'Save name', 'submit');
+    // Keeps the focus in the field when ✓ is tapped, so leaving the field does not cancel first.
+    save.addEventListener('pointerdown', (e) => e.preventDefault());
+    form.append(input, save);
+
+    const cancel = () => {
+      if (form.isConnected) form.replaceWith(name);
+    };
+    form.addEventListener('submit', (e) => {
+      e.preventDefault();
+      const value = input.value.trim();
+      if (value === adventure.name) return cancel();
+      void change(errorEl, () => api.renameAdventure(adventure.id, value));
+    });
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') cancel();
+    });
+    form.addEventListener('focusout', (e) => {
+      if (!form.contains(e.relatedTarget as Node | null)) cancel();
     });
 
-  const rename = inlineForm('Name', adventure.name, 'Rename', (name) => change(() => api.renameAdventure(adventure.id, name)));
-  rename.input.maxLength = 80;
+    name.replaceWith(form);
+    input.focus();
+    input.select();
+  });
+  return button;
+}
 
-  const share = inlineForm('Share with another GM, by account name', '', 'Share', (name) =>
-    change(() => api.shareAdventure(adventure.id, name))
-  );
-  share.input.autocomplete = 'off';
+// ---- The GMs popover: one element, hung off the icon of whichever card opened it (#77) ----
 
-  const gmsTitle = document.createElement('p');
-  gmsTitle.className = 'gm-title';
-  gmsTitle.textContent = 'GMs, all equal';
-  gmsTitle.id = `gms-${adventure.id}`;
+const gmsPopover = document.createElement('div');
+gmsPopover.className = 'gms-popover';
+gmsPopover.popover = 'auto';
+document.body.append(gmsPopover);
+/** The adventure the popover is about, so a redraw of the shelf can redraw it too. */
+let gmsFor: string | null = null;
+gmsPopover.addEventListener('toggle', (e) => {
+  if ((e as ToggleEvent).newState === 'closed') gmsFor = null;
+});
+
+function gmsButton(adventure: api.AdventureSummary): HTMLButtonElement {
+  const button = iconButton('gms', `GMs of ${adventure.name}`);
+  button.dataset.gms = adventure.id;
+  // More than one GM is worth seeing from the shelf; one is the usual case and says nothing.
+  if (adventure.gms.length > 1) {
+    const count = document.createElement('span');
+    count.className = 'gms-count';
+    count.textContent = String(adventure.gms.length);
+    button.append(count);
+  }
+  button.addEventListener('click', () => {
+    if (gmsFor === adventure.id) return gmsPopover.hidePopover();
+    gmsFor = adventure.id;
+    fillGms(adventure);
+    gmsPopover.showPopover();
+    placeGms();
+    gmsPopover.querySelector('input')?.focus();
+  });
+  return button;
+}
+
+function fillGms(adventure: api.AdventureSummary): void {
+  const title = document.createElement('h3');
+  title.textContent = `GMs of ${adventure.name}`;
+  const note = document.createElement('p');
+  note.className = 'gm-title';
+  note.textContent = 'All equal';
+
+  const errorEl = document.createElement('p');
+  errorEl.className = 'error';
+  errorEl.setAttribute('role', 'alert');
+
   const gms = document.createElement('ul');
   gms.className = 'gm-list';
-  gms.setAttribute('aria-labelledby', gmsTitle.id);
   for (const gm of adventure.gms) {
     const item = document.createElement('li');
     const name = document.createElement('span');
@@ -251,19 +374,51 @@ function manageSection(adventure: api.AdventureSummary): HTMLDetailsElement {
     if (adventure.gms.length > 1) {
       const remove = quietButton(gm.id === user?.id ? 'Leave' : 'Remove');
       remove.setAttribute('aria-label', gm.id === user?.id ? `Leave ${adventure.name}` : `Remove ${gm.name}`);
-      remove.addEventListener('click', () => change(() => api.removeGm(adventure.id, gm.id)));
+      remove.addEventListener('click', () => change(errorEl, () => api.removeGm(adventure.id, gm.id)));
       item.append(remove);
     }
     gms.append(item);
   }
 
-  const remove = armedButton('Delete adventure', 'Sure? Delete it for good', () =>
-    change(() => api.deleteAdventure(adventure.id))
+  const share = inlineForm('Share with another GM, by account name', '', 'Share', (name) =>
+    change(errorEl, () => api.shareAdventure(adventure.id, name))
   );
-  remove.classList.add('danger');
+  share.input.autocomplete = 'off';
 
-  details.append(summary, rename.form, share.form, gmsTitle, gms, remove, errorEl);
-  return details;
+  gmsPopover.replaceChildren(title, note, gms, share.form, errorEl);
+}
+
+/** After a redraw: the popover follows its adventure's new card, or closes if the card is gone. */
+function refreshGms(): void {
+  if (!gmsFor) return;
+  const adventure = adventures.find((a) => a.id === gmsFor);
+  if (!adventure) return gmsPopover.hidePopover();
+  fillGms(adventure);
+  placeGms();
+}
+
+/** Under its icon, right edges aligned, flipped above when there is no room below. */
+function placeGms(): void {
+  const trigger = gmsFor && document.querySelector<HTMLElement>(`[data-gms="${CSS.escape(gmsFor)}"]`);
+  if (!trigger) return;
+  const r = trigger.getBoundingClientRect();
+  const { offsetWidth: w, offsetHeight: h } = gmsPopover;
+  const left = Math.max(8, Math.min(r.right - w, innerWidth - w - 8));
+  const below = r.bottom + 6;
+  const top = below + h > innerHeight - 8 ? Math.max(8, r.top - h - 6) : below;
+  gmsPopover.style.left = `${left}px`;
+  gmsPopover.style.top = `${top}px`;
+}
+addEventListener('scroll', placeGms, { passive: true });
+addEventListener('resize', placeGms);
+
+function deleteButton(adventure: api.AdventureSummary, errorEl: HTMLElement): HTMLButtonElement {
+  const button = iconButton('trash', `Delete ${adventure.name}`);
+  button.classList.add('danger');
+  armed(button, 'Delete?', `Delete ${adventure.name} for good`, () =>
+    change(errorEl, () => api.deleteAdventure(adventure.id))
+  );
+  return button;
 }
 
 function quietButton(text: string): HTMLButtonElement {
@@ -298,22 +453,24 @@ function inlineForm(label: string, value: string, action: string, onSubmit: (val
 }
 
 /**
- * Arms on the first click, fires on the second, in place. Disarms on blur, on Escape, and after
- * four seconds — a destructive action never sits armed.
+ * Arms on the first click, fires on the second, in place: the icon gains the word `armedText`.
+ * Disarms on blur, on Escape, and after four seconds — a destructive action never sits armed.
  */
-function armedButton(label: string, armedLabel: string, fire: () => void): HTMLButtonElement {
-  const button = quietButton(label);
+function armed(button: HTMLButtonElement, armedText: string, armedLabel: string, fire: () => void): void {
+  const idle = { html: button.innerHTML, label: button.getAttribute('aria-label') ?? '' };
   let timer: ReturnType<typeof setTimeout> | null = null;
   const disarm = () => {
     if (timer) clearTimeout(timer);
     timer = null;
-    button.textContent = label;
+    button.innerHTML = idle.html;
+    button.setAttribute('aria-label', idle.label);
     button.removeAttribute('data-armed');
   };
   button.addEventListener('click', () => {
     if (!button.hasAttribute('data-armed')) {
       button.setAttribute('data-armed', '');
-      button.textContent = armedLabel;
+      button.innerHTML = `${idle.html}<span>${armedText}</span>`;
+      button.setAttribute('aria-label', armedLabel);
       timer = setTimeout(disarm, 4000);
       return;
     }
@@ -322,8 +479,23 @@ function armedButton(label: string, armedLabel: string, fire: () => void): HTMLB
   });
   button.addEventListener('blur', disarm);
   button.addEventListener('keydown', (e) => { if (e.key === 'Escape') disarm(); });
-  return button;
 }
+
+function openCreateForm(): void {
+  $('create-form').hidden = false;
+  $('new-adventure').setAttribute('aria-expanded', 'true');
+}
+
+$('new-adventure').addEventListener('click', () => {
+  const form = $('create-form');
+  if (!form.hidden && adventures.length > 0) {
+    form.hidden = true;
+    $('new-adventure').setAttribute('aria-expanded', 'false');
+    return;
+  }
+  openCreateForm();
+  $('adv-name').focus();
+});
 
 $('create-form').addEventListener('submit', (e) => {
   e.preventDefault();
@@ -335,6 +507,7 @@ $('create-form').addEventListener('submit', (e) => {
 
 function renderAccount(): void {
   if (!user) return;
+  $('user-name').textContent = user.name;
   const ways = [
     ...(user.passkeys === 0 ? [] : [user.passkeys === 1 ? 'your passkey' : `${user.passkeys} passkeys`]),
     ...(user.hasPassword ? ['your password'] : []),
@@ -378,7 +551,7 @@ $('logout').addEventListener('click', async () => {
   const res = await fetch('/api/auth/me');
   if (res.ok) {
     user = (await res.json()).user;
-    await openDashboard();
+    await openSignedIn();
   } else {
     show('signedOut');
   }

@@ -46,7 +46,7 @@ Client — `public/js/`
 
 | Path | Responsibility |
 |---|---|
-| `home.ts` | The home page: log in or sign up while signed out, the adventure dashboard once signed in |
+| `home.ts` | The home page: log in or sign up while signed out; once signed in, the adventure dashboard at `/` and the account page at `/account` |
 | `gm.ts`, `player.ts` | Entry points; own all UI state for their role |
 | `board.ts` | The GM's board: page elements, live badge, selection, dragging. Board coordinates only |
 | `canvas.ts` | Map, fog and brush-preview canvases; fog compositing and mask decoding |

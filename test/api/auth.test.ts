@@ -306,4 +306,13 @@ describe("Accounts", () => {
       expect(columns.map((c) => c.name).sort()).toEqual(["algorithm", "created_at", "id", "public_key", "sign_count", "user_id"]);
     });
   });
+
+  describe("the account page", () => {
+    it("is served at /account by the home page, which draws it", async () => {
+      const [home, account] = await Promise.all([fetch(`${ts.url}/`), fetch(`${ts.url}/account`)]);
+      expect(account.status).toBe(200);
+      expect(account.headers.get("Content-Type")).toBe("text/html");
+      expect(await account.text()).toBe(await home.text());
+    });
+  });
 });
