@@ -6,7 +6,7 @@ import type { FogSession } from "../fog/session";
 import { getAdventure, getAdventureByPlayerLink, setActiveImage, setTokenSize } from "../db/adventures";
 import { getImage, imageBelongsToAdventure, setStartPoint, setStartLocked } from "../db/images";
 import { repairImageDimensions } from "../images";
-import { findOrCreateToken, createToken, getToken, getTokensByAdventure, getPlayerTokensByAdventure, getGmTokensByImage, updateTokenPosition, rememberTokenPosition, getRememberedPositions, deleteToken, renameToken, setTokenState } from "../db/tokens";
+import { findOrCreateToken, createToken, getToken, getAdventureToken, getTokensByAdventure, getPlayerTokensByAdventure, getGmTokensByImage, updateTokenPosition, rememberTokenPosition, getRememberedPositions, deleteToken, renameToken, setTokenState } from "../db/tokens";
 import {
   registerConnection,
   unregisterConnection,
@@ -24,7 +24,7 @@ import { parseMessage, serializeMessage } from "./messages";
 /**
  * Where a newly joined player appears: the active map's start point, offset so
  * successive arrivals do not stack. Falls back to the map centre when no start
- * point is set, and to the old near-the-party spawn when no map is active.
+ * point is set, and to a spot near the corner when no page is presented.
  */
 function placeArrivingToken(
   db: Database,
@@ -46,35 +46,12 @@ function placeArrivingToken(
       return ring[existingCount];
     }
   }
-  return calcSpawnPosition([], adventure, db);
-}
-
-function calcSpawnPosition(
-  existingTokens: Array<{ x: number; y: number }>,
-  adventure: { active_image_id: string | null },
-  db: Database
-): { x: number; y: number } {
-  // Base: average of existing player tokens, or image centre, or fallback
-  let baseX = 100;
-  let baseY = 100;
-
-  if (existingTokens.length > 0) {
-    baseX = existingTokens.reduce((s, t) => s + t.x, 0) / existingTokens.length;
-    baseY = existingTokens.reduce((s, t) => s + t.y, 0) / existingTokens.length;
-  } else if (adventure.active_image_id) {
-    const img = getImage(db, adventure.active_image_id);
-    if (img && img.width > 0 && img.height > 0) {
-      baseX = img.width / 2;
-      baseY = img.height / 2;
-    }
-  }
-
-  // Small random offset so tokens don't stack on top of each other
+  // No page to stand on: near the corner, jittered so arrivals do not stack.
   const angle = Math.random() * Math.PI * 2;
   const radius = 40 + Math.random() * 40;
   return {
-    x: Math.round(baseX + Math.cos(angle) * radius),
-    y: Math.round(baseY + Math.sin(angle) * radius),
+    x: Math.round(100 + Math.cos(angle) * radius),
+    y: Math.round(100 + Math.sin(angle) * radius),
   };
 }
 
@@ -481,8 +458,8 @@ export function createWsHandlers(deps: ServerDeps) {
               ws.send(serializeMessage({ type: "error", message: "You do not own this token" }));
               break;
             }
-            const token = getToken(db, msg.tokenId);
-            if (!token || token.adventure_id !== adventureId) {
+            const token = getAdventureToken(db, adventureId, msg.tokenId);
+            if (!token) {
               ws.send(serializeMessage({ type: "error", message: "Token not found" }));
               break;
             }
@@ -700,8 +677,7 @@ export function createWsHandlers(deps: ServerDeps) {
               ws.send(serializeMessage({ type: "error", message: "Only GM can remove players" }));
               break;
             }
-            const tokens = getTokensByAdventure(db, adventureId);
-            const target = tokens.find((t) => t.id === msg.tokenId);
+            const target = getAdventureToken(db, adventureId, msg.tokenId);
             if (!target) {
               ws.send(serializeMessage({ type: "error", message: "Token not found" }));
               break;
@@ -826,8 +802,7 @@ export function createWsHandlers(deps: ServerDeps) {
               ws.send(serializeMessage({ type: "error", message: "Only GM can remove GM tokens" }));
               break;
             }
-            const allTokens = getTokensByAdventure(db, adventureId);
-            const target = allTokens.find((t) => t.id === msg.tokenId);
+            const target = getAdventureToken(db, adventureId, msg.tokenId);
             if (!target || target.token_type === 'player') {
               ws.send(serializeMessage({ type: "error", message: "GM token not found" }));
               break;
@@ -849,8 +824,7 @@ export function createWsHandlers(deps: ServerDeps) {
               ws.send(serializeMessage({ type: "error", message: "Only GM can rename GM tokens" }));
               break;
             }
-            const allTokens = getTokensByAdventure(db, adventureId);
-            const target = allTokens.find((t) => t.id === msg.tokenId);
+            const target = getAdventureToken(db, adventureId, msg.tokenId);
             if (!target || target.token_type === 'player') {
               // A player token is refused here rather than filtered by the caller: its name is half
               // of `playerLink|playerName`, which is how its owner reconnects.
@@ -884,8 +858,7 @@ export function createWsHandlers(deps: ServerDeps) {
               ws.send(serializeMessage({ type: "error", message: "Only GM can set a token state" }));
               break;
             }
-            const allTokens = getTokensByAdventure(db, adventureId);
-            const target = allTokens.find((t) => t.id === msg.tokenId);
+            const target = getAdventureToken(db, adventureId, msg.tokenId);
             if (!target) {
               ws.send(serializeMessage({ type: "error", message: "Token not found" }));
               break;
@@ -932,8 +905,8 @@ export function createWsHandlers(deps: ServerDeps) {
               sourceId = conn.tokenId;
             }
 
-            const target = getToken(db, msg.targetId);
-            if (!target || target.adventure_id !== adventureId) {
+            const target = getAdventureToken(db, adventureId, msg.targetId);
+            if (!target) {
               ws.send(serializeMessage({ type: "error", message: "Token not found" }));
               break;
             }

@@ -8,6 +8,7 @@ import {
   deleteToken,
   deleteTokensByImage,
   getGmTokensByImage,
+  getAdventureToken,
 } from "../../src/db/tokens";
 import { createAdventure, deleteAdventure } from "../../src/db/adventures";
 import { createImageRecord } from "../../src/db/images";
@@ -27,6 +28,13 @@ describe("tokens", () => {
     db = makeDb();
     const adv = createAdventure(db, { name: "Test", gmPassword: "pw" });
     adventureId = adv.id;
+  });
+
+  test("getAdventureToken refuses a token from another adventure", () => {
+    const other = createAdventure(db, { name: "Other", gmPassword: "pw" }).id;
+    const token = createToken(db, { adventureId: other, name: "Spy", color: "#000000" });
+    expect(getAdventureToken(db, adventureId, token.id)).toBeNull();
+    expect(getAdventureToken(db, other, token.id)?.name).toBe("Spy");
   });
 
   test("createToken returns record with all fields", () => {

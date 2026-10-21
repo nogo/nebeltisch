@@ -64,6 +64,13 @@ export function getToken(db: Database, id: string): Token | null {
   ).get(id) ?? null;
 }
 
+/** A token only if it belongs to this adventure — the check every client-named token needs. */
+export function getAdventureToken(db: Database, adventureId: string, id: string): Token | null {
+  return db.query<Token, [string, string]>(
+    `SELECT * FROM tokens WHERE id = ? AND adventure_id = ?`
+  ).get(id, adventureId) ?? null;
+}
+
 /** All player tokens for an adventure (no image association). */
 export function getPlayerTokensByAdventure(db: Database, adventureId: string): Token[] {
   return db.query<Token, string>(
