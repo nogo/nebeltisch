@@ -31,7 +31,10 @@
 
   <!-- Something the GM asked for did not happen. It sits under the topbar rather than over the
        map: it reports on the board, and covering the board to say so would be worse. -->
-  <div id="notice" role="status" hidden></div>
+  <div id="notice" hidden>
+    <span id="notice-text" role="status"></span>
+    <button type="button" id="notice-close" aria-label="Dismiss">×</button>
+  </div>
 
   <!-- Empty state -->
   <div id="empty-state" hidden>

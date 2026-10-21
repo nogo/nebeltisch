@@ -1090,10 +1090,25 @@ body.painting-armed .board-page { cursor: crosshair; }
   border-radius: 8px;
   color: #f0d0d0;
   font-size: 0.9rem;
-  text-align: center;
-  pointer-events: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding-right: 4px;
 }
 #notice[hidden] { display: none; }
+#notice-close {
+  flex: none;
+  min-width: 44px;
+  min-height: 44px;
+  background: transparent;
+  border: 0;
+  border-radius: 6px;
+  color: #f0d0d0;
+  font-size: 1.2rem;
+  cursor: pointer;
+}
+#notice-close:hover { background: rgba(231, 76, 60, 0.2); }
+#notice-close:focus-visible { outline: 2px solid #aab0ff; outline-offset: 2px; }
 
 /* ── Empty state ── */
 #empty-state {

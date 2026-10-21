@@ -149,6 +149,8 @@ const openDeclarationsCount = document.getElementById('open-declarations-count')
 
 // Notice and empty state
 const noticeEl = document.getElementById('notice')!;
+const noticeTextEl = document.getElementById('notice-text')!;
+const noticeCloseBtn = document.getElementById('notice-close')!;
 const emptyState = document.getElementById('empty-state')!;
 const emptyUploadBtn = document.getElementById('empty-upload-btn')!;
 
@@ -892,21 +894,19 @@ function updateEmptyState() {
 }
 
 /**
- * Says that something the GM asked for did not happen. It clears itself, and any successful page
- * load clears it too — the message is about the last attempt, not a state to dismiss.
+ * Says that something the GM asked for did not happen. It stays until the GM closes it or tries
+ * again — a successful page load or the next upload clears it — because nothing disappears because
+ * time passed (design principle 5); a GM who looked away for a moment would never learn why.
  */
-let noticeTimer: ReturnType<typeof setTimeout> | null = null;
 function showNotice(text: string) {
-  noticeEl.textContent = text;
+  noticeTextEl.textContent = text;
   noticeEl.hidden = false;
-  if (noticeTimer) clearTimeout(noticeTimer);
-  noticeTimer = setTimeout(clearNotice, 6000);
 }
 function clearNotice() {
-  if (noticeTimer) { clearTimeout(noticeTimer); noticeTimer = null; }
   noticeEl.hidden = true;
-  noticeEl.textContent = '';
+  noticeTextEl.textContent = '';
 }
+noticeCloseBtn.addEventListener('click', clearNotice);
 
 emptyUploadBtn.addEventListener('click', () => uploadInput.click());
 
@@ -1198,6 +1198,7 @@ function renderPlayersList(roster: Array<{ tokenId: string; name: string; color:
 uploadInput.addEventListener('change', async () => {
   const file = uploadInput.files?.[0];
   if (!file) return;
+  clearNotice();
   try {
     const uploaded = await api.uploadImage(adventureId, file);
     imageList = await api.listImages(adventureId);
