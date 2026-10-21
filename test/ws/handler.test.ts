@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { join } from "path";
 import { startWsTestServer, type WsTestServer } from "../helpers";
 import { createAdventure, getAdventure } from "../../src/db/adventures";
 import { createImageRecord } from "../../src/db/images";
@@ -7,6 +8,7 @@ import { getDeclarationsByImage, getDeclaration } from "../../src/db/declaration
 // Fog state is reached through the test server’s own registry, not a module global.
 import { loadFogMask } from "../../src/fog/serialize";
 import { isRevealed } from "../../src/fog/mask";
+import { ringRadius } from "../../src/landing";
 
 // ---- WebSocket test helpers ----
 
@@ -595,6 +597,35 @@ describe("WebSocket handler", () => {
     expect(loaded).not.toBeNull();
     expect(loaded!.width).toBe(100);
     expect(loaded!.height).toBe(100);
+  });
+
+  it("a late joiner lands on the start point of a page whose size was never stored", async () => {
+    // `map:switch` repairs a 0x0 row from the file before landing the party; arrival used to skip
+    // that and drop the joiner near the top-left corner, far from the entrance.
+    const header = Buffer.alloc(24);
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(header, 0);
+    header.writeUInt32BE(1000, 16);
+    header.writeUInt32BE(800, 20);
+    await Bun.write(join(ts.uploadsDir, "unsized.png"), header);
+    const unsized = createImageRecord(ts.db, {
+      adventureId,
+      filename: "unsized.png",
+      originalName: "unsized.png",
+      width: 0,
+      height: 0,
+    }).id;
+    ts.db.run(`UPDATE images SET start_x = 700, start_y = 500 WHERE id = ?`, [unsized]);
+    ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [unsized, adventureId]);
+
+    const player = track(
+      await connectWS(ts.wsUrl, {
+        adventureId, role: "player", playerLink, playerName: "Late", playerColor: "#00ff00",
+      })
+    );
+    const joined = await waitForMessage(player, "joined");
+    const mine = joined.tokens.find((t: { id: string }) => t.id === joined.yourTokenId);
+    const tokenSize = getAdventure(ts.db, adventureId)!.token_size;
+    expect(Math.hypot(mine.x - 700, mine.y - 500)).toBeLessThanOrEqual(ringRadius(1, tokenSize) + 1);
   });
 
   it("Painting a map whose dimensions never parsed is refused, not fatal", async () => {

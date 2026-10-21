@@ -29,11 +29,12 @@ import { arrivalPosition, landParty } from "../landing";
  */
 function placeArrivingToken(
   db: Database,
+  uploadsDir: string,
   adventure: { active_image_id: string | null; token_size?: number },
   existingCount: number
 ): { x: number; y: number } {
   if (adventure.active_image_id) {
-    const img = getImage(db, adventure.active_image_id);
+    const img = getSizedImage(db, adventure.active_image_id, uploadsDir);
     if (img && img.width > 0 && img.height > 0) {
       return arrivalPosition(existingCount, img, adventure.token_size ?? 20);
     }
@@ -45,6 +46,19 @@ function placeArrivingToken(
     x: Math.round(100 + Math.cos(angle) * radius),
     y: Math.round(100 + Math.sin(angle) * radius),
   };
+}
+
+/**
+ * A page row, with its size read from the file first when the upload stored none. Landing needs
+ * the size to find the centre and to keep the ring inside the page.
+ */
+function getSizedImage(db: Database, imageId: string, uploadsDir: string) {
+  const image = getImage(db, imageId);
+  if (image && (image.width === 0 || image.height === 0) && uploadsDir) {
+    repairImageDimensions(db, imageId, uploadsDir);
+    return getImage(db, imageId) ?? image;
+  }
+  return image;
 }
 
 // ---- Roster helpers ----
@@ -254,7 +268,7 @@ export function createWsHandlers(deps: ServerDeps) {
       // arriving on its flag (#46, found while verifying #57).
       if (tokenId && tokenIsNew) {
         const others = playerTokens.filter((t) => t.id !== tokenId).length;
-        const spawnPos = placeArrivingToken(db, adventure, others);
+        const spawnPos = placeArrivingToken(db, uploadsDir, adventure, others);
         updateTokenPosition(db, tokenId, spawnPos.x, spawnPos.y);
         playerTokens = getPlayerTokensByAdventure(db, adventureId);
       }
@@ -479,11 +493,7 @@ export function createWsHandlers(deps: ServerDeps) {
             // land outside a smaller one, where nobody can select them.
             let playerTokens = getPlayerTokensByAdventure(db, adventureId);
             if (prevImageId !== msg.imageId && playerTokens.length > 0) {
-              let image = getImage(db, msg.imageId);
-              if (image && (image.width === 0 || image.height === 0) && uploadsDir) {
-                repairImageDimensions(db, msg.imageId, uploadsDir);
-                image = getImage(db, msg.imageId) ?? image;
-              }
+              const image = getSizedImage(db, msg.imageId, uploadsDir);
               if (image && image.width > 0 && image.height > 0) {
                 const landed = landParty(
                   playerTokens.map((t) => t.id),
