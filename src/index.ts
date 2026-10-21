@@ -22,6 +22,7 @@ const wsHandlers = createWsHandlers(deps);
 
 const server = Bun.serve({
   port: process.env.PORT ? parseInt(process.env.PORT) : 3000,
+  hostname: "0.0.0.0",
   routes: staticRoutes(uploadsDir),
   fetch(req, server) {
     const url = new URL(req.url);
@@ -33,7 +34,7 @@ const server = Bun.serve({
   websocket: wsHandlers,
 });
 
-console.log(`Server running on http://localhost:${server.port}`);
+console.log(`Server running on http://0.0.0.0:${server.port}`);
 
 let shuttingDown = false;
 async function shutdown() {

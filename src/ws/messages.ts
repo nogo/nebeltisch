@@ -370,6 +370,15 @@ export interface PlayerRemovedMessage {
   type: "player:removed";
 }
 
+/**
+ * This connection's adventure is gone for it: deleted for everyone, or — for one GM — no longer
+ * shared with them. The socket closes right after (#76, #77).
+ */
+export interface AdventureClosedMessage {
+  type: "adventure:closed";
+  reason: "deleted" | "unshared";
+}
+
 export interface ErrorMessage {
   type: "error";
   message: string;
@@ -444,6 +453,7 @@ export type ServerMessage =
   | PlayerLeftMessage
   | PlayerRosterMessage
   | PlayerRemovedMessage
+  | AdventureClosedMessage
   | ErrorMessage
   | PongMessage
   | PingMapBroadcast

@@ -3,6 +3,7 @@ import type { User } from "../types";
 import { createUser, getUser, getUserByName, setPasswordHash, setRecoveryHash } from "../db/users";
 import { addPasskey, getPasskey, getPasskeysByUser, setSignCount } from "../db/passkeys";
 import { createSession, deleteSession, deleteSessionsOfUser } from "../db/sessions";
+import { adoptOrphanedAdventures } from "../db/adventures";
 import { cleanName, hashSecret, newRecoveryPhrase, normalizePhrase, passwordProblem, verifySecret } from "./secrets";
 import { clearedCookie, currentUser, publicOrigin, rpIdOf, sessionCookie, sessionIdOf } from "./session";
 import { ALGORITHMS, PasskeyError, verifyAssertion, verifyCreation, type AssertionResponse, type CreationResponse } from "./webauthn";
@@ -191,6 +192,8 @@ function publicUser({ db }: ServerDeps, user: User) {
 }
 
 function signedIn(req: Request, deps: ServerDeps, user: User, status: number, recoveryPhrase?: string): Response {
+  // The first account to exist inherits the adventures from before accounts, without a restart.
+  if (status === 201) adoptOrphanedAdventures(deps.db);
   const sessionId = createSession(deps.db, user.id);
   return json(
     { user: publicUser(deps, user), ...(recoveryPhrase ? { recoveryPhrase } : {}) },

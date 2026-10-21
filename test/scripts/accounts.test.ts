@@ -3,7 +3,7 @@ import { mkdtempSync, rmSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
 import { initDatabase } from "../../src/db/database";
-import { createAdventure, getAdventure } from "../../src/db/adventures";
+import { createAdventure, getGms } from "../../src/db/adventures";
 import { createUser, getUserByName } from "../../src/db/users";
 import { createSession, getSessionUser } from "../../src/db/sessions";
 import { verifySecret, normalizePhrase } from "../../src/auth/secrets";
@@ -31,17 +31,19 @@ describe("scripts/accounts.ts", () => {
     return initDatabase(join(dataDir, "nebeltisch.db"));
   }
 
-  it("assigns an adventure from before accounts to an account", () => {
+  it("gives the adventures from before accounts to the oldest account, and assign adds a GM", () => {
     const setup = db();
-    const old = createAdventure(setup, { name: "The Old Campaign", ownerId: null });
-    createUser(setup, { name: "Danilo", passwordHash: null, recoveryHash: "x" });
+    const old = createAdventure(setup, { name: "The Old Campaign", gmId: null });
+    const danilo = createUser(setup, { name: "Danilo", passwordHash: null, recoveryHash: "x" });
+    const mira = createUser(setup, { name: "Mira", passwordHash: null, recoveryHash: "x" });
     setup.close();
 
-    expect(run("list").out).toContain("UNASSIGNED  The Old Campaign");
-    expect(run("assign", old.id, "danilo").code).toBe(0);
+    // The command opens the database, and opening it adopts the orphan.
+    expect(run("list").out).toContain("Danilo  The Old Campaign");
+    expect(run("assign", old.id, "mira").code).toBe(0);
 
     const after = db();
-    expect(getAdventure(after, old.id)!.owner_id).toBe(getUserByName(after, "Danilo")!.id);
+    expect(getGms(after, old.id).map((gm) => gm.id)).toEqual([danilo.id, mira.id]);
   });
 
   it("refuses an account or adventure that does not exist", () => {

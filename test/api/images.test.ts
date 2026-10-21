@@ -32,7 +32,7 @@ describe("Image API", () => {
   beforeAll(() => {
     ts = startTestServer();
     ({ cookie: gmCookie, user: { id: gmUserId } } = signIn(ts.db));
-    const adventure = createAdventure(ts.db, { name: "Image Test", ownerId: gmUserId });
+    const adventure = createAdventure(ts.db, { name: "Image Test", gmId: gmUserId });
     adventureId = adventure.id;
   });
 

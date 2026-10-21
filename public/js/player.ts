@@ -603,19 +603,23 @@ function startPlayer(adventureId: string, playerLink: string, playerName: string
     showToast(`${msg.playerName} left`);
   });
 
-  ws.on('player:removed', () => {
+  ws.on('player:removed', () => endWith('You have been removed from this session.'));
+  // Only a deleted adventure reaches a player; unsharing closes GM boards alone (#76).
+  ws.on('adventure:closed', () => endWith('This adventure has ended.'));
+
+  function endWith(text: string) {
     ws.close();
     const overlay = document.createElement('div');
     overlay.className = 'removal-overlay';
     const msg = document.createElement('p');
-    msg.textContent = 'You have been removed from this session.';
+    msg.textContent = text;
     const link = document.createElement('a');
     link.href = '/';
     link.textContent = 'Return home';
     overlay.appendChild(msg);
     overlay.appendChild(link);
     document.body.appendChild(overlay);
-  });
+  }
 
   function showToast(text: string) {
     const toast = document.createElement('div');

@@ -181,25 +181,44 @@ body.home {
 .signed-in strong { color: #fff; }
 .adventure-list { list-style: none; margin-bottom: 1rem; }
 .adventure-list:empty { display: none; }
-.adventure-list li {
+.adventure-list li.adventure {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-areas: "name invite" "meta invite";
+  grid-template-columns: 80px minmax(0, 1fr);
+  grid-template-areas: "thumb name" "thumb meta" "invite invite" "manage manage";
   align-items: center;
   column-gap: 0.75rem;
+  row-gap: 0.25rem;
   padding: 0.75rem 0;
   border-bottom: 1px solid rgba(74, 74, 255, 0.12);
 }
+.adventure-thumb {
+  grid-area: thumb;
+  width: 80px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 6px;
+  background: rgba(13, 13, 26, 0.8);
+  border: 1px solid rgba(74, 74, 255, 0.12);
+}
 .adventure-name {
   grid-area: name;
+  align-self: end;
   color: #fff;
   font-weight: 600;
   text-decoration: none;
   overflow-wrap: anywhere;
 }
 .adventure-name:hover { text-decoration: underline; }
-.adventure-meta { grid-area: meta; color: #aaa; font-size: 0.85rem; }
-.adventure-list button.quiet { grid-area: invite; }
+.adventure-meta { grid-area: meta; align-self: start; color: #aaa; font-size: 0.85rem; }
+.adventure > button.quiet { grid-area: invite; justify-self: start; margin-top: 0.5rem; }
+.adventure-manage { grid-area: manage; margin-top: 0.25rem; }
+.inline-form { display: flex; align-items: flex-end; gap: 0.5rem; margin-bottom: 0.75rem; }
+.inline-form label { flex: 1; min-width: 0; margin-bottom: 0; }
+.gm-title { color: #aaa; font-size: 0.85rem; margin-bottom: 0.25rem; }
+.gm-list { list-style: none; margin-bottom: 0.75rem; }
+.gm-list li { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; padding: 0.25rem 0; color: #bbb; font-size: 0.9rem; }
+.home button.quiet.danger { color: #ff8a80; border-color: rgba(255, 138, 128, 0.5); }
+.home button.quiet.danger[data-armed] { background: #c0392b; color: #fff; border-color: #c0392b; }
 .home :focus-visible { outline: 2px solid #aab0ff; outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

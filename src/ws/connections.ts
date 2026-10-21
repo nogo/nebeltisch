@@ -8,6 +8,8 @@ export interface ConnectionInfo {
   playerColor?: string;
   tokenId?: string;
   playerLink?: string;
+  /** The signed-in account, on a GM connection. */
+  userId?: string;
 }
 
 const connections = new Map<ServerWebSocket<WsData>, ConnectionInfo>();
@@ -43,16 +45,6 @@ export function getConnectionsForAdventure(adventureId: string): ConnectionInfo[
   return result;
 }
 
-export function getWsForToken(
-  adventureId: string,
-  tokenId: string
-): ServerWebSocket<WsData> | undefined {
-  for (const [ws, info] of connections) {
-    if (info.adventureId === adventureId && info.tokenId === tokenId) return ws;
-  }
-  return undefined;
-}
-
 export function getGmWsForAdventure(
   adventureId: string
 ): ServerWebSocket<WsData> | undefined {
@@ -68,6 +60,26 @@ export function getGmSocketsForAdventure(
   const result: ServerWebSocket<WsData>[] = [];
   for (const [ws, info] of connections) {
     if (info.adventureId === adventureId && info.role === "gm") result.push(ws);
+  }
+  return result;
+}
+
+/** Every device holding a token: one player may be on a phone and a laptop at once (#59). */
+export function getSocketsForToken(adventureId: string, tokenId: string): ServerWebSocket<WsData>[] {
+  const result: ServerWebSocket<WsData>[] = [];
+  for (const [ws, info] of connections) {
+    if (info.adventureId === adventureId && info.tokenId === tokenId) result.push(ws);
+  }
+  return result;
+}
+
+/** Every socket on an adventure, or only one account's GM sockets when `userId` is given. */
+export function getSocketsForAdventure(adventureId: string, userId?: string): ServerWebSocket<WsData>[] {
+  const result: ServerWebSocket<WsData>[] = [];
+  for (const [ws, info] of connections) {
+    if (info.adventureId !== adventureId) continue;
+    if (userId !== undefined && (info.role !== "gm" || info.userId !== userId)) continue;
+    result.push(ws);
   }
   return result;
 }

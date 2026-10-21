@@ -66,7 +66,8 @@ Client — `public/js/`
 ```
 users ──< passkeys
 users ──< sessions
-users ──< adventures ──< images ──< token_positions >── tokens
+users ──< adventure_gms >── adventures ──< removed_players
+adventures ──< images ──< token_positions >── tokens
      └────────────────< tokens
               images ──< declarations >── tokens
 ```
@@ -76,7 +77,9 @@ users ──< adventures ──< images ──< token_positions >── tokens
 | `users` | `name` (unique, case-insensitive), `password_hash` NULL, `recovery_hash` | A passkey-only account has no password hash. Every secret is a hash |
 | `passkeys` | `id` (credential id), `user_id`, `public_key` (SPKI), `algorithm`, `sign_count` | A public key only: nothing here signs anyone in |
 | `sessions` | `id_hash`, `user_id`, `expires_at` | SHA-256 of the cookie's id, so the table cannot be replayed |
-| `adventures` | `owner_id` NULL, `player_link`, `active_image_id`, `token_size` | `active_image_id` is what players see. `owner_id` is the GM; null only for an adventure from before accounts, until `scripts/accounts.ts assign`. `gm_password` is dead: always empty, never read |
+| `adventures` | `player_link`, `active_image_id`, `token_size` | `active_image_id` is what players see. `gm_password` is dead: always empty, never read |
+| `adventure_gms` | `(adventure_id, user_id)` PK | Who runs it. Every row is an equal GM. An adventure without one is given to the oldest account at startup and after each sign-up |
+| `removed_players` | `(adventure_id, identity)` PK | Invite link plus name of a player the GM removed; that identity is told so and closed instead of getting a token again |
 | `images` | `filename`, `width`, `height`, `fog_mask` BLOB, `sort_order`, `start_x`, `start_y`, `start_locked`, `board_x`, `board_y` | One fog mask per map. `start_*` null means "never moved"; the map centre is the fallback and every map therefore has a start point. `start_locked` freezes it against a stray drag. `board_*` is layout on the GM's board and means nothing else — no order, no adjacency, no geography |
 | `tokens` | `token_type`, `player_link`, `image_id`, `x`, `y` | See token rules below |
 | `token_positions` | `(token_id, image_id)` PK, `x`, `y` | Where each token last stood on each map |
@@ -227,11 +230,14 @@ The delete route removes the page's monsters and the page itself inside a single
 
 ### Accounts: the session is the GM credential
 
-A GM signs in once and the server sets an `HttpOnly`, `SameSite=Strict` session cookie, `Secure` over HTTPS. Every GM path — REST and the WebSocket upgrade — authorises from that cookie and from `adventures.owner_id`. Players are untouched: they still authenticate with the invite link and a name.
+A GM signs in once and the server sets an `HttpOnly`, `SameSite=Strict` session cookie, `Secure` over HTTPS. Every GM path — REST and the WebSocket upgrade — authorises from that cookie and from `adventure_gms`. Players are untouched: they still authenticate with the invite link and a name.
 **Why:** the per-adventure password lived in a URL fragment and a WebSocket query string, so it sat in browser history, proxy logs and every screen share (#11), and a lost URL lost the campaign (#26).
 **Implication:** nothing that authenticates travels in a URL. A cookie is sent automatically, so every write under `/api/` and the GM upgrade check `Origin` against the public origin — `SameSite` alone lets a sibling subdomain through. The public origin is `PUBLIC_ORIGIN`, or the request's own `Host` with the proxy's `X-Forwarded-Proto`; passkeys are bound to its host name.
 
-**GM is a relation, not a role.** The identity table is `users`, never `gm_users`: you own an adventure, so you are its GM. Additive migrations may not rename a table, so a role baked into the name could never be taken out again.
+**GM is a relation, not a role.** The identity table is `users`, never `gm_users`: you are a GM of an adventure because `adventure_gms` says so. Additive migrations may not rename a table, so a role baked into the name could never be taken out again.
+
+**Every GM of an adventure is equal.** Any of them may open, rename, delete and share it, and remove any GM, themselves included, so a friend can carry a campaign on alone. Only the last GM may not leave: an adventure always has one, and the last deletes it instead.
+**Rejected:** an owner with co-GMs below them — it would make handing a campaign over impossible (decided 2026-10-21).
 
 **A passkey first, a password second, a recovery phrase always.** An account holds any of passkeys and a password. Every account has a recovery phrase — 120 bits as six groups of four Crockford base32 characters — shown once, working once, replaced on use. `scripts/accounts.ts reset` is the last resort, from the server's shell.
 

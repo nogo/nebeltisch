@@ -124,7 +124,7 @@ describe("WebSocket handler", () => {
     const gm = signIn(ts.db);
     gmCookie = gm.cookie;
     gmUserId = gm.user.id;
-    const adventure = createAdventure(ts.db, { name: "Test Adventure", ownerId: gmUserId });
+    const adventure = createAdventure(ts.db, { name: "Test Adventure", gmId: gmUserId });
     adventureId = adventure.id;
     playerLink = adventure.player_link;
     const image = createImageRecord(ts.db, {
@@ -749,7 +749,7 @@ describe("WebSocket handler", () => {
     // write every cached mask, including other tables' (#9).
     ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
 
-    const other = createAdventure(ts.db, { name: "Other table", ownerId: gmUserId });
+    const other = createAdventure(ts.db, { name: "Other table", gmId: gmUserId });
     const otherImageId = createImageRecord(ts.db, {
       adventureId: other.id,
       filename: "other.png",
@@ -1530,7 +1530,7 @@ describe("WebSocket handler", () => {
     });
 
     it("a page belonging to another adventure cannot be painted", async () => {
-      const other = createAdventure(ts.db, { name: "Other table", ownerId: null });
+      const other = createAdventure(ts.db, { name: "Other table", gmId: null });
       const theirPage = createImageRecord(ts.db, {
         adventureId: other.id,
         filename: "theirs.png",
@@ -2561,7 +2561,7 @@ describe("WebSocket handler", () => {
 
     /** A second table on the same server, with one page and a token of each kind on it. */
     function otherTable() {
-      const other = createAdventure(ts.db, { name: "Other table", ownerId: null });
+      const other = createAdventure(ts.db, { name: "Other table", gmId: null });
       const page = createImageRecord(ts.db, {
         adventureId: other.id, filename: "theirs.png", originalName: "theirs.png", width: 100, height: 100,
       }).id;
@@ -2717,6 +2717,79 @@ describe("WebSocket handler", () => {
         colours.push((await added).token.color);
       }
       expect(colours).toEqual(["#c0392b", "#7f8c9a"]);
+    });
+  });
+
+  describe("removing a player (#59)", () => {
+    function joinAs(name: string) {
+      return connectWS(ts.wsUrl, { adventureId, role: "player", playerLink, playerName: name, playerColor: "#ff0000" });
+    }
+
+    it("reaches every device of the player, and the same link and name stay out", async () => {
+      const gm = track(await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie));
+      await waitForMessage(gm, "joined");
+      const phone = track(await joinAs("Alice"));
+      const { yourTokenId } = await waitForMessage(phone, "joined");
+      const laptop = track(await joinAs("Alice"));
+      await waitForMessage(laptop, "joined");
+
+      const toldPhone = waitForMessage(phone, "player:removed");
+      const toldLaptop = waitForMessage(laptop, "player:removed");
+      gm.send(JSON.stringify({ type: "player:remove", tokenId: yourTokenId }));
+      await Promise.all([toldPhone, toldLaptop]);
+      await until(() => phone.readyState === WebSocket.CLOSED && laptop.readyState === WebSocket.CLOSED);
+
+      // A refresh: told again, closed again, and no token comes back.
+      const again = track(await joinAs("Alice"));
+      await waitForMessage(again, "player:removed");
+      await until(() => again.readyState === WebSocket.CLOSED);
+      expect(getTokensByAdventure(ts.db, adventureId).filter((t) => t.name === "Alice")).toHaveLength(0);
+
+      // Kept in the database, so a restart does not forget it.
+      const row = ts.db.query(`SELECT identity FROM removed_players WHERE adventure_id = ?`).get(adventureId);
+      expect(row).toEqual({ identity: `${playerLink}|Alice` });
+
+      // Another name is another player, as before.
+      const bob = track(await joinAs("Bob"));
+      await waitForMessage(bob, "joined");
+    });
+  });
+
+  describe("an adventure closing under its connections (#76, #77)", () => {
+    it("deleting it tells the GM and every player, and closes them", async () => {
+      const gm = track(await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie));
+      await waitForMessage(gm, "joined");
+      const player = track(
+        await connectWS(ts.wsUrl, { adventureId, role: "player", playerLink, playerName: "Alice", playerColor: "#ff0000" })
+      );
+      await waitForMessage(player, "joined");
+
+      const gmTold = waitForMessage(gm, "adventure:closed");
+      const playerTold = waitForMessage(player, "adventure:closed");
+      const res = await fetch(`${ts.url}/api/adventures/${adventureId}`, { method: "DELETE", headers: { Cookie: gmCookie } });
+      expect(res.status).toBe(204);
+      expect((await gmTold).reason).toBe("deleted");
+      expect((await playerTold).reason).toBe("deleted");
+      await until(() => gm.readyState === WebSocket.CLOSED && player.readyState === WebSocket.CLOSED);
+    });
+
+    it("unsharing closes only the removed GM's board", async () => {
+      const friend = signIn(ts.db, "Friend");
+      ts.db.run(`INSERT INTO adventure_gms (adventure_id, user_id) VALUES (?, ?)`, [adventureId, friend.user.id]);
+      const mine = track(await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie));
+      await waitForMessage(mine, "joined");
+      const theirs = track(await connectWS(ts.wsUrl, { adventureId, role: "gm" }, friend.cookie));
+      await waitForMessage(theirs, "joined");
+
+      const told = waitForMessage(theirs, "adventure:closed");
+      const res = await fetch(`${ts.url}/api/adventures/${adventureId}/gms/${friend.user.id}`, {
+        method: "DELETE",
+        headers: { Cookie: gmCookie },
+      });
+      expect(res.status).toBe(200);
+      expect((await told).reason).toBe("unshared");
+      await until(() => theirs.readyState === WebSocket.CLOSED);
+      expect(mine.readyState).toBe(WebSocket.OPEN);
     });
   });
 });

@@ -34,6 +34,20 @@ describe("schema", () => {
     expect(row.gm_password).toBe("");
   });
 
+  test("adventures from before accounts go to the oldest account, once one exists", () => {
+    const db = new Database(":memory:");
+    createSchema(db);
+    db.run(`INSERT INTO adventures (id, name, gm_password, player_link) VALUES ('old', 'Old', '', 'l')`);
+    createSchema(db);
+    // Nobody to give it to yet: it waits.
+    expect(db.query(`SELECT COUNT(*) AS n FROM adventure_gms`).get()).toEqual({ n: 0 });
+
+    db.run(`INSERT INTO users (id, name, recovery_hash, created_at) VALUES ('second', 'B', 'x', '2026-02-01')`);
+    db.run(`INSERT INTO users (id, name, recovery_hash, created_at) VALUES ('first', 'A', 'x', '2026-01-01')`);
+    createSchema(db);
+    expect(db.query(`SELECT user_id FROM adventure_gms WHERE adventure_id = 'old'`).all()).toEqual([{ user_id: "first" }]);
+  });
+
   test("a start point starts unlocked", () => {
     const db = new Database(":memory:");
     createSchema(db);

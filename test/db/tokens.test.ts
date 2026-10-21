@@ -26,12 +26,12 @@ describe("tokens", () => {
 
   beforeEach(() => {
     db = makeDb();
-    const adv = createAdventure(db, { name: "Test", ownerId: null });
+    const adv = createAdventure(db, { name: "Test", gmId: null });
     adventureId = adv.id;
   });
 
   test("getAdventureToken refuses a token from another adventure", () => {
-    const other = createAdventure(db, { name: "Other", ownerId: null }).id;
+    const other = createAdventure(db, { name: "Other", gmId: null }).id;
     const token = createToken(db, { adventureId: other, name: "Spy", color: "#000000" });
     expect(getAdventureToken(db, adventureId, token.id)).toBeNull();
     expect(getAdventureToken(db, other, token.id)?.name).toBe("Spy");
@@ -96,7 +96,7 @@ describe("tokens", () => {
     createToken(db, { adventureId, name: "Hero", color: "#ff0000" });
     deleteAdventure(db, adventureId);
     // Need a fresh adventure to check — tokens should be gone
-    const adv2 = createAdventure(db, { name: "Other", ownerId: null });
+    const adv2 = createAdventure(db, { name: "Other", gmId: null });
     const tokens = getTokensByAdventure(db, adventureId);
     expect(tokens.length).toBe(0);
   });

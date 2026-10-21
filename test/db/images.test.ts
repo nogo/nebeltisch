@@ -23,7 +23,7 @@ describe("images", () => {
 
   beforeEach(() => {
     db = makeDb();
-    const adv = createAdventure(db, { name: "Test", ownerId: null });
+    const adv = createAdventure(db, { name: "Test", gmId: null });
     adventureId = adv.id;
   });
 

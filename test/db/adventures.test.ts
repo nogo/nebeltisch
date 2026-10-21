@@ -26,7 +26,7 @@ describe("adventures", () => {
   });
 
   test("createAdventure returns record with all fields", () => {
-    const adv = createAdventure(db, { name: "Test Adventure", ownerId: null });
+    const adv = createAdventure(db, { name: "Test Adventure", gmId: null });
     expect(adv.id).toBeString();
     expect(adv.name).toBe("Test Adventure");
     expect("gm_password" in adv).toBe(false);
@@ -36,7 +36,7 @@ describe("adventures", () => {
   });
 
   test("getAdventure by ID returns correct record", () => {
-    const adv = createAdventure(db, { name: "Test", ownerId: null });
+    const adv = createAdventure(db, { name: "Test", gmId: null });
     const found = getAdventure(db, adv.id);
     expect(found).not.toBeNull();
     expect(found!.id).toBe(adv.id);
@@ -48,14 +48,14 @@ describe("adventures", () => {
   });
 
   test("getAdventureByPlayerLink works", () => {
-    const adv = createAdventure(db, { name: "Test", ownerId: null });
+    const adv = createAdventure(db, { name: "Test", gmId: null });
     const found = getAdventureByPlayerLink(db, adv.player_link);
     expect(found).not.toBeNull();
     expect(found!.id).toBe(adv.id);
   });
 
   test("setActiveImage updates the record", () => {
-    const adv = createAdventure(db, { name: "Test", ownerId: null });
+    const adv = createAdventure(db, { name: "Test", gmId: null });
     const img = createImageRecord(db, {
       adventureId: adv.id,
       filename: "map.png",
@@ -69,7 +69,7 @@ describe("adventures", () => {
   });
 
   test("setActiveImage(null) takes the page off the table", () => {
-    const adv = createAdventure(db, { name: "A", ownerId: null });
+    const adv = createAdventure(db, { name: "A", gmId: null });
     const img = createImageRecord(db, {
       adventureId: adv.id,
       filename: "a.png",
@@ -83,8 +83,8 @@ describe("adventures", () => {
   });
 
   test("setActiveImage throws for image not in adventure", () => {
-    const adv1 = createAdventure(db, { name: "A1", ownerId: null });
-    const adv2 = createAdventure(db, { name: "A2", ownerId: null });
+    const adv1 = createAdventure(db, { name: "A1", gmId: null });
+    const adv2 = createAdventure(db, { name: "A2", gmId: null });
     const img = createImageRecord(db, {
       adventureId: adv2.id,
       filename: "map.png",
@@ -96,7 +96,7 @@ describe("adventures", () => {
   });
 
   test("deleteAdventure cascades to images and tokens", () => {
-    const adv = createAdventure(db, { name: "Test", ownerId: null });
+    const adv = createAdventure(db, { name: "Test", gmId: null });
     const img = createImageRecord(db, {
       adventureId: adv.id,
       filename: "map.png",

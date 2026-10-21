@@ -157,9 +157,22 @@ async function renderAdventures(): Promise<void> {
 
 function adventureEntry(adventure: api.AdventureSummary): HTMLLIElement {
   const li = document.createElement('li');
+  li.className = 'adventure';
+  const href = `/gm#id=${encodeURIComponent(adventure.id)}`;
+
+  // The first map, so two campaigns are told apart at a glance. Decorative: the name says it all.
+  const thumb = document.createElement(adventure.thumbnail ? 'img' : 'span');
+  thumb.className = 'adventure-thumb';
+  if (thumb instanceof HTMLImageElement) {
+    thumb.src = `/uploads/${encodeURIComponent(adventure.thumbnail!)}`;
+    thumb.alt = '';
+    thumb.loading = 'lazy';
+    thumb.width = 80;
+    thumb.height = 60;
+  }
 
   const open = document.createElement('a');
-  open.href = `/gm#id=${encodeURIComponent(adventure.id)}`;
+  open.href = href;
   open.className = 'adventure-name';
   open.textContent = adventure.name;
 
@@ -167,14 +180,13 @@ function adventureEntry(adventure: api.AdventureSummary): HTMLLIElement {
   meta.className = 'adventure-meta';
   const pages = adventure.page_count === 1 ? '1 map' : `${adventure.page_count} maps`;
   // SQLite's datetime('now') is UTC without a zone marker.
-  meta.textContent = `${pages} · created ${dateFormat.format(new Date(`${adventure.created_at.replace(' ', 'T')}Z`))}`;
+  const created = dateFormat.format(new Date(`${adventure.created_at.replace(' ', 'T')}Z`));
+  const others = adventure.gms.filter((gm) => gm.id !== user?.id).map((gm) => gm.name);
+  meta.textContent = [pages, `created ${created}`, ...(others.length ? [`with ${others.join(', ')}`] : [])].join(' · ');
 
   // The invite link without opening the board, so starting a session is not the price of
   // sending it to a player.
-  const invite = document.createElement('button');
-  invite.type = 'button';
-  invite.className = 'quiet';
-  invite.textContent = 'Copy invite link';
+  const invite = quietButton('Copy invite link');
   invite.addEventListener('click', async () => {
     const url = `${location.origin}/join/${encodeURIComponent(adventure.player_link)}`;
     try {
@@ -186,8 +198,131 @@ function adventureEntry(adventure: api.AdventureSummary): HTMLLIElement {
     setTimeout(() => { invite.textContent = 'Copy invite link'; }, 2000);
   });
 
-  li.append(open, meta, invite);
+  li.append(thumb, open, meta, invite, manageSection(adventure));
   return li;
+}
+
+/** The adventure whose Manage panel is open, so a change that redraws the list keeps it open. */
+let managing: string | null = null;
+
+/** Rename, share, the GMs and delete — folded away, because they are rare (#76, #77). */
+function manageSection(adventure: api.AdventureSummary): HTMLDetailsElement {
+  const details = document.createElement('details');
+  details.className = 'fallback adventure-manage';
+  details.open = managing === adventure.id;
+  details.addEventListener('toggle', () => {
+    if (details.open) managing = adventure.id;
+    else if (managing === adventure.id) managing = null;
+  });
+  const summary = document.createElement('summary');
+  summary.textContent = 'Manage';
+  const errorEl = document.createElement('p');
+  errorEl.className = 'error';
+  errorEl.setAttribute('role', 'alert');
+
+  /** Runs a change, then redraws the list from the server so every entry tells the truth. */
+  const change = (work: () => Promise<unknown>) =>
+    attempt(errorEl, async () => {
+      await work();
+      await renderAdventures();
+    });
+
+  const rename = inlineForm('Name', adventure.name, 'Rename', (name) => change(() => api.renameAdventure(adventure.id, name)));
+  rename.input.maxLength = 80;
+
+  const share = inlineForm('Share with another GM, by account name', '', 'Share', (name) =>
+    change(() => api.shareAdventure(adventure.id, name))
+  );
+  share.input.autocomplete = 'off';
+
+  const gmsTitle = document.createElement('p');
+  gmsTitle.className = 'gm-title';
+  gmsTitle.textContent = 'GMs, all equal';
+  gmsTitle.id = `gms-${adventure.id}`;
+  const gms = document.createElement('ul');
+  gms.className = 'gm-list';
+  gms.setAttribute('aria-labelledby', gmsTitle.id);
+  for (const gm of adventure.gms) {
+    const item = document.createElement('li');
+    const name = document.createElement('span');
+    name.textContent = gm.id === user?.id ? `${gm.name} (you)` : gm.name;
+    item.append(name);
+    // Every GM is equal, so any of them may go — except the last, who deletes it instead.
+    if (adventure.gms.length > 1) {
+      const remove = quietButton(gm.id === user?.id ? 'Leave' : 'Remove');
+      remove.setAttribute('aria-label', gm.id === user?.id ? `Leave ${adventure.name}` : `Remove ${gm.name}`);
+      remove.addEventListener('click', () => change(() => api.removeGm(adventure.id, gm.id)));
+      item.append(remove);
+    }
+    gms.append(item);
+  }
+
+  const remove = armedButton('Delete adventure', 'Sure? Delete it for good', () =>
+    change(() => api.deleteAdventure(adventure.id))
+  );
+  remove.classList.add('danger');
+
+  details.append(summary, rename.form, share.form, gmsTitle, gms, remove, errorEl);
+  return details;
+}
+
+function quietButton(text: string): HTMLButtonElement {
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'quiet';
+  button.textContent = text;
+  return button;
+}
+
+/** A labelled text field and its button, submitting the trimmed value. */
+function inlineForm(label: string, value: string, action: string, onSubmit: (value: string) => void) {
+  const form = document.createElement('form');
+  form.className = 'inline-form';
+  const field = document.createElement('label');
+  field.textContent = label;
+  const input = document.createElement('input');
+  input.type = 'text';
+  input.required = true;
+  input.value = value;
+  field.append(input);
+  const submit = document.createElement('button');
+  submit.type = 'submit';
+  submit.className = 'quiet';
+  submit.textContent = action;
+  form.append(field, submit);
+  form.addEventListener('submit', (e) => {
+    e.preventDefault();
+    onSubmit(input.value.trim());
+  });
+  return { form, input };
+}
+
+/**
+ * Arms on the first click, fires on the second, in place. Disarms on blur, on Escape, and after
+ * four seconds — a destructive action never sits armed.
+ */
+function armedButton(label: string, armedLabel: string, fire: () => void): HTMLButtonElement {
+  const button = quietButton(label);
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const disarm = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+    button.textContent = label;
+    button.removeAttribute('data-armed');
+  };
+  button.addEventListener('click', () => {
+    if (!button.hasAttribute('data-armed')) {
+      button.setAttribute('data-armed', '');
+      button.textContent = armedLabel;
+      timer = setTimeout(disarm, 4000);
+      return;
+    }
+    disarm();
+    fire();
+  });
+  button.addEventListener('blur', disarm);
+  button.addEventListener('keydown', (e) => { if (e.key === 'Escape') disarm(); });
+  return button;
 }
 
 $('create-form').addEventListener('submit', (e) => {

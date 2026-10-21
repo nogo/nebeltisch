@@ -135,6 +135,13 @@ describe("Accounts", () => {
     });
   });
 
+  it("the first account to sign up gets the adventures from before accounts, with no restart", async () => {
+    ts.db.run(`INSERT INTO adventures (id, name, gm_password, player_link) VALUES ('old', 'The Old Campaign', '', 'oldlink')`);
+    const signup = await post("signup/password", { name: "Danilo", password: "correct horse" });
+    const list = await (await fetch(`${ts.url}/api/adventures`, { headers: { Cookie: cookieOf(signup) } })).json();
+    expect(list.map((a: { name: string }) => a.name)).toEqual(["The Old Campaign"]);
+  });
+
   describe("the password fallback", () => {
     it("signs up and logs in with a name and a password", async () => {
       const res = await post("signup/password", { name: "Mira", password: "correct horse" });

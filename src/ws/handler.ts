@@ -4,16 +4,17 @@ import type { WsData, Token } from "../types";
 import type { ServerMessage } from "./messages";
 import type { ServerDeps } from "../deps";
 import type { FogSession } from "../fog/session";
-import { getAdventure, getAdventureByPlayerLink, setActiveImage, setTokenSize } from "../db/adventures";
+import { getAdventure, getAdventureByPlayerLink, isGm, setActiveImage, setTokenSize } from "../db/adventures";
 import { getImage, imageBelongsToAdventure, setStartPoint, setStartLocked } from "../db/images";
 import { repairImageDimensions } from "../images";
-import { findOrCreateToken, createToken, getToken, getAdventureToken, getTokensByAdventure, getPlayerTokensByAdventure, getGmTokensByImage, updateTokenPosition, rememberTokenPosition, getRememberedPositions, deleteToken, renameToken, setTokenState } from "../db/tokens";
+import { findOrCreateToken, rememberRemovedPlayer, wasRemoved, createToken, getToken, getAdventureToken, getTokensByAdventure, getPlayerTokensByAdventure, getGmTokensByImage, updateTokenPosition, rememberTokenPosition, getRememberedPositions, deleteToken, renameToken, setTokenState } from "../db/tokens";
 import {
   registerConnection,
   unregisterConnection,
   getConnection,
   getConnectionsForAdventure,
-  getWsForToken,
+  getSocketsForToken,
+  getSocketsForAdventure,
   getGmWsForAdventure,
   getGmSocketsForAdventure,
 } from "./connections";
@@ -137,6 +138,19 @@ function presentedPage(db: Database, adventureId: string): string | null {
   return getAdventure(db, adventureId)?.active_image_id ?? null;
 }
 
+/**
+ * Tells the sockets on an adventure it is closed to them, and closes them. With `userId`, only that
+ * account's GM sockets: unsharing removes one GM, deleting removes everyone. Called from the REST
+ * routes, after the database has committed.
+ */
+export function closeAdventureFor(adventureId: string, reason: "deleted" | "unshared", userId?: string): void {
+  const message = serializeMessage({ type: "adventure:closed", reason });
+  for (const ws of getSocketsForAdventure(adventureId, userId)) {
+    ws.send(message);
+    ws.close(4001, reason);
+  }
+}
+
 // ---- WebSocket upgrade (called from fetch handler) ----
 
 export function handleWsUpgrade(
@@ -167,6 +181,8 @@ export function handleWsUpgrade(
   let tokenId: string | undefined;
   let resolvedPlayerLink: string | undefined;
   let tokenIsNew: boolean | undefined;
+  let userId: string | undefined;
+  let removed = false;
 
   if (role === "gm") {
     // The session cookie is the credential, so nothing secret is in this URL for a proxy to log
@@ -177,9 +193,10 @@ export function handleWsUpgrade(
     }
     const user = currentUser(req, db);
     if (!user) return new Response("Not signed in", { status: 401 });
-    if (adventure.owner_id !== user.id) {
+    if (!isGm(db, adventureId, user.id)) {
       return new Response("This adventure is not yours", { status: 403 });
     }
+    userId = user.id;
   } else {
     if (!playerLink) {
       return new Response("playerLink is required for players", { status: 400 });
@@ -194,15 +211,22 @@ export function handleWsUpgrade(
     // Identity key: adventure invite link + player name.
     // Same bookmark URL (same name) → same token. Different name → different token.
     const playerIdentity = `${playerLink}|${playerName}`;
-    const { token, isNew } = findOrCreateToken(db, {
-      adventureId,
-      playerLink: playerIdentity,
-      name: playerName,
-      color: playerColor,
-    });
-    tokenId = token.id;
+    // A removed player is still let in, but only to be told so and closed in `open`: a refused
+    // upgrade reaches the page as a bare error, and its reconnect loop would retry it forever.
+    // No token is made for them (#59).
+    if (wasRemoved(db, adventureId, playerIdentity)) {
+      removed = true;
+    } else {
+      const { token, isNew } = findOrCreateToken(db, {
+        adventureId,
+        playerLink: playerIdentity,
+        name: playerName,
+        color: playerColor,
+      });
+      tokenId = token.id;
+      tokenIsNew = isNew;
+    }
     resolvedPlayerLink = playerLink;
-    tokenIsNew = isNew;
   }
 
   const wsData: WsData = {
@@ -213,6 +237,8 @@ export function handleWsUpgrade(
     tokenId,
     playerLink: resolvedPlayerLink,
     tokenIsNew,
+    userId,
+    removed,
   };
 
   const upgraded = server.upgrade(req, { data: wsData });
@@ -251,8 +277,14 @@ export function createWsHandlers(deps: ServerDeps) {
   const { db, uploadsDir } = deps;
   return {
     async open(ws: ServerWebSocket<WsData>) {
-      const { adventureId, role, playerName, playerColor, tokenId, playerLink, tokenIsNew } = ws.data;
-      registerConnection(ws, { adventureId, role, playerName, playerColor, tokenId, playerLink });
+      const { adventureId, role, playerName, playerColor, tokenId, playerLink, tokenIsNew, userId } = ws.data;
+      if (ws.data.removed) {
+        // Never registered, so `close` finds nothing to clean up.
+        ws.send(serializeMessage({ type: "player:removed" }));
+        ws.close(4000, "removed");
+        return;
+      }
+      registerConnection(ws, { adventureId, role, playerName, playerColor, tokenId, playerLink, userId });
 
       const fog = deps.fog.forAdventure(adventureId);
       fog.retain();
@@ -618,9 +650,11 @@ export function createWsHandlers(deps: ServerDeps) {
               break;
             }
 
-            // Notify the player they've been removed (if connected), then close their WS
-            const playerWs = getWsForToken(adventureId, msg.tokenId);
-            if (playerWs) {
+            // Every device holding the token hears it and is closed — a player on a phone and a
+            // laptop is one player. The identity is remembered first, so a refresh racing this
+            // cannot recreate the token (#59).
+            if (target.player_link) rememberRemovedPlayer(db, adventureId, target.player_link);
+            for (const playerWs of getSocketsForToken(adventureId, msg.tokenId)) {
               playerWs.send(serializeMessage({ type: "player:removed" }));
               playerWs.close(4000, "removed");
             }

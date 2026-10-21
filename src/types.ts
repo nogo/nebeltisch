@@ -22,8 +22,6 @@ export interface Adventure {
   player_link: string;
   active_image_id: string | null;
   token_size: number;
-  /** The account that runs it. Null for an adventure from before accounts, until it is assigned. */
-  owner_id: string | null;
   created_at: string;
 }
 
@@ -131,4 +129,8 @@ export interface WsData {
   tokenId?: string;
   playerLink?: string;
   tokenIsNew?: boolean;
+  /** The account behind a GM connection, so unsharing can close exactly its sockets (#77). */
+  userId?: string;
+  /** A player the GM removed: opened only to be told so and closed (#59). */
+  removed?: boolean;
 }

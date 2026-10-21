@@ -7,7 +7,7 @@ What the code trusts, where, and why. Every line describes the code as it is; fa
 - **Anonymous visitor**: reaches nothing. Caddy asks for HTTP basic auth on every path before a request reaches the app (see Deployment).
 - **Group member**: holds the shared basic-auth login. Can sign up (`/api/auth/signup/*`, `src/auth/routes.ts`) and so become a GM of their own adventures.
 - **Player**: a group member with an adventure's player link. Joins over the WebSocket, owns one token, moves it, declares and answers attacks, pings the map.
-- **GM**: a signed-in account that owns the adventure (`adventures.owner_id`). Full control of that adventure over REST and WebSocket, and of nothing another account owns.
+- **GM**: a signed-in account listed in `adventure_gms` for the adventure. Full control of it over REST and WebSocket — including deleting it and adding or removing other GMs — and of nothing it is not a GM of.
 - **Owner**: Danilo. Shell on the host, the database, the deploy config.
 
 ## Assets
@@ -20,7 +20,7 @@ What the code trusts, where, and why. Every line describes the code as it is; fa
 
 ## Entry surfaces
 
-- **HTTP** `src/routes.ts` `handleRequest`. Any non-GET under `/api/` with a foreign `Origin` is refused first. GM routes go through `owned()`: a session cookie, and the adventure's `owner_id` equal to its user. `GET …/images` also accepts `X-Player-Link`. `GET /api/adventures/join/:link` needs no app credential.
+- **HTTP** `src/routes.ts` `handleRequest`. Any non-GET under `/api/` with a foreign `Origin` is refused first. GM routes go through `asGm()`: a session cookie whose user is one of the adventure's GMs. `GET …/images` also accepts `X-Player-Link`. `GET /api/adventures/join/:link` needs no app credential.
 - **Accounts** `src/auth/routes.ts`, under `/api/auth/`. Sign-up, login (passkey or password) and recovery need no session; adding a passkey and setting a password do. Passkey challenges are single-use and expire after five minutes. No rate limit.
 - **Uploads** `POST /api/adventures/:id/images` (`routes.ts:192`), GM only. Accepts any `File.type` starting with `image/`; keeps an alphanumeric extension from the client's filename. Refuses a header that claims more than `MAX_PAGE_PIXELS` (`src/images.ts`); the fog layer refuses the same at load. No size limit beyond Bun's default request body cap.
 - **Static uploads** `/uploads/*` (`routes.ts:35`), Bun `dir` route, no app check. Content type follows the file extension.

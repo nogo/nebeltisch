@@ -472,6 +472,11 @@ const ws = connectGM(adventureId);
 ws.on('connect', () => { connectionStatusEl.className = 'status-dot connected'; });
 ws.on('disconnect', () => { connectionStatusEl.className = 'status-dot disconnected'; });
 ws.on('error', (msg) => { console.error('WS error', msg); });
+// Deleted by a GM, or no longer shared with this one: the dashboard is the only place left (#76, #77).
+ws.on('adventure:closed', () => {
+  ws.close();
+  location.replace('/');
+});
 
 ws.on('joined', async (msg) => {
   const adv = msg.adventure;

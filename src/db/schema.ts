@@ -1,5 +1,6 @@
 import type { Database } from "bun:sqlite";
 import { gapFor, nextFreeSpot, type Rect } from "../board";
+import { adoptOrphanedAdventures } from "./adventures";
 
 export function createSchema(db: Database): void {
   db.exec(`
@@ -190,11 +191,29 @@ export function createSchema(db: Database): void {
     );
   `);
 
-  try {
-    db.run(`ALTER TABLE adventures ADD COLUMN owner_id TEXT NULL REFERENCES users(id)`);
-  } catch {
-    // Column already exists — ignore
-  }
+  // Who runs an adventure: every row is a GM, and every GM is equal — any of them may rename,
+  // delete, share, or remove another, so a friend can carry a campaign on alone (#77).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS adventure_gms (
+      adventure_id TEXT NOT NULL REFERENCES adventures(id) ON DELETE CASCADE,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (adventure_id, user_id)
+    );
+  `);
+  adoptOrphanedAdventures(db);
+
+  // A player the GM removed: this invite link and name may not come back (#59). The identity is
+  // the same string a token's `player_link` holds, so a refresh is recognised before it recreates
+  // the token.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS removed_players (
+      adventure_id TEXT NOT NULL REFERENCES adventures(id) ON DELETE CASCADE,
+      identity TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      PRIMARY KEY (adventure_id, identity)
+    );
+  `);
 
   // The per-adventure GM password is gone (#56): the session is the credential. The column stays,
   // because additive migrations may not drop one, but nothing reads it and no plaintext is kept.

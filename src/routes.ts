@@ -2,12 +2,20 @@ import { readFileSync, unlinkSync, writeFileSync } from "fs";
 import { join } from "path";
 import type { Database } from "bun:sqlite";
 import {
+  addGm,
   createAdventure,
+  deleteAdventure,
   getAdventure,
   getAdventureByPlayerLink,
-  getAdventuresByOwner,
+  getAdventuresOfGm,
+  getGms,
+  isGm,
+  removeGm,
+  renameAdventure,
   setActiveImage,
 } from "./db/adventures";
+import { getUserByName } from "./db/users";
+import { closeAdventureFor } from "./ws/handler";
 import {
   createImageRecord,
   getImagesByAdventure,
@@ -125,36 +133,31 @@ async function handleAdventureRoutes(
   const user = currentUser(req, db);
 
   /**
-   * The adventure, when the signed-in account owns it; otherwise the refusal to send. The session
-   * is the only GM credential — there is no password left to present (#56).
+   * The adventure, when the signed-in account is one of its GMs; otherwise the refusal to send.
+   * The session is the only GM credential (#56), and every GM is equal (#77).
    */
-  const owned = (adventureId: string) => {
+  const asGm = (adventureId: string) => {
     if (!user) return error("Not signed in", 401);
     const adventure = getAdventure(db, adventureId);
     if (!adventure) return error("Not found", 404);
-    if (adventure.owner_id !== user.id) return error("This adventure is not yours", 403);
+    if (!isGm(db, adventureId, user.id)) return error("This adventure is not yours", 403);
     return adventure;
   };
 
-  // GET /api/adventures — the dashboard: what the signed-in account owns, and nothing else (#55)
+  // GET /api/adventures — the dashboard: what the signed-in account runs, and nothing else (#55)
   if (req.method === "GET" && segments.length === 2) {
     if (!user) return error("Not signed in", 401);
-    return json(getAdventuresByOwner(db, user.id));
+    return json(getAdventuresOfGm(db, user.id));
   }
 
-  // POST /api/adventures — it belongs to whoever creates it
+  // POST /api/adventures — whoever creates it is its first GM
   if (req.method === "POST" && segments.length === 2) {
     if (!user) return error("Not signed in", 401);
-    let body: { name?: unknown };
-    try {
-      body = await req.json();
-    } catch {
-      return error("Invalid JSON", 400);
-    }
-    if (!body.name || typeof body.name !== "string" || body.name.trim() === "") {
-      return error("name is required", 400);
-    }
-    const adventure = createAdventure(db, { name: body.name.trim(), ownerId: user.id });
+    const body = await readJson<{ name?: unknown }>(req);
+    if (!body) return error("Invalid JSON", 400);
+    const name = adventureName(body.name);
+    if (!name) return error(ADVENTURE_NAME_RULE, 400);
+    const adventure = createAdventure(db, { name, gmId: user.id });
     return json(adventure, 201);
   }
 
@@ -175,9 +178,74 @@ async function handleAdventureRoutes(
 
     // GET /api/adventures/:id
     if (req.method === "GET" && segments.length === 3) {
-      const adventure = owned(id);
+      const adventure = asGm(id);
       if (adventure instanceof Response) return adventure;
       return json(adventure);
+    }
+
+    // PATCH /api/adventures/:id — rename (#76)
+    if (req.method === "PATCH" && segments.length === 3) {
+      const adventure = asGm(id);
+      if (adventure instanceof Response) return adventure;
+      const body = await readJson<{ name?: unknown }>(req);
+      if (!body) return error("Invalid JSON", 400);
+      const name = adventureName(body.name);
+      if (!name) return error(ADVENTURE_NAME_RULE, 400);
+      renameAdventure(db, id, name);
+      return json(getAdventure(db, id));
+    }
+
+    // DELETE /api/adventures/:id — for good, files included (#76)
+    //
+    // Rows first, in one transaction; files only once that has committed, so a failure leaves the
+    // adventure whole rather than pointing at files that are gone — the order #3 settled for a page.
+    if (req.method === "DELETE" && segments.length === 3) {
+      const adventure = asGm(id);
+      if (adventure instanceof Response) return adventure;
+      const pages = getImagesByAdventure(db, id);
+      try {
+        deleteAdventure(db, id);
+      } catch (err) {
+        console.error("Could not delete the adventure", err);
+        return error("Could not delete this adventure", 500);
+      }
+      closeAdventureFor(id, "deleted");
+      for (const page of pages) {
+        try {
+          unlinkSync(join(uploadsDir, page.filename));
+        } catch {
+          // file may already be gone
+        }
+      }
+      // Drop the resident masks now rather than at idle; any save still pending lands on rows that
+      // are already gone, which changes nothing.
+      await deps.fog.forAdventure(id).dispose();
+      return new Response(null, { status: 204 });
+    }
+
+    // POST /api/adventures/:id/gms — share with another account, by name (#77)
+    if (req.method === "POST" && segments[3] === "gms" && segments.length === 4) {
+      const adventure = asGm(id);
+      if (adventure instanceof Response) return adventure;
+      const body = await readJson<{ name?: unknown }>(req);
+      if (!body) return error("Invalid JSON", 400);
+      const other = typeof body.name === "string" ? getUserByName(db, body.name.trim()) : null;
+      if (!other) return error("No account has that name", 404);
+      addGm(db, id, other.id);
+      return json(getGms(db, id));
+    }
+
+    // DELETE /api/adventures/:id/gms/:userId — remove a GM, yourself included (#77)
+    if (req.method === "DELETE" && segments[3] === "gms" && segments.length === 5) {
+      const adventure = asGm(id);
+      if (adventure instanceof Response) return adventure;
+      const gms = getGms(db, id);
+      if (!gms.some((gm) => gm.id === segments[4])) return error("Not a GM of this adventure", 404);
+      // An adventure always has a GM: the last one deletes it instead of leaving it to nobody.
+      if (gms.length === 1) return error("You are its only GM — delete it instead", 409);
+      removeGm(db, id, segments[4]);
+      closeAdventureFor(id, "unshared", segments[4]);
+      return json(getGms(db, id));
     }
 
     // PUT /api/adventures/:id/active-image
@@ -186,7 +254,7 @@ async function handleAdventureRoutes(
       segments[3] === "active-image" &&
       segments.length === 4
     ) {
-      const adventure = owned(id);
+      const adventure = asGm(id);
       if (adventure instanceof Response) return adventure;
 
       let body: { imageId?: unknown };
@@ -217,7 +285,7 @@ async function handleAdventureRoutes(
       segments[3] === "images" &&
       segments.length === 4
     ) {
-      const adventure = owned(id);
+      const adventure = asGm(id);
       if (adventure instanceof Response) return adventure;
 
       let formData: FormData;
@@ -277,16 +345,16 @@ async function handleAdventureRoutes(
 
       const playerLink = req.headers.get("X-Player-Link");
 
-      let isGm = true;
-      if (!user || adventure.owner_id !== user.id) {
+      let forGm = true;
+      if (!user || !isGm(db, id, user.id)) {
         if (!playerLink) return error("Not signed in", 401);
         const linked = getAdventureByPlayerLink(db, playerLink);
         if (!linked || linked.id !== id) return error("Unauthorized", 401);
-        isGm = false;
+        forGm = false;
       }
 
       const images = getImagesByAdventure(db, id);
-      if (isGm) return json(images);
+      if (forGm) return json(images);
 
       // The WebSocket path is careful never to publish a start point — "players must never learn
       // where the party will appear" — and this route was handing them every one over REST. The
@@ -303,7 +371,7 @@ async function handleAdventureRoutes(
       segments.length === 5
     ) {
       const imageId = segments[4];
-      const adventure = owned(id);
+      const adventure = asGm(id);
       if (adventure instanceof Response) return adventure;
 
       const image = getImage(db, imageId);
@@ -351,7 +419,7 @@ async function handleAdventureRoutes(
       segments[5] === "position" &&
       segments.length === 6
     ) {
-      const adventure = owned(id);
+      const adventure = asGm(id);
       if (adventure instanceof Response) return adventure;
 
       const image = getImage(db, segments[4]);
@@ -392,7 +460,7 @@ async function handleAdventureRoutes(
       segments[5] === "fog" &&
       segments.length === 6
     ) {
-      const adventure = owned(id);
+      const adventure = asGm(id);
       if (adventure instanceof Response) return adventure;
 
       const image = getImage(db, segments[4]);
@@ -424,7 +492,7 @@ async function handleAdventureRoutes(
       segments[5] === "tokens" &&
       segments.length === 6
     ) {
-      const adventure = owned(id);
+      const adventure = asGm(id);
       if (adventure instanceof Response) return adventure;
 
       const image = getImage(db, segments[4]);
@@ -435,4 +503,23 @@ async function handleAdventureRoutes(
   }
 
   return new Response("Not Found", { status: 404 });
+}
+
+const ADVENTURE_NAME_MAX = 80;
+const ADVENTURE_NAME_RULE = `A name needs 1 to ${ADVENTURE_NAME_MAX} characters`;
+
+/** The trimmed name, or null when it cannot be one. */
+function adventureName(name: unknown): string | null {
+  if (typeof name !== "string") return null;
+  const trimmed = name.trim();
+  return trimmed !== "" && trimmed.length <= ADVENTURE_NAME_MAX ? trimmed : null;
+}
+
+async function readJson<T>(req: Request): Promise<T | null> {
+  try {
+    const body = await req.json();
+    return body && typeof body === "object" ? (body as T) : null;
+  } catch {
+    return null;
+  }
 }

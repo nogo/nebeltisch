@@ -63,10 +63,52 @@ export interface AdventureSummary {
   player_link: string;
   created_at: string;
   page_count: number;
+  /** The first map's file under `/uploads/`, or null while there is none. */
+  thumbnail: string | null;
+  /** Every GM, all equal, in the order they joined (#77). */
+  gms: Gm[];
+}
+
+export interface Gm {
+  id: string;
+  name: string;
 }
 
 export async function listMyAdventures(): Promise<AdventureSummary[]> {
   return (await checkOk(await fetch('/api/adventures'))).json();
+}
+
+/** The error the server gave, as a sentence a person can act on. */
+async function answer(res: Response): Promise<Response> {
+  if (res.ok) return res;
+  const data = await res.json().catch(() => ({}));
+  throw new Error(data.error ?? `Something went wrong (${res.status})`);
+}
+
+function sendJson(method: string, path: string, body?: unknown): Promise<Response> {
+  return fetch(path, {
+    method,
+    headers: { 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  }).then(answer);
+}
+
+export async function renameAdventure(adventureId: string, name: string): Promise<void> {
+  await sendJson('PATCH', `/api/adventures/${adventureId}`, { name });
+}
+
+/** For good: maps, fog, tokens and files (#76). */
+export async function deleteAdventure(adventureId: string): Promise<void> {
+  await sendJson('DELETE', `/api/adventures/${adventureId}`);
+}
+
+export async function shareAdventure(adventureId: string, name: string): Promise<Gm[]> {
+  return (await sendJson('POST', `/api/adventures/${adventureId}/gms`, { name })).json();
+}
+
+/** Any GM may remove any GM, themselves included — but not the last one. */
+export async function removeGm(adventureId: string, userId: string): Promise<Gm[]> {
+  return (await sendJson('DELETE', `/api/adventures/${adventureId}/gms/${userId}`)).json();
 }
 
 export async function getAdventure(adventureId: string): Promise<Adventure> {

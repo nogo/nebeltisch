@@ -154,3 +154,19 @@ export function deleteToken(db: Database, id: string): void {
 export function deleteTokensByImage(db: Database, imageId: string): void {
   db.run(`DELETE FROM tokens WHERE image_id = ?`, [imageId]);
 }
+
+// ---- Removed players (#59) ----
+
+/** Keeps the identity — invite link and name — the GM removed, so it cannot simply rejoin. */
+export function rememberRemovedPlayer(db: Database, adventureId: string, identity: string): void {
+  db.run(
+    `INSERT OR IGNORE INTO removed_players (adventure_id, identity) VALUES (?, ?)`,
+    [adventureId, identity]
+  );
+}
+
+export function wasRemoved(db: Database, adventureId: string, identity: string): boolean {
+  return db.query<{ one: number }, [string, string]>(
+    `SELECT 1 AS one FROM removed_players WHERE adventure_id = ? AND identity = ?`
+  ).get(adventureId, identity) !== null;
+}

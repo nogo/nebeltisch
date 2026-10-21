@@ -26,7 +26,7 @@ describe("Board API", () => {
   beforeAll(() => {
     ts = startTestServer();
     ({ cookie: gmCookie, user: { id: gmUserId } } = signIn(ts.db));
-    adventureId = createAdventure(ts.db, { name: "Board Test", ownerId: gmUserId }).id;
+    adventureId = createAdventure(ts.db, { name: "Board Test", gmId: gmUserId }).id;
   });
 
   afterAll(() => {
@@ -77,7 +77,7 @@ describe("Board API", () => {
     });
 
     it("rejects a page belonging to another adventure", async () => {
-      const other = createAdventure(ts.db, { name: "Other", ownerId: gmUserId });
+      const other = createAdventure(ts.db, { name: "Other", gmId: gmUserId });
       const foreign = createImageRecord(ts.db, {
         adventureId: other.id,
         filename: "foreign.png",
@@ -158,7 +158,7 @@ describe("Board API", () => {
     // The WebSocket path never publishes a start point — "players must never learn where the party
     // will appear" — and this route was handing them every one (#57).
     it("carries no start point", async () => {
-      const adventure = createAdventure(ts.db, { name: "Leak", ownerId: gmUserId });
+      const adventure = createAdventure(ts.db, { name: "Leak", gmId: gmUserId });
       const page = createImageRecord(ts.db, {
         adventureId: adventure.id,
         filename: "leak.png",
@@ -183,7 +183,7 @@ describe("Board API", () => {
     });
 
     it("still carries the start point for the GM", async () => {
-      const adventure = createAdventure(ts.db, { name: "GM sees it", ownerId: gmUserId });
+      const adventure = createAdventure(ts.db, { name: "GM sees it", gmId: gmUserId });
       const page = createImageRecord(ts.db, {
         adventureId: adventure.id,
         filename: "gm.png",
@@ -207,7 +207,7 @@ describe("Board API", () => {
     // The geometry is covered in `test/board.test.ts`; what matters here is that the route
     // actually goes through it instead of leaving every upload at the origin.
     it("gives each new page its own spot on the board", async () => {
-      const fresh = createAdventure(ts.db, { name: "Fresh", ownerId: gmUserId });
+      const fresh = createAdventure(ts.db, { name: "Fresh", gmId: gmUserId });
       const spots: string[] = [];
 
       for (let i = 0; i < 3; i++) {
