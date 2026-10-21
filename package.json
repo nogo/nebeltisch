@@ -5,6 +5,7 @@
     "start": "bun run src/index.ts",
     "typecheck": "tsc --noEmit",
     "test": "bun run typecheck && timeout 120 bun test",
+    "mutate": "bun run scripts/mutate.ts",
     "build:client": "bun build public/js/gm.ts public/js/player.ts --outdir public/dist --splitting --target browser"
   },
   "devDependencies": {

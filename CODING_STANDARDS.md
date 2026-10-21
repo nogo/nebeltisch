@@ -12,7 +12,9 @@ The limit sits outside Bun on purpose. The test servers share the runner's proce
 
 `git log --since=3.months --name-only --format= | sort | uniq -c | sort -rn | head -20` — hotspots.
 `(cd /tmp && bunx jscpd@4.0.5 --min-lines 8 --reporters console --silent "$OLDPWD/src" "$OLDPWD/public/js")` — duplication. Run from `/tmp` so nothing lands in the repo.
-Gap: no complexity, mutation or flakiness command yet.
+`bun run mutate <file> [--tests <path>] [--jobs <n>]` — mutation score for one file: flips `===`/`!==`, `&&`/`||` and spaced `<`/`<=`/`>`/`>=` one at a time, in throwaway copies of the repo, and lists every mutant the tests still pass on. `--tests test/ws` keeps a run on `src/ws/handler.ts` near two minutes.
+`bun test --rerun-each=5 --randomize` — flakiness and order dependence. A failure prints the seed to repeat it with `--seed`.
+Gap: no complexity command. The usual tool, `eslint-plugin-sonarjs`, needs the TypeScript 5 compiler API, and the repo is on TypeScript 7.
 
 ## TypeScript
 

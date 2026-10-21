@@ -17,6 +17,7 @@
   "include": [
     "src",
     "test",
-    "public/js"
+    "public/js",
+    "scripts"
   ]
 }
