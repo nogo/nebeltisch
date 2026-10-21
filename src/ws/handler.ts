@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite";
 import type { Server, ServerWebSocket } from "bun";
 import type { WsData, Token } from "../types";
+import type { ServerMessage } from "./messages";
 import type { ServerDeps } from "../deps";
 import type { FogSession } from "../fog/session";
 import { getAdventure, getAdventureByPlayerLink, setActiveImage, setTokenSize } from "../db/adventures";
@@ -104,20 +105,30 @@ function sendToGms(adventureId: string, message: string): void {
 /**
  * **Only the presented page reaches the players.**
  *
- * The GM prepares a page the party is not looking at, so every fog and token message names its
- * page and the server decides the audience: applied to whichever page is named, published to the
+ * The GM prepares a page the party is not looking at, so every edit names the page it belongs to
+ * and the server decides the audience: applied to whichever page is named, published to the
  * adventure topic *only* when that page is `active_image_id`. The GM's phase never reaches here —
  * if it did, what the players see would depend on a browser's opinion (#51).
  *
- * Null means the id is not a page of this adventure.
+ * `pageId` null is a player token, which stands on whatever is presented. The sender always hears
+ * its own edit; `publishIfLive` is for the edits the sender has already drawn, like a fog stroke.
  */
-function resolvePage(
-  db: Database,
-  adventureId: string,
-  imageId: string
-): { imageId: string; isLive: boolean } | null {
-  if (!imageBelongsToAdventure(db, imageId, adventureId)) return null;
-  return { imageId, isLive: reachesTable(imageId, presentedPage(db, adventureId)) };
+function tell(db: Database, ws: ServerWebSocket<WsData>, pageId: string | null, message: ServerMessage): void {
+  const serialized = serializeMessage(message);
+  ws.send(serialized);
+  if (isOnTable(db, ws, pageId)) ws.publish(topicOf(ws), serialized);
+}
+
+function publishIfLive(db: Database, ws: ServerWebSocket<WsData>, pageId: string | null, message: ServerMessage): void {
+  if (isOnTable(db, ws, pageId)) ws.publish(topicOf(ws), serializeMessage(message));
+}
+
+function isOnTable(db: Database, ws: ServerWebSocket<WsData>, pageId: string | null): boolean {
+  return reachesTable(pageId, presentedPage(db, ws.data.adventureId));
+}
+
+function topicOf(ws: ServerWebSocket<WsData>): string {
+  return `adventure:${ws.data.adventureId}`;
 }
 
 /** The page the players are looking at, or null when nothing is on the table. */
@@ -209,36 +220,20 @@ export function handleWsUpgrade(
  */
 const MAX_DAMAGE = 999;
 
-/** Tells the table that declarations are gone, whatever removed them. Silent on an empty list. */
-function publishCleared(
-  ws: ServerWebSocket<WsData>,
-  topic: string,
-  declarationIds: string[],
-  live = true
-): void {
+/** Tells the table that declarations on `pageId` are gone, whatever removed them. Silent on an empty list. */
+function publishCleared(db: Database, ws: ServerWebSocket<WsData>, pageId: string, declarationIds: string[]): void {
   if (declarationIds.length === 0) return;
-  const cleared = serializeMessage({ type: "declaration:cleared", declarationIds });
-  ws.send(cleared);
-  if (live) ws.publish(topic, cleared);
+  tell(db, ws, pageId, { type: "declaration:cleared", declarationIds });
 }
 
 /**
- * Sends a declaration's new state to the sender and, when its page is the one on the table, to
- * everybody else. Re-read from the database rather than assembled here, so what the table is shown
- * is what was stored (principle 2).
+ * Tells the table a declaration's new state. Re-read from the database rather than assembled here,
+ * so what the table is shown is what was stored (principle 2).
  */
-function publishDeclaration(
-  db: Database,
-  ws: ServerWebSocket<WsData>,
-  topic: string,
-  adventureId: string,
-  declarationId: string
-): void {
+function publishDeclaration(db: Database, ws: ServerWebSocket<WsData>, declarationId: string): void {
   const declaration = getDeclaration(db, declarationId);
   if (!declaration) return;
-  const updated = serializeMessage({ type: "declaration:updated", declaration });
-  ws.send(updated);
-  if (reachesTable(declaration.image_id, presentedPage(db, adventureId))) ws.publish(topic, updated);
+  tell(db, ws, declaration.image_id, { type: "declaration:updated", declaration });
 }
 
 // ---- WebSocket handlers ----
@@ -376,14 +371,13 @@ export function createWsHandlers(deps: ServerDeps) {
               refuse(ws, "Only GM can send fog strokes");
               break;
             }
-            const page = resolvePage(db, adventureId, msg.imageId);
-            if (!page) {
+            if (!imageBelongsToAdventure(db, msg.imageId, adventureId)) {
               refuse(ws, "No such page");
               break;
             }
             let session: FogSession;
             try {
-              session = await fog.open(page.imageId);
+              session = await fog.open(msg.imageId);
             } catch {
               // A map whose dimensions never parsed has no mask to paint on. Left
               // unguarded this rejection escapes the handler and exits the process.
@@ -392,12 +386,7 @@ export function createWsHandlers(deps: ServerDeps) {
             }
             session.applyStrokes([msg.stroke]);
             // Stored on every page; heard on one. A page in preparation is silent.
-            if (page.isLive) {
-              ws.publish(
-                topic,
-                serializeMessage({ type: "fog:stroke", stroke: msg.stroke, imageId: page.imageId })
-              );
-            }
+            publishIfLive(db, ws, msg.imageId, { type: "fog:stroke", stroke: msg.stroke, imageId: msg.imageId });
             break;
           }
 
@@ -406,29 +395,19 @@ export function createWsHandlers(deps: ServerDeps) {
               refuse(ws, "Only GM can send fog strokes");
               break;
             }
-            const page = resolvePage(db, adventureId, msg.imageId);
-            if (!page) {
+            if (!imageBelongsToAdventure(db, msg.imageId, adventureId)) {
               refuse(ws, "No such page");
               break;
             }
             let session: FogSession;
             try {
-              session = await fog.open(page.imageId);
+              session = await fog.open(msg.imageId);
             } catch {
               refuse(ws, "Map dimensions unknown");
               break;
             }
             session.applyStrokes(msg.strokes);
-            if (page.isLive) {
-              ws.publish(
-                topic,
-                serializeMessage({
-                  type: "fog:stroke:batch",
-                  strokes: msg.strokes,
-                  imageId: page.imageId,
-                })
-              );
-            }
+            publishIfLive(db, ws, msg.imageId, { type: "fog:stroke:batch", strokes: msg.strokes, imageId: msg.imageId });
             break;
           }
 
@@ -443,13 +422,6 @@ export function createWsHandlers(deps: ServerDeps) {
               break;
             }
             updateTokenPosition(db, msg.tokenId, msg.x, msg.y);
-            const moved = serializeMessage({
-              type: "token:moved",
-              tokenId: msg.tokenId,
-              x: msg.x,
-              y: msg.y,
-            });
-            ws.send(moved);
 
             if (token.image_id === null) {
               // A player token belongs to the adventure and stands on whatever is presented, so its
@@ -461,7 +433,7 @@ export function createWsHandlers(deps: ServerDeps) {
             }
             // A monster belongs to one page. Dragging one on a page in preparation is stored and
             // silent, the same rule fog follows — and it is not a walk, so nothing is remembered.
-            if (reachesTable(token.image_id, presentedPage(db, adventureId))) ws.publish(topic, moved);
+            tell(db, ws, token.image_id, { type: "token:moved", tokenId: msg.tokenId, x: msg.x, y: msg.y });
             break;
           }
 
@@ -654,18 +626,11 @@ export function createWsHandlers(deps: ServerDeps) {
 
           case "fog:action:end": {
             if (conn.role !== "gm") break;
-            const page = resolvePage(db, adventureId, msg.imageId);
-            if (!page) break;
-            const session = fog.peek(page.imageId);
+            if (!imageBelongsToAdventure(db, msg.imageId, adventureId)) break;
+            const session = fog.peek(msg.imageId);
             if (!session) break;
             session.commit();
-            ws.send(
-              serializeMessage({
-                type: "fog:history",
-                imageId: page.imageId,
-                ...fog.historyState(page.imageId),
-              })
-            );
+            ws.send(serializeMessage({ type: "fog:history", imageId: msg.imageId, ...fog.historyState(msg.imageId) }));
             break;
           }
 
@@ -673,15 +638,8 @@ export function createWsHandlers(deps: ServerDeps) {
           // buttons need its state. `historyState` reads what is resident and never loads a mask.
           case "fog:history:query": {
             if (conn.role !== "gm") break;
-            const page = resolvePage(db, adventureId, msg.imageId);
-            if (!page) break;
-            ws.send(
-              serializeMessage({
-                type: "fog:history",
-                imageId: page.imageId,
-                ...fog.historyState(page.imageId),
-              })
-            );
+            if (!imageBelongsToAdventure(db, msg.imageId, adventureId)) break;
+            ws.send(serializeMessage({ type: "fog:history", imageId: msg.imageId, ...fog.historyState(msg.imageId) }));
             break;
           }
 
@@ -691,12 +649,11 @@ export function createWsHandlers(deps: ServerDeps) {
               refuse(ws, "Only GM can undo fog strokes");
               break;
             }
-            const page = resolvePage(db, adventureId, msg.imageId);
-            if (!page) {
+            if (!imageBelongsToAdventure(db, msg.imageId, adventureId)) {
               refuse(ws, "No such page");
               break;
             }
-            const imageId = page.imageId;
+            const imageId = msg.imageId;
             let session: FogSession;
             try {
               session = await fog.open(imageId);
@@ -712,14 +669,8 @@ export function createWsHandlers(deps: ServerDeps) {
               break;
             }
 
-            const resetMsg = serializeMessage({
-              type: "fog:reset",
-              imageId,
-              fogMask: await session.toBase64(),
-            });
             // The GM always sees their own step; the table only when it is the page on it.
-            ws.send(resetMsg);
-            if (page.isLive) ws.publish(topic, resetMsg);
+            tell(db, ws, imageId, { type: "fog:reset", imageId, fogMask: await session.toBase64() });
             ws.send(serializeMessage({ type: "fog:history", imageId, ...fog.historyState(imageId) }));
             break;
           }
@@ -729,8 +680,7 @@ export function createWsHandlers(deps: ServerDeps) {
               refuse(ws, "Only GM can place tokens");
               break;
             }
-            const page = resolvePage(db, adventureId, msg.imageId);
-            if (!page) {
+            if (!imageBelongsToAdventure(db, msg.imageId, adventureId)) {
               refuse(ws, "No such page to place token on");
               break;
             }
@@ -742,12 +692,10 @@ export function createWsHandlers(deps: ServerDeps) {
               tokenType: msg.tokenType,
               x: msg.x,
               y: msg.y,
-              imageId: page.imageId,
+              imageId: msg.imageId,
             });
-            const placedMsg = serializeMessage({ type: 'gm_token:added', token: placed });
-            ws.send(placedMsg);
             // A monster prepared on a page nobody is looking at waits there in silence.
-            if (page.isLive) ws.publish(topic, placedMsg);
+            tell(db, ws, msg.imageId, { type: 'gm_token:added', token: placed });
             break;
           }
 
@@ -762,10 +710,8 @@ export function createWsHandlers(deps: ServerDeps) {
               break;
             }
             deleteToken(db, msg.tokenId);
-            const removedMsg = serializeMessage({ type: "token:removed", tokenId: msg.tokenId });
-            ws.send(removedMsg);
             // A monster the players never received must not have its removal announced either.
-            if (reachesTable(target.image_id, presentedPage(db, adventureId))) ws.publish(topic, removedMsg);
+            tell(db, ws, target.image_id, { type: "token:removed", tokenId: msg.tokenId });
             break;
           }
 
@@ -789,13 +735,7 @@ export function createWsHandlers(deps: ServerDeps) {
               break;
             }
             renameToken(db, msg.tokenId, name);
-            const renamedMsg = serializeMessage({
-              type: "token:renamed",
-              tokenId: msg.tokenId,
-              name,
-            });
-            ws.send(renamedMsg);
-            if (reachesTable(target.image_id, presentedPage(db, adventureId))) ws.publish(topic, renamedMsg);
+            tell(db, ws, target.image_id, { type: "token:renamed", tokenId: msg.tokenId, name });
             break;
           }
 
@@ -811,15 +751,8 @@ export function createWsHandlers(deps: ServerDeps) {
             }
             // A player token is accepted here — deliberately, and unlike rename. The GM adjudicates
             // every token's state, so this is the one message that writes to a player's token.
-            const state = msg.state;
-            setTokenState(db, msg.tokenId, state);
-            const stateMsg = serializeMessage({
-              type: "token:state:set",
-              tokenId: msg.tokenId,
-              state,
-            });
-            ws.send(stateMsg);
-            if (reachesTable(target.image_id, presentedPage(db, adventureId))) ws.publish(topic, stateMsg);
+            setTokenState(db, msg.tokenId, msg.state);
+            tell(db, ws, target.image_id, { type: "token:state:set", tokenId: msg.tokenId, state: msg.state });
             break;
           }
 
@@ -868,10 +801,8 @@ export function createWsHandlers(deps: ServerDeps) {
             });
             // The swept-away records go first, so nobody watches the new pip appear beside the old
             // one. Records on a page nobody is looking at go quietly, like everything else off it.
-            publishCleared(ws, topic, cleared.filter((d) => d.image_id === liveImageId).map((d) => d.id));
-            const opened = serializeMessage({ type: "declaration:opened", declaration });
-            ws.send(opened);
-            ws.publish(topic, opened);
+            publishCleared(db, ws, liveImageId, cleared.filter((d) => d.image_id === liveImageId).map((d) => d.id));
+            tell(db, ws, liveImageId, { type: "declaration:opened", declaration });
             break;
           }
 
@@ -891,7 +822,7 @@ export function createWsHandlers(deps: ServerDeps) {
               break;
             }
             deleteDeclaration(db, declaration.id);
-            publishCleared(ws, topic, [declaration.id], reachesTable(declaration.image_id, presentedPage(db, adventureId)));
+            publishCleared(db, ws, declaration.image_id, [declaration.id]);
             break;
           }
 
@@ -909,7 +840,7 @@ export function createWsHandlers(deps: ServerDeps) {
             // control is what says so — this can never destroy an exchange nobody has seen.
             const resolved = getResolvedByImage(db, liveImageId);
             for (const row of resolved) deleteDeclaration(db, row.id);
-            publishCleared(ws, topic, resolved.map((d) => d.id));
+            publishCleared(db, ws, liveImageId, resolved.map((d) => d.id));
             break;
           }
 
@@ -936,7 +867,7 @@ export function createWsHandlers(deps: ServerDeps) {
               break;
             }
             answerDeclaration(db, declaration.id, msg.parried);
-            publishDeclaration(db, ws, topic, adventureId, declaration.id);
+            publishDeclaration(db, ws, declaration.id);
             break;
           }
 
@@ -969,7 +900,7 @@ export function createWsHandlers(deps: ServerDeps) {
               break;
             }
             setDeclarationDamage(db, declaration.id, damage);
-            publishDeclaration(db, ws, topic, adventureId, declaration.id);
+            publishDeclaration(db, ws, declaration.id);
             break;
           }
 
