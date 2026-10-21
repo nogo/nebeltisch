@@ -92,10 +92,12 @@ async function run(file: string, tests: string[], jobs: number): Promise<void> {
   const all = mutants(original);
   console.log(`${file}: ${all.length} mutants, ${jobs} jobs`);
 
-  const tracked = Bun.spawnSync(["git", "ls-files"], { cwd: root }).stdout.toString().trim().split("\n");
+  // Untracked files too: the test just written to kill a mutant is usually not committed yet.
+  const files = Bun.spawnSync(["git", "ls-files", "--cached", "--others", "--exclude-standard"], { cwd: root })
+    .stdout.toString().trim().split("\n");
   const copies = Array.from({ length: jobs }, () => {
     const dir = mkdtempSync(join(tmpdir(), "nebeltisch-mutate-"));
-    for (const path of tracked) {
+    for (const path of files) {
       mkdirSync(dirname(join(dir, path)), { recursive: true });
       cpSync(join(root, path), join(dir, path));
     }
