@@ -321,6 +321,22 @@ body.home {
   cursor: pointer;
   transition: background 150ms, color 150ms;
 }
+#back-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  margin-left: -8px;
+  border-radius: 8px;
+  color: inherit;
+  transition: background 150ms, color 150ms;
+}
+#back-link:hover { background: rgba(255,255,255,0.07); color: #fff; }
+#back-link:focus-visible { outline: 2px solid #aab0ff; outline-offset: 2px; }
+/* The link takes the bar's leading edge, so the name no longer needs to pull itself onto it. */
+#back-link + #settings-btn { margin-left: -0.5rem; }
 #settings-btn:hover { background: rgba(255,255,255,0.07); color: #fff; }
 #settings-btn.active { background: rgba(74, 74, 255, 0.18); color: #fff; }
 #settings-btn svg { flex-shrink: 0; opacity: 0.5; }
