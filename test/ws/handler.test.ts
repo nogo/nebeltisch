@@ -741,6 +741,73 @@ describe("WebSocket handler", () => {
     expect(err.message).toBeDefined();
   });
 
+  // One player's malformed message used to throw inside the handler and exit the process, taking
+  // every table on the server with it.
+  it("a malformed message from a player is refused and the server stays up", async () => {
+    const player = track(
+      await connectWS(ts.wsUrl, {
+        adventureId,
+        role: "player",
+        playerLink,
+        playerName: "Alice",
+        playerColor: "#ff0000",
+      })
+    );
+    const { yourTokenId } = await waitForMessage(player, "joined");
+
+    const errPromise = waitForMessage(player, "error");
+    player.send(JSON.stringify({ type: "token:move", tokenId: yourTokenId, x: { a: 1 }, y: 0 }));
+    expect((await errPromise).message).toBe("Invalid message format");
+
+    const pong = waitForMessage(player, "pong");
+    player.send(JSON.stringify({ type: "ping" }));
+    await pong;
+  });
+
+  it("an id that is not a string is refused, not passed to SQLite", async () => {
+    const player = track(
+      await connectWS(ts.wsUrl, {
+        adventureId,
+        role: "player",
+        playerLink,
+        playerName: "Alice",
+        playerColor: "#ff0000",
+      })
+    );
+    await waitForMessage(player, "joined");
+
+    for (const msg of [
+      { type: "declaration:open", targetId: { a: 1 } },
+      { type: "declaration:retract", declarationId: [1] },
+      { type: "declaration:answer", declarationId: {}, parried: true },
+      { type: "declaration:damage", declarationId: {}, damage: 3 },
+    ]) {
+      const errPromise = waitForMessage(player, "error");
+      player.send(JSON.stringify(msg));
+      expect((await errPromise).message).toBe("Invalid message format");
+    }
+  });
+
+  it("a stroke batch that is not a short list of strokes is refused", async () => {
+    const gm = track(await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword }));
+    await waitForMessage(gm, "joined");
+    const stroke = { x: 10, y: 10, radius: 5, mode: "reveal" };
+
+    for (const strokes of [5, [{ ...stroke, radius: "big" }], Array(10_000).fill(stroke)]) {
+      const errPromise = waitForMessage(gm, "error");
+      gm.send(JSON.stringify({ type: "fog:stroke:batch", imageId, strokes }));
+      expect((await errPromise).message).toBe("Invalid message format");
+    }
+  });
+
+  it("an unknown message type is still reported as unknown", async () => {
+    const gm = track(await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword }));
+    await waitForMessage(gm, "joined");
+    const errPromise = waitForMessage(gm, "error");
+    gm.send(JSON.stringify({ type: "dance" }));
+    expect((await errPromise).message).toBe("Unknown message type");
+  });
+
   // ---- Fog undo history (server-owned) ----
 
   async function connectGm() {

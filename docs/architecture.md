@@ -239,7 +239,7 @@ Schema changes are `ALTER TABLE`/`CREATE TABLE IF NOT EXISTS` statements wrapped
 Rules for new code. Where a change conflicts with one of these, the conflict is the thing to discuss.
 
 **A principle is a rule, not a claim about the code.** Most were written the day something violated
-them, and one is still violated today — it says so and names the issue. A principle marked
+them, and one that is still violated says so and names the issue. A principle marked
 **[violated]** binds new code exactly as hard as the others; it just means the existing breach is
 tracked rather than forgotten. When the issue closes, remove the marker.
 
@@ -285,11 +285,11 @@ Fog was the case that proved it: masks, histories and save timers sat at module 
 
 Fog also proved the second half of the rule: **a feature can change what "grows" means.** preparing unpresented pages did not add per-entity state, it changed how much of the existing state one sitting touches, and the per-adventure eviction that had been sufficient never fires during a sitting. When a change alters the access pattern of a bounded cache, the bound is part of that change.
 
-### 9. Never trust a client-supplied array to be small **[violated — #12]**
+### 9. Never trust a client-supplied array to be small
 
 `fog:stroke:batch` and similar messages carry unbounded arrays that are replayed server-side. Validate shape and cap length.
 
-`parseMessage` still casts without checking any field, and neither `fog:stroke:batch` nor `fog:undo` is capped. Both paths are GM-authenticated, which bounds the blast radius to a GM degrading their own table — it does not make the arrays bounded.
+`parseMessage` holds the shape of every client message in one table, `SHAPES` in `ws/messages.ts`, and a message type or field missing from it is a compile error. A field of the wrong type is refused there, before a handler or SQLite sees it — one such field from a player used to exit the process. Handlers keep the rules that need state: who may send it, and whether a number makes sense for the table.
 
 ### 10. Verify against reality before building on an assumption
 

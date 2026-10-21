@@ -154,17 +154,14 @@ function sendToGms(adventureId: string, message: string): void {
  * adventure topic *only* when that page is `active_image_id`. The GM's phase never reaches here —
  * if it did, what the players see would depend on a browser's opinion (#51).
  *
- * Null means the id is not a page of this adventure. The wire is cast, not validated
- * (`parseMessage`), so the type check is part of the job.
+ * Null means the id is not a page of this adventure.
  */
 function resolvePage(
   db: Database,
   adventureId: string,
-  imageId: unknown
+  imageId: string
 ): { imageId: string; isLive: boolean } | null {
-  if (typeof imageId !== "string" || !imageBelongsToAdventure(db, imageId, adventureId)) {
-    return null;
-  }
+  if (!imageBelongsToAdventure(db, imageId, adventureId)) return null;
   return {
     imageId,
     isLive: getAdventure(db, adventureId)?.active_image_id === imageId,
@@ -398,710 +395,716 @@ export function createWsHandlers(deps: ServerDeps) {
       const conn = getConnection(ws);
       if (!conn) return;
 
-      const msg = parseMessage(typeof raw === "string" ? raw : raw.toString());
-      if (!msg) {
-        ws.send(serializeMessage({ type: "error", message: "Invalid message format" }));
+      const parsed = parseMessage(typeof raw === "string" ? raw : raw.toString());
+      if ("error" in parsed) {
+        ws.send(serializeMessage({ type: "error", message: parsed.error }));
         return;
       }
+      const msg = parsed.message;
 
       const { adventureId } = conn;
       const topic = `adventure:${adventureId}`;
       const fog = deps.fog.forAdventure(adventureId);
 
-      switch (msg.type) {
-        case "join": {
-          ws.send(serializeMessage({ type: "error", message: "Already joined" }));
-          break;
-        }
+      // The last net. A throw that escapes this async handler exits the process, and with it every
+      // table on the server — so one bad message costs its sender an error and nothing more.
+      try {
+        switch (msg.type) {
+          case "join": {
+            ws.send(serializeMessage({ type: "error", message: "Already joined" }));
+            break;
+          }
 
-        case "fog:stroke": {
-          if (conn.role !== "gm") {
-            ws.send(serializeMessage({ type: "error", message: "Only GM can send fog strokes" }));
+          case "fog:stroke": {
+            if (conn.role !== "gm") {
+              ws.send(serializeMessage({ type: "error", message: "Only GM can send fog strokes" }));
+              break;
+            }
+            const page = resolvePage(db, adventureId, msg.imageId);
+            if (!page) {
+              ws.send(serializeMessage({ type: "error", message: "No such page" }));
+              break;
+            }
+            let session: FogSession;
+            try {
+              session = await fog.open(page.imageId);
+            } catch {
+              // A map whose dimensions never parsed has no mask to paint on. Left
+              // unguarded this rejection escapes the handler and exits the process.
+              ws.send(serializeMessage({ type: "error", message: "Map dimensions unknown" }));
+              break;
+            }
+            session.applyStrokes([msg.stroke]);
+            // Stored on every page; heard on one. A page in preparation is silent.
+            if (page.isLive) {
+              ws.publish(
+                topic,
+                serializeMessage({ type: "fog:stroke", stroke: msg.stroke, imageId: page.imageId })
+              );
+            }
             break;
           }
-          const page = resolvePage(db, adventureId, msg.imageId);
-          if (!page) {
-            ws.send(serializeMessage({ type: "error", message: "No such page" }));
-            break;
-          }
-          let session: FogSession;
-          try {
-            session = await fog.open(page.imageId);
-          } catch {
-            // A map whose dimensions never parsed has no mask to paint on. Left
-            // unguarded this rejection escapes the handler and exits the process.
-            ws.send(serializeMessage({ type: "error", message: "Map dimensions unknown" }));
-            break;
-          }
-          session.applyStrokes([msg.stroke]);
-          // Stored on every page; heard on one. A page in preparation is silent.
-          if (page.isLive) {
-            ws.publish(
-              topic,
-              serializeMessage({ type: "fog:stroke", stroke: msg.stroke, imageId: page.imageId })
-            );
-          }
-          break;
-        }
 
-        case "fog:stroke:batch": {
-          if (conn.role !== "gm") {
-            ws.send(serializeMessage({ type: "error", message: "Only GM can send fog strokes" }));
+          case "fog:stroke:batch": {
+            if (conn.role !== "gm") {
+              ws.send(serializeMessage({ type: "error", message: "Only GM can send fog strokes" }));
+              break;
+            }
+            const page = resolvePage(db, adventureId, msg.imageId);
+            if (!page) {
+              ws.send(serializeMessage({ type: "error", message: "No such page" }));
+              break;
+            }
+            let session: FogSession;
+            try {
+              session = await fog.open(page.imageId);
+            } catch {
+              ws.send(serializeMessage({ type: "error", message: "Map dimensions unknown" }));
+              break;
+            }
+            session.applyStrokes(msg.strokes);
+            if (page.isLive) {
+              ws.publish(
+                topic,
+                serializeMessage({
+                  type: "fog:stroke:batch",
+                  strokes: msg.strokes,
+                  imageId: page.imageId,
+                })
+              );
+            }
             break;
           }
-          const page = resolvePage(db, adventureId, msg.imageId);
-          if (!page) {
-            ws.send(serializeMessage({ type: "error", message: "No such page" }));
+
+          case "token:move": {
+            if (conn.role !== "gm" && (!conn.tokenId || conn.tokenId !== msg.tokenId)) {
+              ws.send(serializeMessage({ type: "error", message: "You do not own this token" }));
+              break;
+            }
+            const token = getToken(db, msg.tokenId);
+            if (!token || token.adventure_id !== adventureId) {
+              ws.send(serializeMessage({ type: "error", message: "Token not found" }));
+              break;
+            }
+            updateTokenPosition(db, msg.tokenId, msg.x, msg.y);
+            const activeImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
+            const moved = serializeMessage({
+              type: "token:moved",
+              tokenId: msg.tokenId,
+              x: msg.x,
+              y: msg.y,
+            });
+            ws.send(moved);
+
+            if (token.image_id === null) {
+              // A player token belongs to the adventure and stands on whatever is presented, so its
+              // walk is remembered against that page — the only writer of `token_positions` (#46).
+              if (activeImageId) {
+                rememberTokenPosition(db, msg.tokenId, activeImageId, msg.x, msg.y);
+              }
+              ws.publish(topic, moved);
+            } else if (token.image_id === activeImageId) {
+              // A monster belongs to one page. Dragging one on a page in preparation is stored and
+              // silent, the same rule fog follows — and it is not a walk, so nothing is remembered.
+              ws.publish(topic, moved);
+            }
             break;
           }
-          let session: FogSession;
-          try {
-            session = await fog.open(page.imageId);
-          } catch {
-            ws.send(serializeMessage({ type: "error", message: "Map dimensions unknown" }));
+
+          case "settings:update": {
+            if (conn.role !== "gm") {
+              ws.send(serializeMessage({ type: "error", message: "Only GM can change settings" }));
+              break;
+            }
+            const newSize = Math.min(100, Math.max(5, Math.round(msg.tokenSize)));
+            setTokenSize(db, adventureId, newSize);
+            const settingsMsg = serializeMessage({ type: "settings:updated", tokenSize: newSize });
+            ws.send(settingsMsg);
+            ws.publish(topic, settingsMsg);
             break;
           }
-          session.applyStrokes(msg.strokes);
-          if (page.isLive) {
-            ws.publish(
-              topic,
+
+          case "map:switch": {
+            if (conn.role !== "gm") {
+              ws.send(serializeMessage({ type: "error", message: "Only GM can switch maps" }));
+              break;
+            }
+            const prevImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
+            try {
+              setActiveImage(db, adventureId, msg.imageId);
+            } catch {
+              ws.send(serializeMessage({ type: "error", message: "Invalid image" }));
+              break;
+            }
+
+            // Move the party onto the new map. Player tokens are adventure-scoped,
+            // so without this they keep coordinates from the previous map and can
+            // land outside a smaller one, where nobody can select them.
+            let playerTokens = getPlayerTokensByAdventure(db, adventureId);
+            if (prevImageId !== msg.imageId && playerTokens.length > 0) {
+              let image = getImage(db, msg.imageId);
+              if (image && (image.width === 0 || image.height === 0) && uploadsDir) {
+                repairImageDimensions(db, msg.imageId, uploadsDir);
+                image = getImage(db, msg.imageId) ?? image;
+              }
+              if (image && image.width > 0 && image.height > 0) {
+                const tokenSize = getAdventure(db, adventureId)?.token_size ?? 20;
+                const remembered = getRememberedPositions(db, msg.imageId);
+                // Only tokens that have never stood on this map get placed at the
+                // start point; the rest return to where they last were.
+                const arriving = playerTokens.filter((t) => !remembered.has(t.id));
+                const positions = scatterPositions(
+                  arriving.length,
+                  image.start_x ?? image.width / 2,
+                  image.start_y ?? image.height / 2,
+                  image.width,
+                  image.height,
+                  tokenSize
+                );
+                const margin = Math.min(tokenSize, image.width / 2, image.height / 2);
+                let arrivingIndex = 0;
+                for (const t of playerTokens) {
+                  const previous = remembered.get(t.id);
+                  const pos = previous
+                    ? {
+                        // Only rescue positions outside the image. The player chose
+                        // this spot and token:move does not clamp, so the margin
+                        // applied to arrivals must not drag them off it.
+                        x: Math.round(Math.min(image.width, Math.max(0, previous.x))),
+                        y: Math.round(Math.min(image.height, Math.max(0, previous.y))),
+                      }
+                    : positions[arrivingIndex++];
+                  updateTokenPosition(db, t.id, pos.x, pos.y);
+                  // Arrival is deliberately *not* remembered (#46). Recording it made the very first
+                  // visit consume the start point permanently, including a visit the GM made alone to
+                  // paint fog. `token:move` is the only writer of token_positions, so a remembered
+                  // position always means a token actually walked there.
+                }
+                playerTokens = getPlayerTokensByAdventure(db, adventureId);
+              }
+            }
+
+            let fogMask: string | null = null;
+            try {
+              fogMask = await (await fog.open(msg.imageId)).toBase64();
+            } catch {
+              fogMask = null;
+            }
+            const newGmTokens = getGmTokensByImage(db, adventureId, msg.imageId);
+            const switched = serializeMessage({
+              type: "map:switched",
+              imageId: msg.imageId,
+              fogMask,
+              gmTokens: newGmTokens,
+              playerTokens,
+              declarations: getDeclarationsByImage(db, msg.imageId),
+            });
+            ws.send(switched);
+            ws.publish(topic, switched);
+            ws.send(
               serializeMessage({
-                type: "fog:stroke:batch",
-                strokes: msg.strokes,
-                imageId: page.imageId,
+                type: "fog:history",
+                imageId: msg.imageId,
+                ...fog.historyState(msg.imageId),
               })
             );
-          }
-          break;
-        }
-
-        case "token:move": {
-          if (conn.role !== "gm" && (!conn.tokenId || conn.tokenId !== msg.tokenId)) {
-            ws.send(serializeMessage({ type: "error", message: "You do not own this token" }));
             break;
           }
-          const token = getToken(db, msg.tokenId);
-          if (!token || token.adventure_id !== adventureId) {
-            ws.send(serializeMessage({ type: "error", message: "Token not found" }));
-            break;
-          }
-          updateTokenPosition(db, msg.tokenId, msg.x, msg.y);
-          const activeImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
-          const moved = serializeMessage({
-            type: "token:moved",
-            tokenId: msg.tokenId,
-            x: msg.x,
-            y: msg.y,
-          });
-          ws.send(moved);
 
-          if (token.image_id === null) {
-            // A player token belongs to the adventure and stands on whatever is presented, so its
-            // walk is remembered against that page — the only writer of `token_positions` (#46).
-            if (activeImageId) {
-              rememberTokenPosition(db, msg.tokenId, activeImageId, msg.x, msg.y);
+          case "map:unpresent": {
+            if (conn.role !== "gm") {
+              ws.send(serializeMessage({ type: "error", message: "Only GM can clear the table" }));
+              break;
             }
-            ws.publish(topic, moved);
-          } else if (token.image_id === activeImageId) {
-            // A monster belongs to one page. Dragging one on a page in preparation is stored and
-            // silent, the same rule fog follows — and it is not a walk, so nothing is remembered.
-            ws.publish(topic, moved);
-          }
-          break;
-        }
-
-        case "settings:update": {
-          if (conn.role !== "gm") {
-            ws.send(serializeMessage({ type: "error", message: "Only GM can change settings" }));
-            break;
-          }
-          const newSize = Math.min(100, Math.max(5, Math.round(Number(msg.tokenSize) || 20)));
-          setTokenSize(db, adventureId, newSize);
-          const settingsMsg = serializeMessage({ type: "settings:updated", tokenSize: newSize });
-          ws.send(settingsMsg);
-          ws.publish(topic, settingsMsg);
-          break;
-        }
-
-        case "map:switch": {
-          if (conn.role !== "gm") {
-            ws.send(serializeMessage({ type: "error", message: "Only GM can switch maps" }));
-            break;
-          }
-          const prevImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
-          try {
-            setActiveImage(db, adventureId, msg.imageId);
-          } catch {
-            ws.send(serializeMessage({ type: "error", message: "Invalid image" }));
+            setActiveImage(db, adventureId, null);
+            // No token is moved and no fog is touched. Taking a page off the table is about what the
+            // players are shown, and everything prepared on that page is waiting when it returns.
+            const unpresented = serializeMessage({ type: "map:unpresented" });
+            ws.send(unpresented);
+            ws.publish(topic, unpresented);
             break;
           }
 
-          // Move the party onto the new map. Player tokens are adventure-scoped,
-          // so without this they keep coordinates from the previous map and can
-          // land outside a smaller one, where nobody can select them.
-          let playerTokens = getPlayerTokensByAdventure(db, adventureId);
-          if (prevImageId !== msg.imageId && playerTokens.length > 0) {
-            let image = getImage(db, msg.imageId);
-            if (image && (image.width === 0 || image.height === 0) && uploadsDir) {
-              repairImageDimensions(db, msg.imageId, uploadsDir);
-              image = getImage(db, msg.imageId) ?? image;
+          case "map:start_point": {
+            if (conn.role !== "gm") {
+              ws.send(serializeMessage({ type: "error", message: "Only GM can set the start point" }));
+              break;
             }
-            if (image && image.width > 0 && image.height > 0) {
-              const tokenSize = getAdventure(db, adventureId)?.token_size ?? 20;
-              const remembered = getRememberedPositions(db, msg.imageId);
-              // Only tokens that have never stood on this map get placed at the
-              // start point; the rest return to where they last were.
-              const arriving = playerTokens.filter((t) => !remembered.has(t.id));
-              const positions = scatterPositions(
-                arriving.length,
-                image.start_x ?? image.width / 2,
-                image.start_y ?? image.height / 2,
-                image.width,
-                image.height,
-                tokenSize
-              );
-              const margin = Math.min(tokenSize, image.width / 2, image.height / 2);
-              let arrivingIndex = 0;
-              for (const t of playerTokens) {
-                const previous = remembered.get(t.id);
-                const pos = previous
-                  ? {
-                      // Only rescue positions outside the image. The player chose
-                      // this spot and token:move does not clamp, so the margin
-                      // applied to arrivals must not drag them off it.
-                      x: Math.round(Math.min(image.width, Math.max(0, previous.x))),
-                      y: Math.round(Math.min(image.height, Math.max(0, previous.y))),
-                    }
-                  : positions[arrivingIndex++];
-                updateTokenPosition(db, t.id, pos.x, pos.y);
-                // Arrival is deliberately *not* remembered (#46). Recording it made the very first
-                // visit consume the start point permanently, including a visit the GM made alone to
-                // paint fog. `token:move` is the only writer of token_positions, so a remembered
-                // position always means a token actually walked there.
-              }
-              playerTokens = getPlayerTokensByAdventure(db, adventureId);
+            const image = getImage(db, msg.imageId);
+            if (!image || image.adventure_id !== adventureId) {
+              ws.send(serializeMessage({ type: "error", message: "Image not found" }));
+              break;
             }
-          }
-
-          let fogMask: string | null = null;
-          try {
-            fogMask = await (await fog.open(msg.imageId)).toBase64();
-          } catch {
-            fogMask = null;
-          }
-          const newGmTokens = getGmTokensByImage(db, adventureId, msg.imageId);
-          const switched = serializeMessage({
-            type: "map:switched",
-            imageId: msg.imageId,
-            fogMask,
-            gmTokens: newGmTokens,
-            playerTokens,
-            declarations: getDeclarationsByImage(db, msg.imageId),
-          });
-          ws.send(switched);
-          ws.publish(topic, switched);
-          ws.send(
-            serializeMessage({
-              type: "fog:history",
-              imageId: msg.imageId,
-              ...fog.historyState(msg.imageId),
-            })
-          );
-          break;
-        }
-
-        case "map:unpresent": {
-          if (conn.role !== "gm") {
-            ws.send(serializeMessage({ type: "error", message: "Only GM can clear the table" }));
-            break;
-          }
-          setActiveImage(db, adventureId, null);
-          // No token is moved and no fog is touched. Taking a page off the table is about what the
-          // players are shown, and everything prepared on that page is waiting when it returns.
-          const unpresented = serializeMessage({ type: "map:unpresented" });
-          ws.send(unpresented);
-          ws.publish(topic, unpresented);
-          break;
-        }
-
-        case "map:start_point": {
-          if (conn.role !== "gm") {
-            ws.send(serializeMessage({ type: "error", message: "Only GM can set the start point" }));
-            break;
-          }
-          const image = getImage(db, msg.imageId);
-          if (!image || image.adventure_id !== adventureId) {
-            ws.send(serializeMessage({ type: "error", message: "Image not found" }));
-            break;
-          }
-          // The lock outlives the browser tab that set it, so the server enforces it rather than
-          // trusting a client not to send (principle 1).
-          if (image.start_locked) {
-            ws.send(serializeMessage({ type: "error", message: "This start point is locked" }));
-            break;
-          }
-          const clearing = msg.x === null || msg.y === null;
-          const x = clearing ? null : Math.round(Math.min(image.width, Math.max(0, Number(msg.x) || 0)));
-          const y = clearing ? null : Math.round(Math.min(image.height, Math.max(0, Number(msg.y) || 0)));
-          setStartPoint(db, msg.imageId, x, y);
-          // Remembered positions are left alone. They mean a token walked there, and the flag
-          // governs first entry while walking governs return — moving one must not erase the other
-          // (#57). The clear that used to live here compensated for #46 and retires with it.
-          // GM-only: players must never learn where the party will appear. A GM may have the board
-          // open on two devices, so this fans out to GM sockets only — never the adventure topic.
-          sendToGms(
-            adventureId,
-            serializeMessage({
-              type: "map:start_point:set",
-              imageId: msg.imageId,
-              x,
-              y,
-              locked: false,
-            })
-          );
-          break;
-        }
-
-        case "map:start_point:lock": {
-          if (conn.role !== "gm") {
-            ws.send(serializeMessage({ type: "error", message: "Only GM can lock the start point" }));
-            break;
-          }
-          const image = getImage(db, msg.imageId);
-          if (!image || image.adventure_id !== adventureId) {
-            ws.send(serializeMessage({ type: "error", message: "Image not found" }));
-            break;
-          }
-          setStartLocked(db, msg.imageId, msg.locked);
-          // Same GM-only path, and the same message, so the client has one place to read the start
-          // point's whole state from. This must not use the player-visible adventure topic.
-          sendToGms(
-            adventureId,
-            serializeMessage({
-              type: "map:start_point:set",
-              imageId: msg.imageId,
-              x: image.start_x,
-              y: image.start_y,
-              locked: msg.locked,
-            })
-          );
-          break;
-        }
-
-        case "player:remove": {
-          if (conn.role !== "gm") {
-            ws.send(serializeMessage({ type: "error", message: "Only GM can remove players" }));
-            break;
-          }
-          const tokens = getTokensByAdventure(db, adventureId);
-          const target = tokens.find((t) => t.id === msg.tokenId);
-          if (!target) {
-            ws.send(serializeMessage({ type: "error", message: "Token not found" }));
+            // The lock outlives the browser tab that set it, so the server enforces it rather than
+            // trusting a client not to send (principle 1).
+            if (image.start_locked) {
+              ws.send(serializeMessage({ type: "error", message: "This start point is locked" }));
+              break;
+            }
+            const point =
+              msg.x === null || msg.y === null
+                ? null
+                : {
+                    x: Math.round(Math.min(image.width, Math.max(0, msg.x))),
+                    y: Math.round(Math.min(image.height, Math.max(0, msg.y))),
+                  };
+            const x = point?.x ?? null;
+            const y = point?.y ?? null;
+            setStartPoint(db, msg.imageId, x, y);
+            // Remembered positions are left alone. They mean a token walked there, and the flag
+            // governs first entry while walking governs return — moving one must not erase the other
+            // (#57). The clear that used to live here compensated for #46 and retires with it.
+            // GM-only: players must never learn where the party will appear. A GM may have the board
+            // open on two devices, so this fans out to GM sockets only — never the adventure topic.
+            sendToGms(
+              adventureId,
+              serializeMessage({
+                type: "map:start_point:set",
+                imageId: msg.imageId,
+                x,
+                y,
+                locked: false,
+              })
+            );
             break;
           }
 
-          // Notify the player they've been removed (if connected), then close their WS
-          const playerWs = getWsForToken(adventureId, msg.tokenId);
-          if (playerWs) {
-            playerWs.send(serializeMessage({ type: "player:removed" }));
-            playerWs.close(4000, "removed");
-          }
-
-          deleteToken(db, msg.tokenId);
-          ws.publish(topic, serializeMessage({ type: "token:removed", tokenId: msg.tokenId }));
-
-          // Send updated roster after deletion
-          sendRosterToGm(db, adventureId);
-          break;
-        }
-
-        case "fog:action:end": {
-          if (conn.role !== "gm") break;
-          const page = resolvePage(db, adventureId, msg.imageId);
-          if (!page) break;
-          const session = fog.peek(page.imageId);
-          if (!session) break;
-          session.commit();
-          ws.send(
-            serializeMessage({
-              type: "fog:history",
-              imageId: page.imageId,
-              ...fog.historyState(page.imageId),
-            })
-          );
-          break;
-        }
-
-        // History is per page and server-owned, so selecting a page on the board is when the GM's
-        // buttons need its state. `historyState` reads what is resident and never loads a mask.
-        case "fog:history:query": {
-          if (conn.role !== "gm") break;
-          const page = resolvePage(db, adventureId, msg.imageId);
-          if (!page) break;
-          ws.send(
-            serializeMessage({
-              type: "fog:history",
-              imageId: page.imageId,
-              ...fog.historyState(page.imageId),
-            })
-          );
-          break;
-        }
-
-        case "fog:undo":
-        case "fog:redo": {
-          if (conn.role !== "gm") {
-            ws.send(serializeMessage({ type: "error", message: "Only GM can undo fog strokes" }));
-            break;
-          }
-          const page = resolvePage(db, adventureId, msg.imageId);
-          if (!page) {
-            ws.send(serializeMessage({ type: "error", message: "No such page" }));
-            break;
-          }
-          const imageId = page.imageId;
-          let session: FogSession;
-          try {
-            session = await fog.open(imageId);
-          } catch {
-            ws.send(serializeMessage({ type: "error", message: "Image not found" }));
+          case "map:start_point:lock": {
+            if (conn.role !== "gm") {
+              ws.send(serializeMessage({ type: "error", message: "Only GM can lock the start point" }));
+              break;
+            }
+            const image = getImage(db, msg.imageId);
+            if (!image || image.adventure_id !== adventureId) {
+              ws.send(serializeMessage({ type: "error", message: "Image not found" }));
+              break;
+            }
+            setStartLocked(db, msg.imageId, msg.locked);
+            // Same GM-only path, and the same message, so the client has one place to read the start
+            // point's whole state from. This must not use the player-visible adventure topic.
+            sendToGms(
+              adventureId,
+              serializeMessage({
+                type: "map:start_point:set",
+                imageId: msg.imageId,
+                x: image.start_x,
+                y: image.start_y,
+                locked: msg.locked,
+              })
+            );
             break;
           }
 
-          // Nothing to step to — report the unchanged button state and stop.
-          const stepped = msg.type === "fog:undo" ? session.undo() : session.redo();
-          if (!stepped) {
+          case "player:remove": {
+            if (conn.role !== "gm") {
+              ws.send(serializeMessage({ type: "error", message: "Only GM can remove players" }));
+              break;
+            }
+            const tokens = getTokensByAdventure(db, adventureId);
+            const target = tokens.find((t) => t.id === msg.tokenId);
+            if (!target) {
+              ws.send(serializeMessage({ type: "error", message: "Token not found" }));
+              break;
+            }
+
+            // Notify the player they've been removed (if connected), then close their WS
+            const playerWs = getWsForToken(adventureId, msg.tokenId);
+            if (playerWs) {
+              playerWs.send(serializeMessage({ type: "player:removed" }));
+              playerWs.close(4000, "removed");
+            }
+
+            deleteToken(db, msg.tokenId);
+            ws.publish(topic, serializeMessage({ type: "token:removed", tokenId: msg.tokenId }));
+
+            // Send updated roster after deletion
+            sendRosterToGm(db, adventureId);
+            break;
+          }
+
+          case "fog:action:end": {
+            if (conn.role !== "gm") break;
+            const page = resolvePage(db, adventureId, msg.imageId);
+            if (!page) break;
+            const session = fog.peek(page.imageId);
+            if (!session) break;
+            session.commit();
+            ws.send(
+              serializeMessage({
+                type: "fog:history",
+                imageId: page.imageId,
+                ...fog.historyState(page.imageId),
+              })
+            );
+            break;
+          }
+
+          // History is per page and server-owned, so selecting a page on the board is when the GM's
+          // buttons need its state. `historyState` reads what is resident and never loads a mask.
+          case "fog:history:query": {
+            if (conn.role !== "gm") break;
+            const page = resolvePage(db, adventureId, msg.imageId);
+            if (!page) break;
+            ws.send(
+              serializeMessage({
+                type: "fog:history",
+                imageId: page.imageId,
+                ...fog.historyState(page.imageId),
+              })
+            );
+            break;
+          }
+
+          case "fog:undo":
+          case "fog:redo": {
+            if (conn.role !== "gm") {
+              ws.send(serializeMessage({ type: "error", message: "Only GM can undo fog strokes" }));
+              break;
+            }
+            const page = resolvePage(db, adventureId, msg.imageId);
+            if (!page) {
+              ws.send(serializeMessage({ type: "error", message: "No such page" }));
+              break;
+            }
+            const imageId = page.imageId;
+            let session: FogSession;
+            try {
+              session = await fog.open(imageId);
+            } catch {
+              ws.send(serializeMessage({ type: "error", message: "Image not found" }));
+              break;
+            }
+
+            // Nothing to step to — report the unchanged button state and stop.
+            const stepped = msg.type === "fog:undo" ? session.undo() : session.redo();
+            if (!stepped) {
+              ws.send(serializeMessage({ type: "fog:history", imageId, ...fog.historyState(imageId) }));
+              break;
+            }
+
+            const resetMsg = serializeMessage({
+              type: "fog:reset",
+              imageId,
+              fogMask: await session.toBase64(),
+            });
+            // The GM always sees their own step; the table only when it is the page on it.
+            ws.send(resetMsg);
+            if (page.isLive) ws.publish(topic, resetMsg);
             ws.send(serializeMessage({ type: "fog:history", imageId, ...fog.historyState(imageId) }));
             break;
           }
 
-          const resetMsg = serializeMessage({
-            type: "fog:reset",
-            imageId,
-            fogMask: await session.toBase64(),
-          });
-          // The GM always sees their own step; the table only when it is the page on it.
-          ws.send(resetMsg);
-          if (page.isLive) ws.publish(topic, resetMsg);
-          ws.send(serializeMessage({ type: "fog:history", imageId, ...fog.historyState(imageId) }));
-          break;
-        }
-
-        case "gm_token:place": {
-          if (conn.role !== "gm") {
-            ws.send(serializeMessage({ type: "error", message: "Only GM can place tokens" }));
-            break;
-          }
-          const page = resolvePage(db, adventureId, msg.imageId);
-          if (!page) {
-            ws.send(serializeMessage({ type: "error", message: "No such page to place token on" }));
-            break;
-          }
-          const tokenType = msg.tokenType === 'npc' ? 'npc' : 'monster';
-          const color = tokenType === 'monster' ? '#c0392b' : '#7f8c9a';
-          const placed = createToken(db, {
-            adventureId,
-            name: String(msg.name ?? 'Unknown').slice(0, 40),
-            color,
-            tokenType,
-            x: Number(msg.x) || 0,
-            y: Number(msg.y) || 0,
-            imageId: page.imageId,
-          });
-          const placedMsg = serializeMessage({ type: 'gm_token:added', token: placed });
-          ws.send(placedMsg);
-          // A monster prepared on a page nobody is looking at waits there in silence.
-          if (page.isLive) ws.publish(topic, placedMsg);
-          break;
-        }
-
-        case "gm_token:remove": {
-          if (conn.role !== "gm") {
-            ws.send(serializeMessage({ type: "error", message: "Only GM can remove GM tokens" }));
-            break;
-          }
-          const allTokens = getTokensByAdventure(db, adventureId);
-          const target = allTokens.find((t) => t.id === msg.tokenId);
-          if (!target || target.token_type === 'player') {
-            ws.send(serializeMessage({ type: "error", message: "GM token not found" }));
-            break;
-          }
-          deleteToken(db, msg.tokenId);
-          const removedMsg = serializeMessage({ type: "token:removed", tokenId: msg.tokenId });
-          ws.send(removedMsg);
-          // A monster the players never received must not have its removal announced either. A row
-          // with no image predates per-map GM tokens and still belongs to whatever is presented.
-          const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
-          if (target.image_id === null || target.image_id === liveImageId) {
-            ws.publish(topic, removedMsg);
-          }
-          break;
-        }
-
-        case "gm_token:rename": {
-          if (conn.role !== "gm") {
-            ws.send(serializeMessage({ type: "error", message: "Only GM can rename GM tokens" }));
-            break;
-          }
-          const allTokens = getTokensByAdventure(db, adventureId);
-          const target = allTokens.find((t) => t.id === msg.tokenId);
-          if (!target || target.token_type === 'player') {
-            // A player token is refused here rather than filtered by the caller: its name is half
-            // of `playerLink|playerName`, which is how its owner reconnects.
-            ws.send(serializeMessage({ type: "error", message: "GM token not found" }));
-            break;
-          }
-          // The first client-supplied string this handler stores. Principle 9 — cap it at the
-          // length the placement form already accepts rather than trusting what arrives.
-          const name = String(msg.name ?? "").trim().slice(0, 40);
-          if (name === "") {
-            ws.send(serializeMessage({ type: "error", message: "A name is required" }));
-            break;
-          }
-          renameToken(db, msg.tokenId, name);
-          const renamedMsg = serializeMessage({
-            type: "token:renamed",
-            tokenId: msg.tokenId,
-            name,
-          });
-          ws.send(renamedMsg);
-          // Same rule as removal: a monster on a page in preparation is stored and silent.
-          const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
-          if (target.image_id === null || target.image_id === liveImageId) {
-            ws.publish(topic, renamedMsg);
-          }
-          break;
-        }
-
-        case "gm_token:state": {
-          if (conn.role !== "gm") {
-            ws.send(serializeMessage({ type: "error", message: "Only GM can set a token state" }));
-            break;
-          }
-          const allTokens = getTokensByAdventure(db, adventureId);
-          const target = allTokens.find((t) => t.id === msg.tokenId);
-          if (!target) {
-            ws.send(serializeMessage({ type: "error", message: "Token not found" }));
-            break;
-          }
-          // A player token is accepted here — deliberately, and unlike rename. The GM adjudicates
-          // every token's state, so this is the one message that writes to a player's token.
-          const state = msg.state;
-          if (state !== "alive" && state !== "unconscious" && state !== "dead") {
-            ws.send(serializeMessage({ type: "error", message: "Unknown token state" }));
-            break;
-          }
-          setTokenState(db, msg.tokenId, state);
-          const stateMsg = serializeMessage({
-            type: "token:state:set",
-            tokenId: msg.tokenId,
-            state,
-          });
-          ws.send(stateMsg);
-          // Same rule as rename. A player token has no image and is therefore always on the
-          // presented page; a monster prepared on another page is stored and silent.
-          const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
-          if (target.image_id === null || target.image_id === liveImageId) {
-            ws.publish(topic, stateMsg);
-          }
-          break;
-        }
-
-        case "declaration:open": {
-          // The page is the presented one, always. A declaration is something said at the table,
-          // and the table is looking at one page — there is nothing to declare on a page in
-          // preparation, and nothing that would ever be seen.
-          const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
-          if (!liveImageId) {
-            ws.send(serializeMessage({ type: "error", message: "Nothing is on the table" }));
-            break;
-          }
-
-          // The attacker, read off the connection and never off the message. A player has exactly
-          // one token and it is the only thing they may attack from; the GM has no source token at
-          // all. This is the whole of the authorisation rule for the first thing a player writes
-          // that is not their own position — there is nothing here a client could forge.
-          let sourceId: string | null = null;
-          if (conn.role !== "gm") {
-            if (!conn.tokenId) {
-              ws.send(serializeMessage({ type: "error", message: "You have no token" }));
+          case "gm_token:place": {
+            if (conn.role !== "gm") {
+              ws.send(serializeMessage({ type: "error", message: "Only GM can place tokens" }));
               break;
             }
-            sourceId = conn.tokenId;
-          }
-
-          const target = getToken(db, msg.targetId);
-          if (!target || target.adventure_id !== adventureId) {
-            ws.send(serializeMessage({ type: "error", message: "Token not found" }));
-            break;
-          }
-          // A player token has no image and is therefore always on the presented page.
-          if (target.image_id !== null && target.image_id !== liveImageId) {
-            ws.send(serializeMessage({ type: "error", message: "That token is not on the table" }));
-            break;
-          }
-          // The party attacks monsters and the GM attacks the party. Player against player and an
-          // NPC helping the party are both out of scope (#62), and this is where that is true.
-          const targetIsGmToken = target.token_type !== "player";
-          if (sourceId !== null && !targetIsGmToken) {
-            ws.send(serializeMessage({ type: "error", message: "You cannot attack another player" }));
-            break;
-          }
-          if (sourceId === null && targetIsGmToken) {
-            ws.send(serializeMessage({ type: "error", message: "Only the party can be attacked from a monster" }));
+            const page = resolvePage(db, adventureId, msg.imageId);
+            if (!page) {
+              ws.send(serializeMessage({ type: "error", message: "No such page to place token on" }));
+              break;
+            }
+            const color = msg.tokenType === 'monster' ? '#c0392b' : '#7f8c9a';
+            const placed = createToken(db, {
+              adventureId,
+              name: msg.name.slice(0, 40),
+              color,
+              tokenType: msg.tokenType,
+              x: msg.x,
+              y: msg.y,
+              imageId: page.imageId,
+            });
+            const placedMsg = serializeMessage({ type: 'gm_token:added', token: placed });
+            ws.send(placedMsg);
+            // A monster prepared on a page nobody is looking at waits there in silence.
+            if (page.isLive) ws.publish(topic, placedMsg);
             break;
           }
 
-          const { declaration, cleared } = openDeclaration(db, {
-            imageId: liveImageId,
-            sourceId,
-            targetId: target.id,
-          });
-          // The swept-away records go first, so nobody watches the new pip appear beside the old
-          // one. Records on a page nobody is looking at go quietly, like everything else off it.
-          publishCleared(ws, topic, cleared.filter((d) => d.image_id === liveImageId).map((d) => d.id));
-          const opened = serializeMessage({ type: "declaration:opened", declaration });
-          ws.send(opened);
-          ws.publish(topic, opened);
-          break;
+          case "gm_token:remove": {
+            if (conn.role !== "gm") {
+              ws.send(serializeMessage({ type: "error", message: "Only GM can remove GM tokens" }));
+              break;
+            }
+            const allTokens = getTokensByAdventure(db, adventureId);
+            const target = allTokens.find((t) => t.id === msg.tokenId);
+            if (!target || target.token_type === 'player') {
+              ws.send(serializeMessage({ type: "error", message: "GM token not found" }));
+              break;
+            }
+            deleteToken(db, msg.tokenId);
+            const removedMsg = serializeMessage({ type: "token:removed", tokenId: msg.tokenId });
+            ws.send(removedMsg);
+            // A monster the players never received must not have its removal announced either. A row
+            // with no image predates per-map GM tokens and still belongs to whatever is presented.
+            const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
+            if (target.image_id === null || target.image_id === liveImageId) {
+              ws.publish(topic, removedMsg);
+            }
+            break;
+          }
+
+          case "gm_token:rename": {
+            if (conn.role !== "gm") {
+              ws.send(serializeMessage({ type: "error", message: "Only GM can rename GM tokens" }));
+              break;
+            }
+            const allTokens = getTokensByAdventure(db, adventureId);
+            const target = allTokens.find((t) => t.id === msg.tokenId);
+            if (!target || target.token_type === 'player') {
+              // A player token is refused here rather than filtered by the caller: its name is half
+              // of `playerLink|playerName`, which is how its owner reconnects.
+              ws.send(serializeMessage({ type: "error", message: "GM token not found" }));
+              break;
+            }
+            // The first client-supplied string this handler stores. Principle 9 — cap it at the
+            // length the placement form already accepts rather than trusting what arrives.
+            const name = msg.name.trim().slice(0, 40);
+            if (name === "") {
+              ws.send(serializeMessage({ type: "error", message: "A name is required" }));
+              break;
+            }
+            renameToken(db, msg.tokenId, name);
+            const renamedMsg = serializeMessage({
+              type: "token:renamed",
+              tokenId: msg.tokenId,
+              name,
+            });
+            ws.send(renamedMsg);
+            // Same rule as removal: a monster on a page in preparation is stored and silent.
+            const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
+            if (target.image_id === null || target.image_id === liveImageId) {
+              ws.publish(topic, renamedMsg);
+            }
+            break;
+          }
+
+          case "gm_token:state": {
+            if (conn.role !== "gm") {
+              ws.send(serializeMessage({ type: "error", message: "Only GM can set a token state" }));
+              break;
+            }
+            const allTokens = getTokensByAdventure(db, adventureId);
+            const target = allTokens.find((t) => t.id === msg.tokenId);
+            if (!target) {
+              ws.send(serializeMessage({ type: "error", message: "Token not found" }));
+              break;
+            }
+            // A player token is accepted here — deliberately, and unlike rename. The GM adjudicates
+            // every token's state, so this is the one message that writes to a player's token.
+            const state = msg.state;
+            setTokenState(db, msg.tokenId, state);
+            const stateMsg = serializeMessage({
+              type: "token:state:set",
+              tokenId: msg.tokenId,
+              state,
+            });
+            ws.send(stateMsg);
+            // Same rule as rename. A player token has no image and is therefore always on the
+            // presented page; a monster prepared on another page is stored and silent.
+            const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
+            if (target.image_id === null || target.image_id === liveImageId) {
+              ws.publish(topic, stateMsg);
+            }
+            break;
+          }
+
+          case "declaration:open": {
+            // The page is the presented one, always. A declaration is something said at the table,
+            // and the table is looking at one page — there is nothing to declare on a page in
+            // preparation, and nothing that would ever be seen.
+            const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
+            if (!liveImageId) {
+              ws.send(serializeMessage({ type: "error", message: "Nothing is on the table" }));
+              break;
+            }
+
+            // The attacker, read off the connection and never off the message. A player has exactly
+            // one token and it is the only thing they may attack from; the GM has no source token at
+            // all. This is the whole of the authorisation rule for the first thing a player writes
+            // that is not their own position — there is nothing here a client could forge.
+            let sourceId: string | null = null;
+            if (conn.role !== "gm") {
+              if (!conn.tokenId) {
+                ws.send(serializeMessage({ type: "error", message: "You have no token" }));
+                break;
+              }
+              sourceId = conn.tokenId;
+            }
+
+            const target = getToken(db, msg.targetId);
+            if (!target || target.adventure_id !== adventureId) {
+              ws.send(serializeMessage({ type: "error", message: "Token not found" }));
+              break;
+            }
+            // A player token has no image and is therefore always on the presented page.
+            if (target.image_id !== null && target.image_id !== liveImageId) {
+              ws.send(serializeMessage({ type: "error", message: "That token is not on the table" }));
+              break;
+            }
+            // The party attacks monsters and the GM attacks the party. Player against player and an
+            // NPC helping the party are both out of scope (#62), and this is where that is true.
+            const targetIsGmToken = target.token_type !== "player";
+            if (sourceId !== null && !targetIsGmToken) {
+              ws.send(serializeMessage({ type: "error", message: "You cannot attack another player" }));
+              break;
+            }
+            if (sourceId === null && targetIsGmToken) {
+              ws.send(serializeMessage({ type: "error", message: "Only the party can be attacked from a monster" }));
+              break;
+            }
+
+            const { declaration, cleared } = openDeclaration(db, {
+              imageId: liveImageId,
+              sourceId,
+              targetId: target.id,
+            });
+            // The swept-away records go first, so nobody watches the new pip appear beside the old
+            // one. Records on a page nobody is looking at go quietly, like everything else off it.
+            publishCleared(ws, topic, cleared.filter((d) => d.image_id === liveImageId).map((d) => d.id));
+            const opened = serializeMessage({ type: "declaration:opened", declaration });
+            ws.send(opened);
+            ws.publish(topic, opened);
+            break;
+          }
+
+          case "declaration:retract": {
+            const declaration = getDeclaration(db, msg.declarationId);
+            if (!declaration) {
+              ws.send(serializeMessage({ type: "error", message: "Declaration not found" }));
+              break;
+            }
+            if (!imageBelongsToAdventure(db, declaration.image_id, adventureId)) {
+              ws.send(serializeMessage({ type: "error", message: "Declaration not found" }));
+              break;
+            }
+            // Only the one who said it can take it back. The GM's are the sourceless ones, and a
+            // player's are their own token's — the same rule the declaring side is built on.
+            const mine =
+              conn.role === "gm"
+                ? declaration.source_id === null
+                : !!conn.tokenId && declaration.source_id === conn.tokenId;
+            if (!mine) {
+              ws.send(serializeMessage({ type: "error", message: "This is not your declaration" }));
+              break;
+            }
+            deleteDeclaration(db, declaration.id);
+            const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
+            publishCleared(ws, topic, [declaration.id], declaration.image_id === liveImageId);
+            break;
+          }
+
+          case "declaration:clear": {
+            if (conn.role !== "gm") {
+              ws.send(serializeMessage({ type: "error", message: "Only GM can clear the table" }));
+              break;
+            }
+            const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
+            if (!liveImageId) {
+              ws.send(serializeMessage({ type: "error", message: "Nothing is on the table" }));
+              break;
+            }
+            // Answered ones only. What is still open is waiting on somebody, and the count beside the
+            // control is what says so — this can never destroy an exchange nobody has seen.
+            const resolved = getResolvedByImage(db, liveImageId);
+            for (const row of resolved) deleteDeclaration(db, row.id);
+            publishCleared(ws, topic, resolved.map((d) => d.id));
+            break;
+          }
+
+          case "declaration:answer": {
+            const declaration = getDeclaration(db, msg.declarationId);
+            if (!declaration || !imageBelongsToAdventure(db, declaration.image_id, adventureId)) {
+              ws.send(serializeMessage({ type: "error", message: "Declaration not found" }));
+              break;
+            }
+            // Immutable once answered. A record of what happened is not a control, and only
+            // clearing removes it (#73).
+            if (declaration.state !== "open") {
+              ws.send(serializeMessage({ type: "error", message: "This attack has already been answered" }));
+              break;
+            }
+            const target = getToken(db, declaration.target_id);
+            if (!target) {
+              ws.send(serializeMessage({ type: "error", message: "Token not found" }));
+              break;
+            }
+            // The target's owner answers, and nobody else: a player for their own token, the GM for
+            // every monster and NPC. One writer per object, and the object is the declaration.
+            const answersForTarget =
+              target.token_type === "player"
+                ? conn.role !== "gm" && !!conn.tokenId && conn.tokenId === target.id
+                : conn.role === "gm";
+            if (!answersForTarget) {
+              ws.send(serializeMessage({ type: "error", message: "This attack is not aimed at you" }));
+              break;
+            }
+            answerDeclaration(db, declaration.id, msg.parried);
+            publishDeclaration(db, ws, topic, adventureId, declaration.id);
+            break;
+          }
+
+          case "declaration:damage": {
+            const declaration = getDeclaration(db, msg.declarationId);
+            if (!declaration || !imageBelongsToAdventure(db, declaration.image_id, adventureId)) {
+              ws.send(serializeMessage({ type: "error", message: "Declaration not found" }));
+              break;
+            }
+            // Only where a number has a meaning: a parried attack rolled none, and an open one has
+            // not been answered yet. Written once, for the same reason answering is.
+            if (declaration.state !== "not_parried") {
+              ws.send(serializeMessage({ type: "error", message: "No damage to send on this attack" }));
+              break;
+            }
+            if (declaration.damage !== null) {
+              ws.send(serializeMessage({ type: "error", message: "The damage has already been sent" }));
+              break;
+            }
+            // The other half of the pair: the source's owner sends the number they rolled. The GM's
+            // declarations have no source token, and the GM is who owns those.
+            const sendsForSource =
+              declaration.source_id === null
+                ? conn.role === "gm"
+                : conn.role !== "gm" && !!conn.tokenId && conn.tokenId === declaration.source_id;
+            if (!sendsForSource) {
+              ws.send(serializeMessage({ type: "error", message: "This is not your attack" }));
+              break;
+            }
+            // The first client-supplied *number* on the wire. Checked rather than clamped: a 7 that
+            // silently became a 999 would be a lie the table acts on (principle 9, #12).
+            const damage = msg.damage;
+            if (!Number.isInteger(damage) || damage < 0 || damage > MAX_DAMAGE) {
+              ws.send(serializeMessage({ type: "error", message: `Damage must be a whole number from 0 to ${MAX_DAMAGE}` }));
+              break;
+            }
+            setDeclarationDamage(db, declaration.id, damage);
+            publishDeclaration(db, ws, topic, adventureId, declaration.id);
+            break;
+          }
+
+          case "ping": {
+            ws.send(serializeMessage({ type: "pong" }));
+            break;
+          }
+
+          case "ping:map": {
+            const name = conn.role === "gm" ? "GM" : (conn.playerName ?? "Player");
+            const pingBroadcast = serializeMessage({
+              type: "ping:map",
+              x: msg.x,
+              y: msg.y,
+              color: msg.color,
+              name,
+            });
+            ws.send(pingBroadcast);
+            ws.publish(topic, pingBroadcast);
+            break;
+          }
+
         }
-
-        case "declaration:retract": {
-          const declaration = getDeclaration(db, msg.declarationId);
-          if (!declaration) {
-            ws.send(serializeMessage({ type: "error", message: "Declaration not found" }));
-            break;
-          }
-          if (!imageBelongsToAdventure(db, declaration.image_id, adventureId)) {
-            ws.send(serializeMessage({ type: "error", message: "Declaration not found" }));
-            break;
-          }
-          // Only the one who said it can take it back. The GM's are the sourceless ones, and a
-          // player's are their own token's — the same rule the declaring side is built on.
-          const mine =
-            conn.role === "gm"
-              ? declaration.source_id === null
-              : !!conn.tokenId && declaration.source_id === conn.tokenId;
-          if (!mine) {
-            ws.send(serializeMessage({ type: "error", message: "This is not your declaration" }));
-            break;
-          }
-          deleteDeclaration(db, declaration.id);
-          const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
-          publishCleared(ws, topic, [declaration.id], declaration.image_id === liveImageId);
-          break;
-        }
-
-        case "declaration:clear": {
-          if (conn.role !== "gm") {
-            ws.send(serializeMessage({ type: "error", message: "Only GM can clear the table" }));
-            break;
-          }
-          const liveImageId = getAdventure(db, adventureId)?.active_image_id ?? null;
-          if (!liveImageId) {
-            ws.send(serializeMessage({ type: "error", message: "Nothing is on the table" }));
-            break;
-          }
-          // Answered ones only. What is still open is waiting on somebody, and the count beside the
-          // control is what says so — this can never destroy an exchange nobody has seen.
-          const resolved = getResolvedByImage(db, liveImageId);
-          for (const row of resolved) deleteDeclaration(db, row.id);
-          publishCleared(ws, topic, resolved.map((d) => d.id));
-          break;
-        }
-
-        case "declaration:answer": {
-          const declaration = getDeclaration(db, msg.declarationId);
-          if (!declaration || !imageBelongsToAdventure(db, declaration.image_id, adventureId)) {
-            ws.send(serializeMessage({ type: "error", message: "Declaration not found" }));
-            break;
-          }
-          // Immutable once answered. A record of what happened is not a control, and only
-          // clearing removes it (#73).
-          if (declaration.state !== "open") {
-            ws.send(serializeMessage({ type: "error", message: "This attack has already been answered" }));
-            break;
-          }
-          const target = getToken(db, declaration.target_id);
-          if (!target) {
-            ws.send(serializeMessage({ type: "error", message: "Token not found" }));
-            break;
-          }
-          // The target's owner answers, and nobody else: a player for their own token, the GM for
-          // every monster and NPC. One writer per object, and the object is the declaration.
-          const answersForTarget =
-            target.token_type === "player"
-              ? conn.role !== "gm" && !!conn.tokenId && conn.tokenId === target.id
-              : conn.role === "gm";
-          if (!answersForTarget) {
-            ws.send(serializeMessage({ type: "error", message: "This attack is not aimed at you" }));
-            break;
-          }
-          answerDeclaration(db, declaration.id, msg.parried === true);
-          publishDeclaration(db, ws, topic, adventureId, declaration.id);
-          break;
-        }
-
-        case "declaration:damage": {
-          const declaration = getDeclaration(db, msg.declarationId);
-          if (!declaration || !imageBelongsToAdventure(db, declaration.image_id, adventureId)) {
-            ws.send(serializeMessage({ type: "error", message: "Declaration not found" }));
-            break;
-          }
-          // Only where a number has a meaning: a parried attack rolled none, and an open one has
-          // not been answered yet. Written once, for the same reason answering is.
-          if (declaration.state !== "not_parried") {
-            ws.send(serializeMessage({ type: "error", message: "No damage to send on this attack" }));
-            break;
-          }
-          if (declaration.damage !== null) {
-            ws.send(serializeMessage({ type: "error", message: "The damage has already been sent" }));
-            break;
-          }
-          // The other half of the pair: the source's owner sends the number they rolled. The GM's
-          // declarations have no source token, and the GM is who owns those.
-          const sendsForSource =
-            declaration.source_id === null
-              ? conn.role === "gm"
-              : conn.role !== "gm" && !!conn.tokenId && conn.tokenId === declaration.source_id;
-          if (!sendsForSource) {
-            ws.send(serializeMessage({ type: "error", message: "This is not your attack" }));
-            break;
-          }
-          // The first client-supplied *number* on the wire. Checked rather than clamped: a 7 that
-          // silently became a 999 would be a lie the table acts on (principle 9, #12).
-          const damage = Number(msg.damage);
-          if (!Number.isInteger(damage) || damage < 0 || damage > MAX_DAMAGE) {
-            ws.send(serializeMessage({ type: "error", message: `Damage must be a whole number from 0 to ${MAX_DAMAGE}` }));
-            break;
-          }
-          setDeclarationDamage(db, declaration.id, damage);
-          publishDeclaration(db, ws, topic, adventureId, declaration.id);
-          break;
-        }
-
-        case "ping": {
-          ws.send(serializeMessage({ type: "pong" }));
-          break;
-        }
-
-        case "ping:map": {
-          const name = conn.role === "gm" ? "GM" : (conn.playerName ?? "Player");
-          const pingBroadcast = serializeMessage({
-            type: "ping:map",
-            x: msg.x,
-            y: msg.y,
-            color: msg.color,
-            name,
-          });
-          ws.send(pingBroadcast);
-          ws.publish(topic, pingBroadcast);
-          break;
-        }
-
-        default: {
-          ws.send(serializeMessage({ type: "error", message: "Unknown message type" }));
-        }
+      } catch (err) {
+        console.error(`ws: ${msg.type} failed`, err);
+        ws.send(serializeMessage({ type: "error", message: "Something went wrong" }));
       }
     },
 

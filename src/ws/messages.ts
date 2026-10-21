@@ -453,15 +453,119 @@ export type ServerMessage =
   | DeclarationClearedMessage
   | DeclarationUpdatedMessage;
 
-export function parseMessage(raw: string): ClientMessage | null {
+// ---- Checking what arrives ----
+
+/** One field's rule. True means the value may reach a handler as the type the union declares. */
+type Check = (value: unknown) => boolean;
+
+/** Every field of a message except `type`, optional ones included, each with its rule. */
+type ShapeOf<M> = { [F in Exclude<keyof M, "type">]-?: Check };
+
+/** Ids are UUIDs or eight-character links; the ceiling only stops a megabyte reaching SQLite. */
+const MAX_ID_LENGTH = 64;
+/** Longer than any name the clients send. The handlers trim to their own lengths after this. */
+const MAX_TEXT_LENGTH = 500;
+/** Strokes in one batch. The GM's client flushes every frame, so a batch holds a handful. */
+const MAX_STROKES_PER_BATCH = 256;
+/** The brush slider stops at 200; this leaves room without letting one stroke cover a planet. */
+const MAX_BRUSH_RADIUS = 1000;
+
+const id: Check = (v) => typeof v === "string" && v.length > 0 && v.length <= MAX_ID_LENGTH;
+const text: Check = (v) => typeof v === "string" && v.length <= MAX_TEXT_LENGTH;
+const finite: Check = (v) => typeof v === "number" && Number.isFinite(v);
+const bool: Check = (v) => typeof v === "boolean";
+const oneOf = (...values: unknown[]): Check => (v) => values.includes(v);
+const nullable = (check: Check): Check => (v) => v === null || check(v);
+const optional = (check: Check): Check => (v) => v === undefined || check(v);
+
+const stroke: Check = (v) => {
+  if (!v || typeof v !== "object") return false;
+  const s = v as Record<string, unknown>;
+  return (
+    finite(s.x) &&
+    finite(s.y) &&
+    finite(s.radius) &&
+    (s.radius as number) > 0 &&
+    (s.radius as number) <= MAX_BRUSH_RADIUS &&
+    oneOf("reveal", "fog")(s.mode)
+  );
+};
+const strokes: Check = (v) =>
+  Array.isArray(v) && v.length <= MAX_STROKES_PER_BATCH && v.every(stroke);
+
+/**
+ * The shape of every client message. A message type missing here, or a field of one, is a compile
+ * error — so a new message cannot reach a handler unchecked.
+ *
+ * Shape only: whether the sender may do it, and whether a number is in the table's range, stay
+ * with the handler that knows the rule.
+ */
+const SHAPES: { [T in ClientMessage["type"]]: ShapeOf<Extract<ClientMessage, { type: T }>> } = {
+  join: {
+    adventureId: id,
+    role: oneOf("gm", "player"),
+    password: optional(text),
+    playerName: optional(text),
+    playerColor: optional(text),
+    playerLink: optional(id),
+  },
+  "fog:stroke": { imageId: id, stroke },
+  "fog:stroke:batch": { imageId: id, strokes },
+  "fog:action:end": { imageId: id },
+  "fog:undo": { imageId: id },
+  "fog:redo": { imageId: id },
+  "fog:history:query": { imageId: id },
+  "token:move": { tokenId: id, x: finite, y: finite },
+  "map:switch": { imageId: id },
+  "map:unpresent": {},
+  "player:remove": { tokenId: id },
+  ping: {},
+  "ping:map": { x: finite, y: finite, color: text },
+  "map:start_point": { imageId: id, x: nullable(finite), y: nullable(finite) },
+  "map:start_point:lock": { imageId: id, locked: bool },
+  "settings:update": { tokenSize: finite },
+  "gm_token:place": {
+    imageId: id,
+    name: text,
+    tokenType: oneOf("monster", "npc"),
+    x: finite,
+    y: finite,
+  },
+  "gm_token:remove": { tokenId: id },
+  "gm_token:rename": { tokenId: id, name: text },
+  "gm_token:state": { tokenId: id, state: oneOf("alive", "unconscious", "dead") },
+  "declaration:open": { targetId: id },
+  "declaration:retract": { declarationId: id },
+  "declaration:answer": { declarationId: id, parried: bool },
+  "declaration:damage": { declarationId: id, damage: finite },
+  "declaration:clear": {},
+};
+
+export type ParseResult = { message: ClientMessage } | { error: string };
+
+/**
+ * Reads one client message off the wire, or says why not.
+ *
+ * What comes back as `message` matches its member of `ClientMessage` field for field, so handlers
+ * may use a value without coercing it. Unknown types are told apart from malformed ones, because
+ * a client newer than the server sends the first and a broken or hostile one sends the second.
+ */
+export function parseMessage(raw: string): ParseResult {
+  let msg: unknown;
   try {
-    const msg = JSON.parse(raw);
-    if (!msg || typeof msg !== "object" || typeof msg.type !== "string")
-      return null;
-    return msg as ClientMessage;
+    msg = JSON.parse(raw);
   } catch {
-    return null;
+    return { error: "Invalid message format" };
   }
+  if (!msg || typeof msg !== "object") return { error: "Invalid message format" };
+  const fields = msg as Record<string, unknown>;
+  if (typeof fields.type !== "string") return { error: "Invalid message format" };
+  if (!Object.hasOwn(SHAPES, fields.type)) return { error: "Unknown message type" };
+  const shape: Record<string, Check> = SHAPES[fields.type as ClientMessage["type"]];
+  for (const [field, check] of Object.entries(shape)) {
+    if (!check(fields[field])) return { error: "Invalid message format" };
+  }
+  return { message: msg as ClientMessage };
 }
 
 export function serializeMessage(msg: ServerMessage): string {
