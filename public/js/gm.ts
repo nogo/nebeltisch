@@ -16,25 +16,41 @@ import * as api from './api';
 import { ringRadius, startOf } from '../../src/rules/landing';
 
 // --- URL params ---
-// The hash is never transmitted to the server (HTTP spec), so keeping the
-// password here is safe. We leave it in place so refresh and cross-browser
-// copy-paste both work without any extra storage.
+// Only the adventure id. The session cookie is the credential, so there is nothing secret in the
+// address bar, the history or a screen share (#56).
 const fragment = new URLSearchParams(location.hash.slice(1));
 const adventureId = fragment.get('id') ?? '';
-const password = fragment.get('password') ?? '';
 
-if (!adventureId || !password) {
+/** Replaces the board with one sentence and the way back to the dashboard. */
+function stopWith(message: string): never {
   const p = document.createElement('p');
   p.style.cssText = 'padding:2rem';
-  p.textContent = 'Missing adventure ID or password. ';
+  p.textContent = `${message} `;
   const a = document.createElement('a');
   a.href = '/';
-  a.textContent = 'Return home';
+  a.textContent = 'Back to your adventures';
   p.appendChild(a);
   document.body.textContent = '';
   document.body.appendChild(p);
-  throw new Error('Missing params');
+  throw new Error(message);
 }
+
+if (!adventureId) stopWith('No adventure was named.');
+
+// Asked before the board connects, so a GM who is signed out goes to the login instead of a socket
+// that retries forever.
+{
+  const res = await fetch(`/api/adventures/${encodeURIComponent(adventureId)}`);
+  if (res.status === 401) {
+    location.replace('/');
+    throw new Error('Not signed in');
+  }
+  if (res.status === 403) stopWith('This adventure belongs to another account.');
+  if (res.status === 404) stopWith('This adventure does not exist.');
+}
+
+// An old bookmark still carries `&password=…`; drop it from the address bar and the history.
+if (fragment.has('password')) history.replaceState(null, '', `/gm#id=${encodeURIComponent(adventureId)}`);
 
 // --- State ---
 let brushRadius = 50;
@@ -451,7 +467,7 @@ function showTokenRename(tokenId: string, current: string) {
 }
 
 // --- WebSocket ---
-const ws = connectGM(adventureId, password);
+const ws = connectGM(adventureId);
 
 ws.on('connect', () => { connectionStatusEl.className = 'status-dot connected'; });
 ws.on('disconnect', () => { connectionStatusEl.className = 'status-dot disconnected'; });
@@ -464,12 +480,12 @@ ws.on('joined', async (msg) => {
   updateTokenSizeLabel();
 
   try {
-    const advData = await api.getAdventure(adventureId, password);
+    const advData = await api.getAdventure(adventureId);
     inviteUrl = `${location.origin}/join/${encodeURIComponent(advData.player_link)}`;
   } catch {}
 
   activeImageId = adv.activeImageId;
-  imageList = await api.listImages(adventureId, password);
+  imageList = await api.listImages(adventureId);
   renderPages();
 
   // The board opens fitted to the whole adventure — the GM sees the story, not one room.
@@ -614,7 +630,7 @@ ws.on('map:switched', async (msg) => {
   activeImageId = msg.imageId;
   pingCtrl.clear();
 
-  imageList = await api.listImages(adventureId, password);
+  imageList = await api.listImages(adventureId);
   renderPages();
 
   // Focus follows the page to the table, unconditionally. On the device that presented it this
@@ -716,7 +732,7 @@ async function focusPage(id: string | null) {
   // is a debounce ahead of the blob and correct for the live page too.
   let mask: string | null = null;
   try {
-    mask = await api.getImageFog(adventureId, password, id);
+    mask = await api.getImageFog(adventureId, id);
   } catch (e) {
     console.error('Could not read this page\'s fog', e);
   }
@@ -725,7 +741,7 @@ async function focusPage(id: string | null) {
   if (!isCurrent()) return;
 
   try {
-    const gmTokens = await api.getImageGmTokens(adventureId, password, id);
+    const gmTokens = await api.getImageGmTokens(adventureId, id);
     if (!isCurrent()) return;
     for (const token of gmTokens) gmTokenCtrl.addToken(token);
   } catch (e) {
@@ -852,7 +868,7 @@ async function confirmDelete() {
   if (!id) return;
   deleteArmed = false;
   try {
-    await api.deleteImage(adventureId, password, id);
+    await api.deleteImage(adventureId, id);
   } catch (e) {
     console.error('Could not delete this page', e);
     renderPageControls();
@@ -1178,8 +1194,8 @@ uploadInput.addEventListener('change', async () => {
   const file = uploadInput.files?.[0];
   if (!file) return;
   try {
-    const uploaded = await api.uploadImage(adventureId, password, file);
-    imageList = await api.listImages(adventureId, password);
+    const uploaded = await api.uploadImage(adventureId, file);
+    imageList = await api.listImages(adventureId);
     renderPages();
     // A board that had nothing on it now has something to work on.
     if (!selectedImageId) await focusPage(uploaded.id);
@@ -1589,7 +1605,7 @@ function finishBoardGesture() {
 
   if (dragged && dropped) {
     // One write per drag, on release. The arrangement is the GM's alone and never goes on the wire.
-    api.setBoardPosition(adventureId, password, dropped.id, dropped.x, dropped.y)
+    api.setBoardPosition(adventureId, dropped.id, dropped.x, dropped.y)
       .catch((e) => console.error('Could not save the page position', e));
     const record = imageList.find(i => i.id === dropped.id);
     if (record) { record.board_x = dropped.x; record.board_y = dropped.y; }

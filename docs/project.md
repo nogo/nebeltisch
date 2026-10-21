@@ -59,7 +59,7 @@ One GM and roughly three players, self-hosted by the GM, German-language RPG gro
 
 ### Authentication
 
-No accounts today. The GM holds a password in a URL fragment; players hold an invite link. A GM account is planned so adventures can be managed across devices, and will not change how players join.
+A GM has an account and signs in with a passkey, or a password as the fallback; their adventures wait on a dashboard on every device. Players hold an invite link. Accounts did not change how players join.
 
 **GM is a relation, not a role.** There is one kind of account — a user — and you are the GM of an adventure because you own it. Registration is open, and the deployment stays behind HTTP basic auth until Nebeltisch is opened publicly; that gate decides who reaches the sign-up form.
 
@@ -67,7 +67,7 @@ No accounts today. The GM holds a password in a URL fragment; players hold an in
 
 ### Scope
 
-**In:** the map and everything the table does to it — pages, the fog brush and its history, player tokens, GM monster and NPC tokens, whether a token is alive, unconscious or dead, party start points, pings, pan and zoom, declaring an attack and answering it, the GM's board and what it presents, the two interfaces, and self-hosted deployment. GM accounts and an adventure dashboard are committed and not yet built.
+**In:** the map and everything the table does to it — pages, the fog brush and its history, player tokens, GM monster and NPC tokens, whether a token is alive, unconscious or dead, party start points, pings, pan and zoom, declaring an attack and answering it, the GM's board and what it presents, the two interfaces, GM accounts with their adventure dashboard, and self-hosted deployment.
 
 **Out:** dice rolling, character sheets, initiative tracking, audio, rules automation, public/community hosting.
 

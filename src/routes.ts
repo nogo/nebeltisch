@@ -5,6 +5,7 @@ import {
   createAdventure,
   getAdventure,
   getAdventureByPlayerLink,
+  getAdventuresByOwner,
   setActiveImage,
 } from "./db/adventures";
 import {
@@ -15,6 +16,8 @@ import {
   setBoardPosition,
 } from "./db/images";
 import { getGmTokensByImage, deleteTokensByImage } from "./db/tokens";
+import { handleAuthRoutes } from "./auth/routes";
+import { currentUser, fromOwnSite } from "./auth/session";
 import { nextFreeSpot } from "./board";
 import { fitsInMask, parseImageDimensions } from "./images";
 import type { ServerDeps } from "./deps";
@@ -87,6 +90,18 @@ export function handleRequest(
     });
   }
 
+  // A write from a page on another site is refused before any route sees it (#56).
+  if (segments[0] === "api" && req.method !== "GET" && req.method !== "HEAD" && !fromOwnSite(req, deps)) {
+    return new Response(JSON.stringify({ error: "Cross-site request refused" }), {
+      status: 403,
+      headers: { "Content-Type": "application/json" },
+    });
+  }
+
+  if (segments[0] === "api" && segments[1] === "auth") {
+    return handleAuthRoutes(req, deps, segments);
+  }
+
   if (segments[0] === "api" && segments[1] === "adventures") {
     return handleAdventureRoutes(req, deps, segments);
   }
@@ -107,9 +122,30 @@ async function handleAdventureRoutes(
     });
   const error = (msg: string, status: number) => json({ error: msg }, status);
 
-  // POST /api/adventures
+  const user = currentUser(req, db);
+
+  /**
+   * The adventure, when the signed-in account owns it; otherwise the refusal to send. The session
+   * is the only GM credential — there is no password left to present (#56).
+   */
+  const owned = (adventureId: string) => {
+    if (!user) return error("Not signed in", 401);
+    const adventure = getAdventure(db, adventureId);
+    if (!adventure) return error("Not found", 404);
+    if (adventure.owner_id !== user.id) return error("This adventure is not yours", 403);
+    return adventure;
+  };
+
+  // GET /api/adventures — the dashboard: what the signed-in account owns, and nothing else (#55)
+  if (req.method === "GET" && segments.length === 2) {
+    if (!user) return error("Not signed in", 401);
+    return json(getAdventuresByOwner(db, user.id));
+  }
+
+  // POST /api/adventures — it belongs to whoever creates it
   if (req.method === "POST" && segments.length === 2) {
-    let body: { name?: unknown; gmPassword?: unknown };
+    if (!user) return error("Not signed in", 401);
+    let body: { name?: unknown };
     try {
       body = await req.json();
     } catch {
@@ -118,17 +154,7 @@ async function handleAdventureRoutes(
     if (!body.name || typeof body.name !== "string" || body.name.trim() === "") {
       return error("name is required", 400);
     }
-    if (
-      !body.gmPassword ||
-      typeof body.gmPassword !== "string" ||
-      body.gmPassword.trim() === ""
-    ) {
-      return error("gmPassword is required", 400);
-    }
-    const adventure = createAdventure(db, {
-      name: body.name.trim(),
-      gmPassword: body.gmPassword,
-    });
+    const adventure = createAdventure(db, { name: body.name.trim(), ownerId: user.id });
     return json(adventure, 201);
   }
 
@@ -149,10 +175,8 @@ async function handleAdventureRoutes(
 
     // GET /api/adventures/:id
     if (req.method === "GET" && segments.length === 3) {
-      const adventure = getAdventure(db, id);
-      if (!adventure) return error("Not found", 404);
-      if (req.headers.get("X-GM-Password") !== adventure.gm_password)
-        return error("Unauthorized", 401);
+      const adventure = owned(id);
+      if (adventure instanceof Response) return adventure;
       return json(adventure);
     }
 
@@ -162,10 +186,8 @@ async function handleAdventureRoutes(
       segments[3] === "active-image" &&
       segments.length === 4
     ) {
-      const adventure = getAdventure(db, id);
-      if (!adventure) return error("Not found", 404);
-      if (req.headers.get("X-GM-Password") !== adventure.gm_password)
-        return error("Unauthorized", 401);
+      const adventure = owned(id);
+      if (adventure instanceof Response) return adventure;
 
       let body: { imageId?: unknown };
       try {
@@ -195,10 +217,8 @@ async function handleAdventureRoutes(
       segments[3] === "images" &&
       segments.length === 4
     ) {
-      const adventure = getAdventure(db, id);
-      if (!adventure) return error("Not found", 404);
-      if (req.headers.get("X-GM-Password") !== adventure.gm_password)
-        return error("Unauthorized", 401);
+      const adventure = owned(id);
+      if (adventure instanceof Response) return adventure;
 
       let formData: FormData;
       try {
@@ -255,12 +275,11 @@ async function handleAdventureRoutes(
       const adventure = getAdventure(db, id);
       if (!adventure) return error("Not found", 404);
 
-      const gmPassword = req.headers.get("X-GM-Password");
       const playerLink = req.headers.get("X-Player-Link");
 
       let isGm = true;
-      if (gmPassword !== adventure.gm_password) {
-        if (!playerLink) return error("Unauthorized", 401);
+      if (!user || adventure.owner_id !== user.id) {
+        if (!playerLink) return error("Not signed in", 401);
         const linked = getAdventureByPlayerLink(db, playerLink);
         if (!linked || linked.id !== id) return error("Unauthorized", 401);
         isGm = false;
@@ -284,10 +303,8 @@ async function handleAdventureRoutes(
       segments.length === 5
     ) {
       const imageId = segments[4];
-      const adventure = getAdventure(db, id);
-      if (!adventure) return error("Not found", 404);
-      if (req.headers.get("X-GM-Password") !== adventure.gm_password)
-        return error("Unauthorized", 401);
+      const adventure = owned(id);
+      if (adventure instanceof Response) return adventure;
 
       const image = getImage(db, imageId);
       if (!image || image.adventure_id !== id) return error("Not found", 404);
@@ -334,10 +351,8 @@ async function handleAdventureRoutes(
       segments[5] === "position" &&
       segments.length === 6
     ) {
-      const adventure = getAdventure(db, id);
-      if (!adventure) return error("Not found", 404);
-      if (req.headers.get("X-GM-Password") !== adventure.gm_password)
-        return error("Unauthorized", 401);
+      const adventure = owned(id);
+      if (adventure instanceof Response) return adventure;
 
       const image = getImage(db, segments[4]);
       if (!image || image.adventure_id !== id) return error("Not found", 404);
@@ -377,10 +392,8 @@ async function handleAdventureRoutes(
       segments[5] === "fog" &&
       segments.length === 6
     ) {
-      const adventure = getAdventure(db, id);
-      if (!adventure) return error("Not found", 404);
-      if (req.headers.get("X-GM-Password") !== adventure.gm_password)
-        return error("Unauthorized", 401);
+      const adventure = owned(id);
+      if (adventure instanceof Response) return adventure;
 
       const image = getImage(db, segments[4]);
       if (!image || image.adventure_id !== id) return error("Not found", 404);
@@ -411,10 +424,8 @@ async function handleAdventureRoutes(
       segments[5] === "tokens" &&
       segments.length === 6
     ) {
-      const adventure = getAdventure(db, id);
-      if (!adventure) return error("Not found", 404);
-      if (req.headers.get("X-GM-Password") !== adventure.gm_password)
-        return error("Unauthorized", 401);
+      const adventure = owned(id);
+      if (adventure instanceof Response) return adventure;
 
       const image = getImage(db, segments[4]);
       if (!image || image.adventure_id !== id) return error("Not found", 404);

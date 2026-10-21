@@ -90,7 +90,7 @@ describe("saveFogMask / loadFogMask", () => {
 
   beforeEach(() => {
     db = makeDb();
-    const adv = createAdventure(db, { name: "Test", gmPassword: "pw" });
+    const adv = createAdventure(db, { name: "Test", ownerId: null });
     const img = createImageRecord(db, {
       adventureId: adv.id,
       filename: "map.png",

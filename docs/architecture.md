@@ -25,15 +25,16 @@ Server — `src/`
 | Path | Responsibility |
 |---|---|
 | `index.ts` | The composition root: builds `ServerDeps`, runs `Bun.serve()`, routes `/ws` to the upgrade handler and everything else to `routes.ts`, flushes fog on SIGINT/SIGTERM |
-| `deps.ts` | `ServerDeps` — the database, uploads directory and fog registry, built once and passed down |
+| `deps.ts` | `ServerDeps` — the database, uploads directory, fog registry, passkey challenge store and public origin, built once and passed down |
 | `routes.ts` | HTTP routing by path segments, REST endpoints, the HTML pages and `/dist`; plus `staticRoutes`, the uploads directory handed to `Bun.serve` |
 | `images.ts` | Image dimensions from file headers (PNG/JPEG/WebP). Pure parsing plus a repair path; used by both `routes.ts` and `fog/` |
 | `board.ts` | Where a page lands on the board when nobody has arranged it. Pure geometry; used by the upload route and the migration |
 | `rules/` | Pure table rules with no I/O, which the client may import: `landing.ts` (where the party lands — arrival on the start point, return to a remembered walk), `audience.ts` (whether the players hear an edit), `declarations.ts` (who may attack whom, and who writes which half of a declaration) |
-| `types.ts` | Shared domain types: `FogMask`, `FogStroke`, `Adventure`, `ImageRecord`, `Token`, `WsData` |
+| `types.ts` | Shared domain types: `FogMask`, `FogStroke`, `Adventure`, `User`, `Passkey`, `ImageRecord`, `Token`, `WsData` |
+| `auth/` | Accounts: `routes.ts` (sign-up, login, recovery under `/api/auth/`), `session.ts` (the cookie, the current user, the public origin and the cross-site check), `secrets.ts` (hashing, the recovery phrase), `webauthn.ts` (passkey verification on `crypto.subtle`), `challenges.ts` (passkey challenges between the two steps) |
 | `db/database.ts` | Opens the database and applies the schema |
 | `db/schema.ts` | DDL plus additive migrations |
-| `db/adventures.ts`, `db/images.ts`, `db/tokens.ts` | Query functions, one file per table group |
+| `db/adventures.ts`, `db/images.ts`, `db/tokens.ts`, `db/users.ts`, `db/passkeys.ts`, `db/sessions.ts` | Query functions, one file per table group |
 | `fog/mask.ts` | Pure mask operations. No I/O, no database, no canvas |
 | `fog/serialize.ts` | Mask binary format and persistence |
 | `fog/session.ts` | Live fog state: mask cache, undo history, debounced saves, and their lifetime |
@@ -45,6 +46,7 @@ Client — `public/js/`
 
 | Path | Responsibility |
 |---|---|
+| `home.ts` | The home page: log in or sign up while signed out, the adventure dashboard once signed in |
 | `gm.ts`, `player.ts` | Entry points; own all UI state for their role |
 | `board.ts` | The GM's board: page elements, live badge, selection, dragging. Board coordinates only |
 | `canvas.ts` | Map, fog and brush-preview canvases; fog compositing and mask decoding |
@@ -54,6 +56,7 @@ Client — `public/js/`
 | `veil.ts` | The waiting screen's fog. Bakes one seamless noise tile, then drifts it in layers; owns its loop and runs only while that screen is up |
 | `anchored-menu.ts` | A menu hanging above a point in the transformed world. Owns the viewport opt-out and the counter-scale; the start marker's menu is its one caller today, and the token menu (#60) is the next |
 | `api.ts` | REST client |
+| `passkey.ts` | The browser half of a passkey ceremony: server options in, JSON-safe response out |
 | `websocket.ts` | WebSocket client with reconnect and backoff; typed against the server's message unions |
 
 `test/` mirrors `src/`.
@@ -61,14 +64,19 @@ Client — `public/js/`
 ## Data model
 
 ```
-adventures ──< images ──< token_positions >── tokens
+users ──< passkeys
+users ──< sessions
+users ──< adventures ──< images ──< token_positions >── tokens
      └────────────────< tokens
               images ──< declarations >── tokens
 ```
 
 | Table | Key columns | Notes |
 |---|---|---|
-| `adventures` | `gm_password`, `player_link`, `active_image_id`, `token_size` | `active_image_id` is what players see |
+| `users` | `name` (unique, case-insensitive), `password_hash` NULL, `recovery_hash` | A passkey-only account has no password hash. Every secret is a hash |
+| `passkeys` | `id` (credential id), `user_id`, `public_key` (SPKI), `algorithm`, `sign_count` | A public key only: nothing here signs anyone in |
+| `sessions` | `id_hash`, `user_id`, `expires_at` | SHA-256 of the cookie's id, so the table cannot be replayed |
+| `adventures` | `owner_id` NULL, `player_link`, `active_image_id`, `token_size` | `active_image_id` is what players see. `owner_id` is the GM; null only for an adventure from before accounts, until `scripts/accounts.ts assign`. `gm_password` is dead: always empty, never read |
 | `images` | `filename`, `width`, `height`, `fog_mask` BLOB, `sort_order`, `start_x`, `start_y`, `start_locked`, `board_x`, `board_y` | One fog mask per map. `start_*` null means "never moved"; the map centre is the fallback and every map therefore has a start point. `start_locked` freezes it against a stray drag. `board_*` is layout on the GM's board and means nothing else — no order, no adjacency, no geography |
 | `tokens` | `token_type`, `player_link`, `image_id`, `x`, `y` | See token rules below |
 | `token_positions` | `(token_id, image_id)` PK, `x`, `y` | Where each token last stood on each map |
@@ -217,23 +225,28 @@ The delete route removes the page's monsters and the page itself inside a single
 **Why:** this runs on the players' tablet, alongside a voice call, and an animation loop is the one thing on that screen that can cost anything at all.
 **Implication:** the loop exists only while that screen does, and is dropped while the tab is hidden. Players switch apps constantly, and a veil still running behind a presented map would cost exactly what one being looked at costs. Motion stops entirely under `prefers-reduced-motion`.
 
-### Lightweight auth
+### Accounts: the session is the GM credential
 
-The GM password travels in a URL fragment and is stored in plaintext; players authenticate with an invite link. No accounts.
-**Implication:** this is adequate for a self-hosted group and insufficient for anything public. A GM account is planned and will not change how players join.
+A GM signs in once and the server sets an `HttpOnly`, `SameSite=Strict` session cookie, `Secure` over HTTPS. Every GM path — REST and the WebSocket upgrade — authorises from that cookie and from `adventures.owner_id`. Players are untouched: they still authenticate with the invite link and a name.
+**Why:** the per-adventure password lived in a URL fragment and a WebSocket query string, so it sat in browser history, proxy logs and every screen share (#11), and a lost URL lost the campaign (#26).
+**Implication:** nothing that authenticates travels in a URL. A cookie is sent automatically, so every write under `/api/` and the GM upgrade check `Origin` against the public origin — `SameSite` alone lets a sibling subdomain through. The public origin is `PUBLIC_ORIGIN`, or the request's own `Host` with the proxy's `X-Forwarded-Proto`; passkeys are bound to its host name.
 
-**Two things about that account are already settled**, because the migration rule below makes them permanent the moment the table exists:
+**GM is a relation, not a role.** The identity table is `users`, never `gm_users`: you own an adventure, so you are its GM. Additive migrations may not rename a table, so a role baked into the name could never be taken out again.
 
-- **The identity table is `users`, never `gm_users`.** GM is not a property of an account — it is a relation to an adventure: you own it, so you are its GM. Additive migrations may not rename a table, so a role baked into the name could never be taken out again.
-- **Registration is open, and the deployment stays behind HTTP basic auth** until Nebeltisch is opened publicly. That gate decides who reaches the form; it does not isolate accounts from each other, which is why #4 and #5 become cross-tenant disclosure at public launch rather than at accounts.
+**A passkey first, a password second, a recovery phrase always.** An account holds any of passkeys and a password. Every account has a recovery phrase — 120 bits as six groups of four Crockford base32 characters — shown once, working once, replaced on use. `scripts/accounts.ts reset` is the last resort, from the server's shell.
 
-Passwords hash with `Bun.password` (argon2id) and session ids come from `crypto`, so accounts add no runtime dependency.
+**What a stolen database gives:** nothing that signs anyone in. Passwords and phrases are argon2id (`Bun.password` defaults, `m=65536,t=2,p=1`), session ids SHA-256, passkeys public keys. A wrong name and a wrong password get the same answer after the same work.
+
+**Passkeys without a library.** The browser's `getPublicKey()` gives SubjectPublicKeyInfo, which `crypto.subtle` imports directly, so there is no CBOR to parse. ES256 and RS256 only, user verification required, attestation not checked. `@simplewebauthn/server` was rejected for the zero-dependency rule.
+
+**Registration is open, and the deployment stays behind HTTP basic auth** until Nebeltisch is opened publicly. That gate decides who reaches the form; it does not isolate accounts from each other, which is why #4 and #5 become cross-tenant disclosure at public launch rather than now. No rate limit exists for the same reason.
 
 ### Additive, idempotent migrations
 
 Schema changes are `ALTER TABLE`/`CREATE TABLE IF NOT EXISTS` statements wrapped in try/catch in `db/schema.ts`, run on every start.
 **Why:** no migration tool, no version table, no deploy step.
 **Implication:** columns may be added and tables created; they may not be renamed, dropped or retyped. Never write a destructive migration.
+**One exception, decided with the owner on 2026-10-21:** every start overwrites `adventures.gm_password` with an empty string. The values were plaintext credentials nothing reads any more, and keeping a secret is not the same as keeping data. Backups from before that start still hold them.
 
 ---
 

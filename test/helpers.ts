@@ -8,6 +8,10 @@ import type { FogRegistry } from "../src/fog/session";
 import { initDatabase } from "../src/db/database";
 import { handleRequest, staticRoutes } from "../src/routes";
 import { createFogRegistry } from "../src/fog/session";
+import { createChallengeStore } from "../src/auth/challenges";
+import { createUser } from "../src/db/users";
+import { createSession } from "../src/db/sessions";
+import type { User } from "../src/types";
 import { createWsHandlers, handleWsUpgrade } from "../src/ws/handler";
 
 /**
@@ -37,7 +41,7 @@ export function startTestServer(): TestServer {
   );
   mkdirSync(uploadsDir, { recursive: true });
 
-  const deps: ServerDeps = { db, uploadsDir, fog: createFogRegistry(db, uploadsDir) };
+  const deps: ServerDeps = { db, uploadsDir, fog: createFogRegistry(db, uploadsDir), challenges: createChallengeStore() };
 
   const server = Bun.serve({
     port: 0,
@@ -69,7 +73,7 @@ export function startWsTestServer(): WsTestServer {
   );
   mkdirSync(uploadsDir, { recursive: true });
 
-  const deps: ServerDeps = { db, uploadsDir, fog: createFogRegistry(db, uploadsDir) };
+  const deps: ServerDeps = { db, uploadsDir, fog: createFogRegistry(db, uploadsDir), challenges: createChallengeStore() };
   const wsHandlers = createWsHandlers(deps);
 
   const server = Bun.serve({
@@ -95,4 +99,15 @@ export function startWsTestServer(): WsTestServer {
       rmSync(uploadsDir, { recursive: true, force: true });
     },
   };
+}
+
+/**
+ * A signed-in account, straight in the database: what a GM's browser holds after logging in.
+ *
+ * `cookie` is the `Cookie` header that browser would send. The hashes are placeholders — nothing
+ * here verifies them; the login routes have their own tests.
+ */
+export function signIn(db: Database, name = `GM ${crypto.randomUUID().slice(0, 8)}`): { user: User; cookie: string } {
+  const user = createUser(db, { name, passwordHash: null, recoveryHash: "unused" });
+  return { user, cookie: `nebeltisch_session=${createSession(db, user.id)}` };
 }

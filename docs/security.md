@@ -5,24 +5,26 @@ What the code trusts, where, and why. Every line describes the code as it is; fa
 ## Principals
 
 - **Anonymous visitor**: reaches nothing. Caddy asks for HTTP basic auth on every path before a request reaches the app (see Deployment).
-- **Group member**: holds the shared basic-auth login. Can create an adventure (`POST /api/adventures`, `src/routes.ts:110`) and so become a GM of their own.
+- **Group member**: holds the shared basic-auth login. Can sign up (`/api/auth/signup/*`, `src/auth/routes.ts`) and so become a GM of their own adventures.
 - **Player**: a group member with an adventure's player link. Joins over the WebSocket, owns one token, moves it, declares and answers attacks, pings the map.
-- **GM**: holds an adventure's GM password. Full control of that adventure over REST and WebSocket.
+- **GM**: a signed-in account that owns the adventure (`adventures.owner_id`). Full control of that adventure over REST and WebSocket, and of nothing another account owns.
 - **Owner**: Danilo. Shell on the host, the database, the deploy config.
 
 ## Assets
 
 - Each adventure's hidden state: unrevealed fog, pages not yet presented, monsters on them, start points. Players must not see these (`docs/architecture.md`, start point and preparation sections).
-- GM passwords and player links (`adventures.gm_password`, `adventures.player_link`), both stored in plaintext.
+- Account secrets: password and recovery-phrase hashes (argon2id), session-id hashes (SHA-256), passkey public keys. None signs anyone in on its own.
+- Player links (`adventures.player_link`), stored in plaintext: each is an adventure's invite.
 - Uploaded map images in `DATA_DIR/uploads/`.
 - The process itself: one Bun process serves every table, and the host runs other stacks (budget, trip, ghost).
 
 ## Entry surfaces
 
-- **HTTP** `src/routes.ts:38` `handleRequest`. GM routes compare `X-GM-Password` to the stored password per request (`routes.ts:154` and seven siblings). `GET …/images` also accepts `X-Player-Link` (`routes.ts:257`). `POST /api/adventures` and `GET /api/adventures/join/:link` need no app credential.
+- **HTTP** `src/routes.ts` `handleRequest`. Any non-GET under `/api/` with a foreign `Origin` is refused first. GM routes go through `owned()`: a session cookie, and the adventure's `owner_id` equal to its user. `GET …/images` also accepts `X-Player-Link`. `GET /api/adventures/join/:link` needs no app credential.
+- **Accounts** `src/auth/routes.ts`, under `/api/auth/`. Sign-up, login (passkey or password) and recovery need no session; adding a passkey and setting a password do. Passkey challenges are single-use and expire after five minutes. No rate limit.
 - **Uploads** `POST /api/adventures/:id/images` (`routes.ts:192`), GM only. Accepts any `File.type` starting with `image/`; keeps an alphanumeric extension from the client's filename. Refuses a header that claims more than `MAX_PAGE_PIXELS` (`src/images.ts`); the fog layer refuses the same at load. No size limit beyond Bun's default request body cap.
 - **Static uploads** `/uploads/*` (`routes.ts:35`), Bun `dir` route, no app check. Content type follows the file extension.
-- **WebSocket upgrade** `src/ws/handler.ts:176`. Identity is bound once from query parameters: GM by password, player by player link plus name. No `Origin` check.
+- **WebSocket upgrade** `src/ws/handler.ts` `handleWsUpgrade`. Identity is bound once: a GM by session cookie and ownership, after a foreign `Origin` is refused; a player by player link plus name from query parameters.
 - **WebSocket messages** `src/ws/handler.ts:397`. Each case checks `conn.role` and scopes ids to `conn.adventureId`. `parseMessage` (`src/ws/messages.ts`) checks every field against `SHAPES` and caps ids, text and stroke batches. A throw inside a handler is caught and answered with an error (`handler.ts`, `message`).
 - **CI**: none. No `.github/workflows`.
 
@@ -37,10 +39,10 @@ Seen in `~/Development/infrastructure/rivendell/config.yml` (stack `nebeltisch`)
 
 ## Accepted risks
 
-- **Plaintext GM password in the URL fragment and database** (`docs/architecture.md`, "Lightweight auth"). Adequate for a self-hosted group behind basic auth; replaced by GM accounts (#56).
+- **No rate limit on login or recovery.** Basic auth stands in front, and argon2 makes each guess cost about 90 ms. Real at public launch.
+- **Plaintext GM passwords in backups** taken before the accounts release. The live database has none (`docs/architecture.md`, migrations).
 - **A player link plus a name is the player's identity** (`ws/handler.ts:222`). Anyone with the link who types another player's name takes over that token. Intended: it is how a player rejoins from a bookmark.
 
 ## Unverified
 
 - Does a Hetzner cloud firewall, or anything else, block port 3000 on rivendell? If not, `http://91.99.92.151:3000` reaches the app without basic auth, and every "Anonymous visitor" line above is wrong.
-- Does Caddy write access logs for this site? If yes, the GM password from the WebSocket query string lands in them (#11).

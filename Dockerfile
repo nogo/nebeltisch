@@ -17,6 +17,8 @@ WORKDIR /app
 COPY --from=build --chown=bun:bun /app/src/ ./src/
 COPY --from=build --chown=bun:bun /app/public/ ./public/
 COPY --chown=bun:bun package.json tsconfig.json ./
+# The accounts command, run with `docker compose exec` (scripts/accounts.ts).
+COPY --chown=bun:bun scripts/accounts.ts ./scripts/
 
 RUN mkdir -p /app/data && chown -R bun:bun /app/data
 

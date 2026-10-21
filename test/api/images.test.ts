@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
 import { existsSync } from "fs";
 import { join } from "path";
-import { startTestServer, type TestServer } from "../helpers";
+import { signIn, startTestServer, type TestServer } from "../helpers";
 import { createAdventure, getAdventure, setActiveImage } from "../../src/db/adventures";
 import { getImage } from "../../src/db/images";
 import { createToken, getGmTokensByImage } from "../../src/db/tokens";
@@ -26,11 +26,13 @@ function makeImageFile() {
 describe("Image API", () => {
   let ts: TestServer;
   let adventureId: string;
-  const gmPassword = "secret";
+  let gmCookie: string;
+  let gmUserId: string;
 
   beforeAll(() => {
     ts = startTestServer();
-    const adventure = createAdventure(ts.db, { name: "Image Test", gmPassword });
+    ({ cookie: gmCookie, user: { id: gmUserId } } = signIn(ts.db));
+    const adventure = createAdventure(ts.db, { name: "Image Test", ownerId: gmUserId });
     adventureId = adventure.id;
   });
 
@@ -44,7 +46,7 @@ describe("Image API", () => {
 
     const res = await fetch(`${ts.url}/api/adventures/${adventureId}/images`, {
       method: "POST",
-      headers: { "X-GM-Password": gmPassword },
+      headers: { Cookie: gmCookie },
       body: formData,
     });
     expect(res.status).toBe(201);
@@ -66,7 +68,7 @@ describe("Image API", () => {
 
     const res = await fetch(`${ts.url}/api/adventures/${adventureId}/images`, {
       method: "POST",
-      headers: { "X-GM-Password": gmPassword },
+      headers: { Cookie: gmCookie },
       body: formData,
     });
     expect(res.status).toBe(413);
@@ -81,13 +83,13 @@ describe("Image API", () => {
 
     const res = await fetch(`${ts.url}/api/adventures/${adventureId}/images`, {
       method: "POST",
-      headers: { "X-GM-Password": gmPassword },
+      headers: { Cookie: gmCookie },
       body: formData,
     });
     expect(res.status).toBe(400);
   });
 
-  it("POST upload without GM password returns 401", async () => {
+  it("POST upload without a session returns 401", async () => {
     const formData = new FormData();
     formData.append("file", makeImageFile());
 
@@ -103,12 +105,12 @@ describe("Image API", () => {
     formData.append("file", makeImageFile());
     await fetch(`${ts.url}/api/adventures/${adventureId}/images`, {
       method: "POST",
-      headers: { "X-GM-Password": gmPassword },
+      headers: { Cookie: gmCookie },
       body: formData,
     });
 
     const res = await fetch(`${ts.url}/api/adventures/${adventureId}/images`, {
-      headers: { "X-GM-Password": gmPassword },
+      headers: { Cookie: gmCookie },
     });
     expect(res.status).toBe(200);
     const data = await res.json();
@@ -121,7 +123,7 @@ describe("Image API", () => {
     formData.append("file", makeImageFile());
     const uploadRes = await fetch(`${ts.url}/api/adventures/${adventureId}/images`, {
       method: "POST",
-      headers: { "X-GM-Password": gmPassword },
+      headers: { Cookie: gmCookie },
       body: formData,
     });
     const image = await uploadRes.json();
@@ -130,7 +132,7 @@ describe("Image API", () => {
 
     const deleteRes = await fetch(
       `${ts.url}/api/adventures/${adventureId}/images/${image.id}`,
-      { method: "DELETE", headers: { "X-GM-Password": gmPassword } }
+      { method: "DELETE", headers: { Cookie: gmCookie } }
     );
     expect(deleteRes.status).toBe(204);
     expect(existsSync(filePath)).toBe(false);
@@ -141,7 +143,7 @@ describe("Image API", () => {
     formData.append("file", makeImageFile());
     const uploadRes = await fetch(`${ts.url}/api/adventures/${adventureId}/images`, {
       method: "POST",
-      headers: { "X-GM-Password": gmPassword },
+      headers: { Cookie: gmCookie },
       body: formData,
     });
     const image = await uploadRes.json();
@@ -161,7 +163,7 @@ describe("Image API", () => {
 
     const deleteRes = await fetch(
       `${ts.url}/api/adventures/${adventureId}/images/${image.id}`,
-      { method: "DELETE", headers: { "X-GM-Password": gmPassword } }
+      { method: "DELETE", headers: { Cookie: gmCookie } }
     );
     expect(deleteRes.status).toBe(204);
     expect(getImage(ts.db, image.id)).toBe(null);
@@ -173,7 +175,7 @@ describe("Image API", () => {
     formData.append("file", makeImageFile());
     const uploadRes = await fetch(`${ts.url}/api/adventures/${adventureId}/images`, {
       method: "POST",
-      headers: { "X-GM-Password": gmPassword },
+      headers: { Cookie: gmCookie },
       body: formData,
     });
     const image = await uploadRes.json();
@@ -182,7 +184,7 @@ describe("Image API", () => {
 
     const deleteRes = await fetch(
       `${ts.url}/api/adventures/${adventureId}/images/${image.id}`,
-      { method: "DELETE", headers: { "X-GM-Password": gmPassword } }
+      { method: "DELETE", headers: { Cookie: gmCookie } }
     );
 
     expect(deleteRes.status).toBe(409);
@@ -198,7 +200,7 @@ describe("Image API", () => {
     formData.append("file", makeImageFile());
     const uploadRes = await fetch(`${ts.url}/api/adventures/${adventureId}/images`, {
       method: "POST",
-      headers: { "X-GM-Password": gmPassword },
+      headers: { Cookie: gmCookie },
       body: formData,
     });
     const image = await uploadRes.json();
@@ -216,7 +218,7 @@ describe("Image API", () => {
     formData.append("file", makeImageFile());
     const uploadRes = await fetch(`${ts.url}/api/adventures/${adventureId}/images`, {
       method: "POST",
-      headers: { "X-GM-Password": gmPassword },
+      headers: { Cookie: gmCookie },
       body: formData,
     });
     const image = await uploadRes.json();

@@ -30,11 +30,12 @@ body.home::before, .join-view::before {
 /* ── Home page ── */
 body.home {
   display: flex;
-  align-items: center;
   justify-content: center;
   overflow: auto;
 }
-.home-main { width: 100%; max-width: 480px; padding: 2rem; position: relative; z-index: 1; }
+/* Auto margins centre it while it fits and let it scroll from the top once it does not —
+   `align-items: center` pushed the heading off the top of a tall dashboard. */
+.home-main { width: 100%; max-width: 480px; padding: 2rem; margin: auto 0; position: relative; z-index: 1; }
 .home-main h1, .join-view h1 {
   font-size: 2.2rem;
   margin-bottom: 0.5rem;
@@ -45,7 +46,7 @@ body.home {
 }
 .tagline {
   text-align: center;
-  color: #777;
+  color: #8a8a8a;
   font-size: 0.9rem;
   letter-spacing: 0.03em;
   margin-bottom: 1.5rem;
@@ -127,6 +128,86 @@ body.home {
 @media (max-width: 400px) {
   .home-main { padding: 1rem; }
   .card { padding: 1rem; }
+}
+
+/* ── Accounts and dashboard (#54, #55) ── */
+.card .prose { color: #bbb; font-size: 0.9rem; line-height: 1.5; margin-bottom: 0.75rem; max-width: 55ch; }
+.card .prose:empty { display: none; }
+.fallback { margin-top: 0.75rem; }
+.fallback summary {
+  cursor: pointer;
+  color: #aab0ff;
+  font-size: 0.9rem;
+  min-height: 44px;
+  display: flex;
+  align-items: center;
+}
+.fallback[open] summary { margin-bottom: 0.5rem; }
+.home button.quiet {
+  width: auto;
+  min-height: 44px;
+  padding: 0 1rem;
+  background: transparent;
+  color: #aab0ff;
+  border: 1px solid rgba(170, 176, 255, 0.4);
+  border-radius: 8px;
+  cursor: pointer;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+.home button.quiet:hover { background: rgba(74, 74, 255, 0.15); box-shadow: none; }
+.phrase { margin: 0.5rem 0 1rem; text-align: center; }
+.phrase code {
+  display: inline-block;
+  font-family: ui-monospace, monospace;
+  font-size: 1.15rem;
+  letter-spacing: 0.05em;
+  padding: 0.75rem 1rem;
+  background: rgba(13, 13, 26, 0.8);
+  border: 1px solid rgba(170, 176, 255, 0.4);
+  border-radius: 8px;
+  color: #fff;
+  word-break: break-all;
+}
+.signed-in {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1rem;
+  color: #bbb;
+  font-size: 0.9rem;
+}
+.signed-in strong { color: #fff; }
+.adventure-list { list-style: none; margin-bottom: 1rem; }
+.adventure-list:empty { display: none; }
+.adventure-list li {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-areas: "name invite" "meta invite";
+  align-items: center;
+  column-gap: 0.75rem;
+  padding: 0.75rem 0;
+  border-bottom: 1px solid rgba(74, 74, 255, 0.12);
+}
+.adventure-name {
+  grid-area: name;
+  color: #fff;
+  font-weight: 600;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
+.adventure-name:hover { text-decoration: underline; }
+.adventure-meta { grid-area: meta; color: #aaa; font-size: 0.85rem; }
+.adventure-list button.quiet { grid-area: invite; }
+.home :focus-visible { outline: 2px solid #aab0ff; outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ── Join view (player page before joining) ── */

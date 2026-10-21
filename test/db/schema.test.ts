@@ -23,6 +23,17 @@ describe("schema", () => {
     }).not.toThrow();
   });
 
+  test("no plaintext GM password survives a start (#56)", () => {
+    const db = new Database(":memory:");
+    createSchema(db);
+    db.run(
+      `INSERT INTO adventures (id, name, gm_password, player_link) VALUES ('a', 'A', 'hunter2', 'l')`
+    );
+    createSchema(db);
+    const row = db.query<{ gm_password: string }, []>(`SELECT gm_password FROM adventures`).get()!;
+    expect(row.gm_password).toBe("");
+  });
+
   test("a start point starts unlocked", () => {
     const db = new Database(":memory:");
     createSchema(db);

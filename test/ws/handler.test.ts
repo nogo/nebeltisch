@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
-import { startWsTestServer, type WsTestServer } from "../helpers";
+import { signIn, startWsTestServer, type WsTestServer } from "../helpers";
 import { createAdventure, getAdventure } from "../../src/db/adventures";
 import { createImageRecord, getImage } from "../../src/db/images";
 import { createToken, getToken, getTokensByAdventure } from "../../src/db/tokens";
@@ -12,11 +12,18 @@ import { ringRadius } from "../../src/rules/landing";
 
 // ---- WebSocket test helpers ----
 
-function connectWS(wsUrl: string, params: Record<string, string>): Promise<WebSocket> {
+/**
+ * Bun's client, which takes headers the browser would send. The DOM typing the client code needs
+ * hides that constructor, so it is named here.
+ */
+const BunWebSocket = WebSocket as unknown as new (url: string, options?: Bun.WebSocketOptions) => WebSocket;
+
+/** `cookie` is the GM's session, sent the way a browser sends it on the upgrade. */
+function connectWS(wsUrl: string, params: Record<string, string>, cookie?: string): Promise<WebSocket> {
   const url = new URL(`${wsUrl}/ws`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(url.toString());
+    const ws = new BunWebSocket(url.toString(), cookie ? { headers: { Cookie: cookie } } : undefined);
     const timer = setTimeout(() => {
       ws.close();
       reject(new Error("WebSocket connect timeout"));
@@ -75,7 +82,8 @@ async function until(condition: () => boolean | Promise<boolean>, timeout = 3000
 describe("WebSocket handler", () => {
   let ts: WsTestServer;
   let adventureId: string;
-  let gmPassword: string;
+  let gmCookie: string;
+  let gmUserId: string;
   let playerLink: string;
   let imageId: string;
   const openSockets: WebSocket[] = [];
@@ -113,9 +121,11 @@ describe("WebSocket handler", () => {
 
   beforeEach(() => {
     ts = startWsTestServer();
-    const adventure = createAdventure(ts.db, { name: "Test Adventure", gmPassword: "secret" });
+    const gm = signIn(ts.db);
+    gmCookie = gm.cookie;
+    gmUserId = gm.user.id;
+    const adventure = createAdventure(ts.db, { name: "Test Adventure", ownerId: gmUserId });
     adventureId = adventure.id;
-    gmPassword = adventure.gm_password;
     playerLink = adventure.player_link;
     const image = createImageRecord(ts.db, {
       adventureId,
@@ -137,9 +147,9 @@ describe("WebSocket handler", () => {
     ts.stop();
   });
 
-  it("GM connects with correct password → receives joined", async () => {
+  it("GM connects with a session → receives joined", async () => {
     const ws = track(
-      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+      await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie)
     );
     const msg = await waitForMessage(ws, "joined");
     expect(msg.adventure.id).toBe(adventureId);
@@ -147,13 +157,44 @@ describe("WebSocket handler", () => {
     expect(Array.isArray(msg.tokens)).toBe(true);
   });
 
-  it("GM connects with wrong password → HTTP 401", async () => {
-    const url = new URL(`${ts.wsUrl}/ws`.replace("ws://", "http://"));
-    url.searchParams.set("adventureId", adventureId);
-    url.searchParams.set("role", "gm");
-    url.searchParams.set("password", "wrong");
-    const res = await fetch(url.toString());
-    expect(res.status).toBe(401);
+  describe("who may open the GM connection (#56)", () => {
+    function upgrade(headers: Record<string, string>, id = adventureId) {
+      const url = new URL(`${ts.url}/ws`);
+      url.searchParams.set("adventureId", id);
+      url.searchParams.set("role", "gm");
+      return fetch(url, { headers });
+    }
+
+    it("nothing secret is in the URL: the session alone opens it", async () => {
+      const ws = track(await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie));
+      expect(ws.url).not.toContain("password");
+      expect(new URL(ws.url).searchParams.size).toBe(2);
+      await waitForMessage(ws, "joined");
+    });
+
+    it("a GM who is not signed in is refused, knowing the id is not enough", async () => {
+      expect((await upgrade({})).status).toBe(401);
+      expect((await upgrade({ Cookie: "nebeltisch_session=made-up" })).status).toBe(401);
+    });
+
+    it("a GM cannot open an adventure another account owns", async () => {
+      const stranger = signIn(ts.db);
+      expect((await upgrade({ Cookie: stranger.cookie })).status).toBe(403);
+    });
+
+    it("a page on another site cannot open it with the GM's cookie", async () => {
+      const res = await upgrade({ Cookie: gmCookie, Origin: "https://evil.ctl.wtf" });
+      expect(res.status).toBe(403);
+    });
+
+    it("the site's own page can", async () => {
+      // Opened as a real socket, because a plain request with a valid session is upgraded.
+      const ws = new BunWebSocket(`${ts.wsUrl}/ws?adventureId=${adventureId}&role=gm`, {
+        headers: { Cookie: gmCookie, Origin: ts.url },
+      });
+      track(ws);
+      await waitForMessage(ws, "joined");
+    });
   });
 
   it("Player connects with valid player link → receives joined with token", async () => {
@@ -199,7 +240,7 @@ describe("WebSocket handler", () => {
     ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
 
     const gm = track(
-      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+      await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie)
     );
     await waitForMessage(gm, "joined");
     const tokenAddedPromise = waitForMessage(gm, "token:added");
@@ -257,7 +298,7 @@ describe("WebSocket handler", () => {
 
   it("Player connects → other clients receive player:joined and token:added", async () => {
     const gm = track(
-      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+      await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie)
     );
     await waitForMessage(gm, "joined");
 
@@ -289,7 +330,7 @@ describe("WebSocket handler", () => {
     ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
 
     const gm = track(
-      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+      await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie)
     );
     await waitForMessage(gm, "joined");
 
@@ -348,7 +389,7 @@ describe("WebSocket handler", () => {
 
   it("Player moves their own token → all clients receive token:moved", async () => {
     const gm = track(
-      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+      await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie)
     );
     await waitForMessage(gm, "joined");
 
@@ -419,7 +460,7 @@ describe("WebSocket handler", () => {
 
   it("GM sends map:switch → all clients receive map:switched", async () => {
     const gm = track(
-      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+      await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie)
     );
     await waitForMessage(gm, "joined");
 
@@ -448,7 +489,7 @@ describe("WebSocket handler", () => {
 
   it("GM sends map:unpresent → all clients hear it and nothing is presented", async () => {
     const gm = track(
-      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+      await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie)
     );
     await waitForMessage(gm, "joined");
 
@@ -497,7 +538,7 @@ describe("WebSocket handler", () => {
 
   it("Presenting again after unpresenting returns the party to where it stood", async () => {
     const gm = track(
-      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+      await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie)
     );
     await waitForMessage(gm, "joined");
 
@@ -536,7 +577,7 @@ describe("WebSocket handler", () => {
 
   it("Player disconnects → other clients receive player:left, token persists in DB", async () => {
     const gm = track(
-      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+      await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie)
     );
     await waitForMessage(gm, "joined");
 
@@ -575,7 +616,7 @@ describe("WebSocket handler", () => {
     ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
 
     const gm = track(
-      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+      await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie)
     );
     await waitForMessage(gm, "joined");
 
@@ -614,7 +655,7 @@ describe("WebSocket handler", () => {
     ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
 
     const gm = track(
-      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+      await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie)
     );
     await waitForMessage(gm, "joined");
 
@@ -677,7 +718,7 @@ describe("WebSocket handler", () => {
     ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [unparsed, adventureId]);
 
     const gm = track(
-      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+      await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie)
     );
     await waitForMessage(gm, "joined");
 
@@ -708,7 +749,7 @@ describe("WebSocket handler", () => {
     // write every cached mask, including other tables' (#9).
     ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
 
-    const other = createAdventure(ts.db, { name: "Other table", gmPassword: "other-pw" });
+    const other = createAdventure(ts.db, { name: "Other table", ownerId: gmUserId });
     const otherImageId = createImageRecord(ts.db, {
       adventureId: other.id,
       filename: "other.png",
@@ -719,11 +760,7 @@ describe("WebSocket handler", () => {
     ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [otherImageId, other.id]);
 
     const otherGm = track(
-      await connectWS(ts.wsUrl, {
-        adventureId: other.id,
-        role: "gm",
-        password: "other-pw",
-      })
+      await connectWS(ts.wsUrl, { adventureId: other.id, role: "gm" }, gmCookie)
     );
     await waitForMessage(otherGm, "joined");
     otherGm.send(JSON.stringify({
@@ -735,7 +772,7 @@ describe("WebSocket handler", () => {
     await until(() => revealed(otherImageId, 50, 50, other.id));
 
     const gm = track(
-      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+      await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie)
     );
     await waitForMessage(gm, "joined");
     gm.send(JSON.stringify({
@@ -755,7 +792,7 @@ describe("WebSocket handler", () => {
     ts.db.run(`UPDATE adventures SET active_image_id = ? WHERE id = ?`, [imageId, adventureId]);
 
     const gm = track(
-      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+      await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie)
     );
     await waitForMessage(gm, "joined");
 
@@ -772,7 +809,7 @@ describe("WebSocket handler", () => {
 
     // GM reconnects and receives the persisted fog mask
     const gm2 = track(
-      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+      await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie)
     );
     const joined = await waitForMessage(gm2, "joined");
     expect(joined.fogMask).not.toBeNull();
@@ -781,7 +818,7 @@ describe("WebSocket handler", () => {
 
   it("Ping/pong works", async () => {
     const ws = track(
-      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+      await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie)
     );
     await waitForMessage(ws, "joined");
 
@@ -792,7 +829,7 @@ describe("WebSocket handler", () => {
 
   it("Invalid message format → receives error", async () => {
     const ws = track(
-      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+      await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie)
     );
     await waitForMessage(ws, "joined");
 
@@ -850,7 +887,7 @@ describe("WebSocket handler", () => {
   });
 
   it("a stroke batch that is not a short list of strokes is refused", async () => {
-    const gm = track(await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword }));
+    const gm = track(await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie));
     await waitForMessage(gm, "joined");
     const stroke = { x: 10, y: 10, radius: 5, mode: "reveal" };
 
@@ -862,7 +899,7 @@ describe("WebSocket handler", () => {
   });
 
   it("an unknown message type is still reported as unknown", async () => {
-    const gm = track(await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword }));
+    const gm = track(await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie));
     await waitForMessage(gm, "joined");
     const errPromise = waitForMessage(gm, "error");
     gm.send(JSON.stringify({ type: "dance" }));
@@ -873,7 +910,7 @@ describe("WebSocket handler", () => {
 
   async function connectGm() {
     const gm = track(
-      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+      await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie)
     );
     // The GM also gets fog:history right after joining. Drain it here, or the
     // next listener registered for that type catches it instead of its own.
@@ -939,7 +976,7 @@ describe("WebSocket handler", () => {
     // History is keyed by image on the server, so a new tab inherits it.
     // Connected inline rather than via connectGm, which drains fog:history.
     const fresh = track(
-      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+      await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie)
     );
     const history = waitForMessage(fresh, "fog:history");
     await waitForMessage(fresh, "joined");
@@ -1034,7 +1071,7 @@ describe("WebSocket handler", () => {
 
     async function connectGmAnd(player: string) {
       const gm = track(
-        await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+        await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie)
       );
       await waitForMessage(gm, "joined");
       const ws = track(
@@ -1493,7 +1530,7 @@ describe("WebSocket handler", () => {
     });
 
     it("a page belonging to another adventure cannot be painted", async () => {
-      const other = createAdventure(ts.db, { name: "Other table", gmPassword: "other-pw" });
+      const other = createAdventure(ts.db, { name: "Other table", ownerId: null });
       const theirPage = createImageRecord(ts.db, {
         adventureId: other.id,
         filename: "theirs.png",
@@ -1527,7 +1564,7 @@ describe("WebSocket handler", () => {
 
       const res = await fetch(
         `${ts.url}/api/adventures/${adventureId}/images/${prepImageId}/fog`,
-        { headers: { "X-GM-Password": gmPassword } }
+        { headers: { Cookie: gmCookie } }
       );
       expect((await res.json()).fogMask).toBe(
         await ts.fog.forAdventure(adventureId).peek(prepImageId)!.toBase64()
@@ -1554,7 +1591,7 @@ describe("WebSocket handler", () => {
 
       const res = await fetch(
         `${ts.url}/api/adventures/${adventureId}/images/${prepImageId}/tokens`,
-        { headers: { "X-GM-Password": gmPassword } }
+        { headers: { Cookie: gmCookie } }
       );
       const tokens = await res.json();
       // The party is not on a page in preparation, so no player token is in here either.
@@ -1574,7 +1611,7 @@ describe("WebSocket handler", () => {
 
   async function connectGmAndPlayer(name = "Alice") {
     const gm = track(
-      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+      await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie)
     );
     await waitForMessage(gm, "joined");
     const player = track(
@@ -1909,11 +1946,11 @@ describe("WebSocket handler", () => {
 
   it("Start point updates sync to every GM socket, and never to players", async () => {
     const firstGm = track(
-      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+      await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie)
     );
     await waitForMessage(firstGm, "joined");
     const secondGm = track(
-      await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword })
+      await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie)
     );
     await waitForMessage(secondGm, "joined");
     const player = track(
@@ -2033,7 +2070,7 @@ describe("WebSocket handler", () => {
     });
 
     async function connectGm() {
-      const gm = track(await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword }));
+      const gm = track(await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie));
       await waitForMessage(gm, "joined");
       return gm;
     }
@@ -2509,7 +2546,7 @@ describe("WebSocket handler", () => {
     });
 
     async function connectGm() {
-      const gm = track(await connectWS(ts.wsUrl, { adventureId, role: "gm", password: gmPassword }));
+      const gm = track(await connectWS(ts.wsUrl, { adventureId, role: "gm" }, gmCookie));
       await waitForMessage(gm, "joined");
       return gm;
     }
@@ -2524,7 +2561,7 @@ describe("WebSocket handler", () => {
 
     /** A second table on the same server, with one page and a token of each kind on it. */
     function otherTable() {
-      const other = createAdventure(ts.db, { name: "Other table", gmPassword: "other-pw" });
+      const other = createAdventure(ts.db, { name: "Other table", ownerId: null });
       const page = createImageRecord(ts.db, {
         adventureId: other.id, filename: "theirs.png", originalName: "theirs.png", width: 100, height: 100,
       }).id;

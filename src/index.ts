@@ -2,6 +2,7 @@ import { mkdirSync } from "fs";
 import { initDatabase } from "./db/database";
 import { handleRequest, staticRoutes } from "./routes";
 import { createFogRegistry } from "./fog/session";
+import { createChallengeStore } from "./auth/challenges";
 import { createWsHandlers, handleWsUpgrade } from "./ws/handler";
 import type { ServerDeps } from "./deps";
 
@@ -10,7 +11,13 @@ mkdirSync(uploadsDir, { recursive: true });
 
 const db = initDatabase();
 // The composition root: one database, one fog registry, for the whole process.
-const deps: ServerDeps = { db, uploadsDir, fog: createFogRegistry(db, uploadsDir) };
+const deps: ServerDeps = {
+  db,
+  uploadsDir,
+  fog: createFogRegistry(db, uploadsDir),
+  challenges: createChallengeStore(),
+  publicOrigin: process.env.PUBLIC_ORIGIN || undefined,
+};
 const wsHandlers = createWsHandlers(deps);
 
 const server = Bun.serve({

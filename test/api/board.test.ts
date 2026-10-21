@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "bun:test";
-import { startTestServer, type TestServer } from "../helpers";
+import { signIn, startTestServer, type TestServer } from "../helpers";
 import { createAdventure } from "../../src/db/adventures";
 import { createImageRecord, getImage, updateFogMask } from "../../src/db/images";
 import { serializeMask } from "../../src/fog/serialize";
@@ -20,11 +20,13 @@ const PNG_BYTES = Buffer.from([
 describe("Board API", () => {
   let ts: TestServer;
   let adventureId: string;
-  const gmPassword = "secret";
+  let gmCookie: string;
+  let gmUserId: string;
 
   beforeAll(() => {
     ts = startTestServer();
-    adventureId = createAdventure(ts.db, { name: "Board Test", gmPassword }).id;
+    ({ cookie: gmCookie, user: { id: gmUserId } } = signIn(ts.db));
+    adventureId = createAdventure(ts.db, { name: "Board Test", ownerId: gmUserId }).id;
   });
 
   afterAll(() => {
@@ -50,7 +52,7 @@ describe("Board API", () => {
         `${ts.url}/api/adventures/${adventureId}/images/${page.id}/position`,
         {
           method: "PUT",
-          headers: { "Content-Type": "application/json", "X-GM-Password": gmPassword },
+          headers: { "Content-Type": "application/json", Cookie: gmCookie },
           body: JSON.stringify({ x: 1200, y: -340.5 }),
         }
       );
@@ -60,13 +62,13 @@ describe("Board API", () => {
       expect(stored.board_y).toBe(-340.5);
     });
 
-    it("rejects a wrong password and leaves the page where it was", async () => {
+    it("rejects a stranger's session and leaves the page where it was", async () => {
       const page = makePage(800, 600, 10, 20);
       const res = await fetch(
         `${ts.url}/api/adventures/${adventureId}/images/${page.id}/position`,
         {
           method: "PUT",
-          headers: { "Content-Type": "application/json", "X-GM-Password": "wrong" },
+          headers: { "Content-Type": "application/json", Cookie: "nebeltisch_session=wrong" },
           body: JSON.stringify({ x: 999, y: 999 }),
         }
       );
@@ -75,7 +77,7 @@ describe("Board API", () => {
     });
 
     it("rejects a page belonging to another adventure", async () => {
-      const other = createAdventure(ts.db, { name: "Other", gmPassword: "pw2" });
+      const other = createAdventure(ts.db, { name: "Other", ownerId: gmUserId });
       const foreign = createImageRecord(ts.db, {
         adventureId: other.id,
         filename: "foreign.png",
@@ -87,7 +89,7 @@ describe("Board API", () => {
         `${ts.url}/api/adventures/${adventureId}/images/${foreign.id}/position`,
         {
           method: "PUT",
-          headers: { "Content-Type": "application/json", "X-GM-Password": gmPassword },
+          headers: { "Content-Type": "application/json", Cookie: gmCookie },
           body: JSON.stringify({ x: 1, y: 1 }),
         }
       );
@@ -101,7 +103,7 @@ describe("Board API", () => {
           `${ts.url}/api/adventures/${adventureId}/images/${page.id}/position`,
           {
             method: "PUT",
-            headers: { "Content-Type": "application/json", "X-GM-Password": gmPassword },
+            headers: { "Content-Type": "application/json", Cookie: gmCookie },
             body: JSON.stringify(body),
           }
         );
@@ -115,7 +117,7 @@ describe("Board API", () => {
       const page = makePage();
       const res = await fetch(
         `${ts.url}/api/adventures/${adventureId}/images/${page.id}/fog`,
-        { headers: { "X-GM-Password": gmPassword } }
+        { headers: { Cookie: gmCookie } }
       );
       expect(res.status).toBe(200);
       expect((await res.json()).fogMask).toBeNull();
@@ -134,7 +136,7 @@ describe("Board API", () => {
 
       const res = await fetch(
         `${ts.url}/api/adventures/${adventureId}/images/${page.id}/fog`,
-        { headers: { "X-GM-Password": gmPassword } }
+        { headers: { Cookie: gmCookie } }
       );
       const { fogMask } = await res.json();
       // The client decodes this with the same reader it uses for a `map:switched` payload, so the
@@ -142,11 +144,11 @@ describe("Board API", () => {
       expect(fogMask).toBe(stored.toString("base64"));
     });
 
-    it("refuses a wrong password", async () => {
+    it("refuses a stranger's session", async () => {
       const page = makePage();
       const res = await fetch(
         `${ts.url}/api/adventures/${adventureId}/images/${page.id}/fog`,
-        { headers: { "X-GM-Password": "wrong" } }
+        { headers: { Cookie: "nebeltisch_session=wrong" } }
       );
       expect(res.status).toBe(401);
     });
@@ -156,7 +158,7 @@ describe("Board API", () => {
     // The WebSocket path never publishes a start point — "players must never learn where the party
     // will appear" — and this route was handing them every one (#57).
     it("carries no start point", async () => {
-      const adventure = createAdventure(ts.db, { name: "Leak", gmPassword });
+      const adventure = createAdventure(ts.db, { name: "Leak", ownerId: gmUserId });
       const page = createImageRecord(ts.db, {
         adventureId: adventure.id,
         filename: "leak.png",
@@ -181,7 +183,7 @@ describe("Board API", () => {
     });
 
     it("still carries the start point for the GM", async () => {
-      const adventure = createAdventure(ts.db, { name: "GM sees it", gmPassword });
+      const adventure = createAdventure(ts.db, { name: "GM sees it", ownerId: gmUserId });
       const page = createImageRecord(ts.db, {
         adventureId: adventure.id,
         filename: "gm.png",
@@ -192,7 +194,7 @@ describe("Board API", () => {
       ts.db.run(`UPDATE images SET start_x = 111, start_y = 222 WHERE id = ?`, [page.id]);
 
       const asGm = await fetch(`${ts.url}/api/adventures/${adventure.id}/images`, {
-        headers: { "X-GM-Password": gmPassword },
+        headers: { Cookie: gmCookie },
       }).then((r) => r.json());
 
       expect(asGm[0].start_x).toBe(111);
@@ -205,7 +207,7 @@ describe("Board API", () => {
     // The geometry is covered in `test/board.test.ts`; what matters here is that the route
     // actually goes through it instead of leaving every upload at the origin.
     it("gives each new page its own spot on the board", async () => {
-      const fresh = createAdventure(ts.db, { name: "Fresh", gmPassword });
+      const fresh = createAdventure(ts.db, { name: "Fresh", ownerId: gmUserId });
       const spots: string[] = [];
 
       for (let i = 0; i < 3; i++) {
@@ -213,7 +215,7 @@ describe("Board API", () => {
         formData.append("file", new File([PNG_BYTES], "page.png", { type: "image/png" }));
         const res = await fetch(`${ts.url}/api/adventures/${fresh.id}/images`, {
           method: "POST",
-          headers: { "X-GM-Password": gmPassword },
+          headers: { Cookie: gmCookie },
           body: formData,
         });
         expect(res.status).toBe(201);

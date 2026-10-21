@@ -117,13 +117,13 @@ function makeClient(buildUrl: () => string): WebSocketClient {
   };
 }
 
-export function connectGM(adventureId: string, password: string): WebSocketClient {
+/** The session cookie travels with the upgrade, so nothing secret is in this URL (#11). */
+export function connectGM(adventureId: string): WebSocketClient {
   return makeClient(() => {
     const u = new URL('/ws', window.location.href);
     u.protocol = u.protocol === 'https:' ? 'wss:' : 'ws:';
     u.searchParams.set('adventureId', adventureId);
     u.searchParams.set('role', 'gm');
-    u.searchParams.set('password', password);
     return u.toString();
   });
 }

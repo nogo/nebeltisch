@@ -19,6 +19,7 @@ import {
 } from "./connections";
 import { openDeclaration, getDeclaration, getDeclarationsByImage, getResolvedByImage, deleteDeclaration, answerDeclaration, setDeclarationDamage } from "../db/declarations";
 import { parseMessage, serializeMessage } from "./messages";
+import { currentUser, fromOwnSite } from "../auth/session";
 import { arrivalPosition, landParty } from "../rules/landing";
 import { reachesTable } from "../rules/audience";
 import { attackRefusal, ownsSource, ownsTarget } from "../rules/declarations";
@@ -140,13 +141,13 @@ function presentedPage(db: Database, adventureId: string): string | null {
 
 export function handleWsUpgrade(
   req: Request,
-  { db }: ServerDeps,
+  deps: ServerDeps,
   server: Server<WsData>
 ): Response | undefined {
+  const { db } = deps;
   const url = new URL(req.url);
   const adventureId = url.searchParams.get("adventureId");
   const role = url.searchParams.get("role") as "gm" | "player" | null;
-  const password = url.searchParams.get("password");
   const playerLink = url.searchParams.get("playerLink");
   const playerName = url.searchParams.get("playerName");
   const playerColor = url.searchParams.get("playerColor");
@@ -168,8 +169,16 @@ export function handleWsUpgrade(
   let tokenIsNew: boolean | undefined;
 
   if (role === "gm") {
-    if (!password || password !== adventure.gm_password) {
-      return new Response("Invalid password", { status: 401 });
+    // The session cookie is the credential, so nothing secret is in this URL for a proxy to log
+    // (#11). A browser sends the cookie on any same-site upgrade — a sibling subdomain included —
+    // so the page that opened it has to be ours.
+    if (!fromOwnSite(req, deps)) {
+      return new Response("Cross-site connection refused", { status: 403 });
+    }
+    const user = currentUser(req, db);
+    if (!user) return new Response("Not signed in", { status: 401 });
+    if (adventure.owner_id !== user.id) {
+      return new Response("This adventure is not yours", { status: 403 });
     }
   } else {
     if (!playerLink) {

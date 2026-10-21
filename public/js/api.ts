@@ -1,6 +1,9 @@
 import type { TokenData } from './tokens';
 
 /**
+ * GM calls carry no credential of their own: the browser sends the session cookie with every
+ * same-origin request, and the server checks ownership from it (#56).
+ *
  * These are **not** imported from `src/types.ts`, unlike the WebSocket contract and `Token`.
  *
  * `Adventure` and `ImageRecord` there are database row types. The REST routes happen to return
@@ -16,7 +19,6 @@ export interface Adventure {
   name: string;
   player_link: string;
   active_image_id: string | null;
-  gm_password: string;
 }
 
 export interface ImageRecord {
@@ -36,10 +38,6 @@ export interface ImageRecord {
   board_y: number | null;
 }
 
-function gmHeaders(password: string): HeadersInit {
-  return { 'X-GM-Password': password };
-}
-
 async function checkOk(res: Response): Promise<Response> {
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText);
@@ -48,44 +46,54 @@ async function checkOk(res: Response): Promise<Response> {
   return res;
 }
 
-export async function createAdventure(name: string, password: string): Promise<Adventure> {
+/** It belongs to whoever is signed in. */
+export async function createAdventure(name: string): Promise<Adventure> {
   const res = await fetch('/api/adventures', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ name, gmPassword: password }),
+    body: JSON.stringify({ name }),
   });
   return (await checkOk(res)).json();
 }
 
-export async function getAdventure(adventureId: string, password: string): Promise<Adventure> {
+/** One dashboard entry: enough to tell two campaigns apart without opening either. */
+export interface AdventureSummary {
+  id: string;
+  name: string;
+  player_link: string;
+  created_at: string;
+  page_count: number;
+}
+
+export async function listMyAdventures(): Promise<AdventureSummary[]> {
+  return (await checkOk(await fetch('/api/adventures'))).json();
+}
+
+export async function getAdventure(adventureId: string): Promise<Adventure> {
   const res = await fetch(`/api/adventures/${adventureId}`, {
-    headers: gmHeaders(password),
   });
   return (await checkOk(res)).json();
 }
 
-export async function uploadImage(adventureId: string, password: string, file: File): Promise<ImageRecord> {
+export async function uploadImage(adventureId: string, file: File): Promise<ImageRecord> {
   const form = new FormData();
   form.append('file', file);
   const res = await fetch(`/api/adventures/${adventureId}/images`, {
     method: 'POST',
-    headers: gmHeaders(password),
     body: form,
   });
   return (await checkOk(res)).json();
 }
 
-export async function listImages(adventureId: string, password: string): Promise<ImageRecord[]> {
+export async function listImages(adventureId: string): Promise<ImageRecord[]> {
   const res = await fetch(`/api/adventures/${adventureId}/images`, {
-    headers: gmHeaders(password),
   });
   return (await checkOk(res)).json();
 }
 
-export async function deleteImage(adventureId: string, password: string, imageId: string): Promise<void> {
+export async function deleteImage(adventureId: string, imageId: string): Promise<void> {
   const res = await fetch(`/api/adventures/${adventureId}/images/${imageId}`, {
     method: 'DELETE',
-    headers: gmHeaders(password),
   });
   await checkOk(res);
 }
@@ -103,16 +111,14 @@ export async function listImagesAsPlayer(adventureId: string, playerLink: string
 }
 
 /** Board layout is REST: players never see the board, so none of it belongs on the wire. */
-export async function setBoardPosition(
-  adventureId: string,
-  password: string,
+export async function setBoardPosition(adventureId: string,
   imageId: string,
   x: number,
   y: number
 ): Promise<void> {
   const res = await fetch(`/api/adventures/${adventureId}/images/${imageId}/position`, {
     method: 'PUT',
-    headers: { ...gmHeaders(password), 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ x, y }),
   });
   await checkOk(res);
@@ -124,13 +130,10 @@ export async function setBoardPosition(
  * Needed because the WebSocket only ever sends the presented page's mask, and the board has to show
  * a page's fog as it is stored once the GM zooms into it.
  */
-export async function getImageFog(
-  adventureId: string,
-  password: string,
+export async function getImageFog(adventureId: string,
   imageId: string
 ): Promise<string | null> {
   const res = await fetch(`/api/adventures/${adventureId}/images/${imageId}/fog`, {
-    headers: gmHeaders(password),
   });
   const data = await (await checkOk(res)).json();
   return typeof data.fogMask === 'string' ? data.fogMask : null;
@@ -143,21 +146,18 @@ export async function getImageFog(
  * not looking at reaches nobody — so this is how the board shows the GM what they already placed
  * there (#51). Player tokens are not included: the party stands on whatever is presented.
  */
-export async function getImageGmTokens(
-  adventureId: string,
-  password: string,
+export async function getImageGmTokens(adventureId: string,
   imageId: string
 ): Promise<TokenData[]> {
   const res = await fetch(`/api/adventures/${adventureId}/images/${imageId}/tokens`, {
-    headers: gmHeaders(password),
   });
   return (await checkOk(res)).json();
 }
 
-export async function switchActiveImage(adventureId: string, password: string, imageId: string): Promise<void> {
+export async function switchActiveImage(adventureId: string, imageId: string): Promise<void> {
   const res = await fetch(`/api/adventures/${adventureId}/active-image`, {
     method: 'PUT',
-    headers: { ...gmHeaders(password), 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ imageId }),
   });
   await checkOk(res);

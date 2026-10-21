@@ -157,6 +157,49 @@ export function createSchema(db: Database): void {
     // Column already exists — ignore
   }
 
+  // Accounts (#54). A user is anyone who signed up; you are the GM of an adventure because you own
+  // it, so no role lives here.
+  //
+  // `password_hash` is nullable because a passkey-only account has none, and a NOT NULL column
+  // could never be relaxed by an additive migration. Every secret is stored as a hash — the
+  // password and the recovery phrase as argon2id, the session id as SHA-256 — and a passkey as its
+  // public key, so a copy of this file signs nobody in.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS users (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+      password_hash TEXT NULL,
+      recovery_hash TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS passkeys (
+      id TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      public_key BLOB NOT NULL,
+      algorithm INTEGER NOT NULL,
+      sign_count INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS sessions (
+      id_hash TEXT PRIMARY KEY,
+      user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+      expires_at TEXT NOT NULL,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+  `);
+
+  try {
+    db.run(`ALTER TABLE adventures ADD COLUMN owner_id TEXT NULL REFERENCES users(id)`);
+  } catch {
+    // Column already exists — ignore
+  }
+
+  // The per-adventure GM password is gone (#56): the session is the credential. The column stays,
+  // because additive migrations may not drop one, but nothing reads it and no plaintext is kept.
+  db.run(`UPDATE adventures SET gm_password = '' WHERE gm_password != ''`);
+
   placeUnarrangedPages(db);
 }
 

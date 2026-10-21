@@ -19,10 +19,32 @@ export interface FogStroke {
 export interface Adventure {
   id: string;
   name: string;
-  gm_password: string;
   player_link: string;
   active_image_id: string | null;
   token_size: number;
+  /** The account that runs it. Null for an adventure from before accounts, until it is assigned. */
+  owner_id: string | null;
+  created_at: string;
+}
+
+/** An account. The hashes never leave the server; `publicUser` is what a response carries. */
+export interface User {
+  id: string;
+  name: string;
+  password_hash: string | null;
+  recovery_hash: string;
+  created_at: string;
+}
+
+export interface Passkey {
+  /** The credential id, base64url, as the browser reports it. */
+  id: string;
+  user_id: string;
+  /** SubjectPublicKeyInfo DER, straight from `getPublicKey()`. */
+  public_key: Uint8Array;
+  /** COSE algorithm: -7 is ES256, -257 is RS256. */
+  algorithm: number;
+  sign_count: number;
   created_at: string;
 }
 

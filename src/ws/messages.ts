@@ -6,7 +6,6 @@ export interface JoinMessage {
   type: "join";
   adventureId: string;
   role: "gm" | "player";
-  password?: string;
   playerName?: string;
   playerColor?: string;
   playerLink?: string;
@@ -504,7 +503,6 @@ const SHAPES: { [T in ClientMessage["type"]]: ShapeOf<Extract<ClientMessage, { t
   join: {
     adventureId: id,
     role: oneOf("gm", "player"),
-    password: optional(text),
     playerName: optional(text),
     playerColor: optional(text),
     playerLink: optional(id),

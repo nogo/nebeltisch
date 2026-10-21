@@ -12,43 +12,90 @@
     <h1>Nebeltisch</h1>
     <p class="tagline">Fog of war for your tabletop</p>
 
-    <section class="card">
-      <h2>Create Adventure</h2>
-      <form id="create-form">
-        <label>Adventure name<input type="text" id="adv-name" required placeholder="The Lost Mines" autocomplete="off"></label>
-        <label>GM password<input type="password" id="adv-password" required placeholder="secret" autocomplete="new-password"></label>
-        <button type="submit">Create</button>
-        <p id="create-error" class="error"></p>
-      </form>
+    <!-- Signed out: log in, or create an account. A passkey first, a password behind it. -->
+    <div id="signed-out" hidden>
+      <section class="card" aria-labelledby="login-title">
+        <h2 id="login-title">Log in</h2>
+        <button type="button" id="login-passkey" data-passkey>Log in with passkey</button>
+        <details class="fallback" data-password-fallback>
+          <summary>Use a password instead</summary>
+          <form id="login-password">
+            <label>Name<input type="text" id="login-name" required autocomplete="username"></label>
+            <label>Password<input type="password" id="login-secret" required autocomplete="current-password"></label>
+            <button type="submit">Log in</button>
+          </form>
+        </details>
+        <details class="fallback">
+          <summary>Lost your passkey? Use your recovery phrase</summary>
+          <form id="recover">
+            <label>Name<input type="text" id="recover-name" required autocomplete="username"></label>
+            <label>Recovery phrase<input type="text" id="recover-phrase" required autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="XXXX-XXXX-XXXX-XXXX-XXXX-XXXX"></label>
+            <button type="submit">Log in with phrase</button>
+          </form>
+        </details>
+        <p id="login-error" class="error" role="alert"></p>
+      </section>
+
+      <section class="card" aria-labelledby="signup-title">
+        <h2 id="signup-title">Create an account</h2>
+        <form id="signup">
+          <label>Name<input type="text" id="signup-name" required maxlength="40" autocomplete="username"></label>
+          <button type="submit" data-passkey>Create with passkey</button>
+          <details class="fallback" data-password-fallback>
+            <summary>Use a password instead</summary>
+            <label>Password, 8 characters or more<input type="password" id="signup-secret" minlength="8" maxlength="128" autocomplete="new-password"></label>
+            <button type="button" id="signup-password">Create with password</button>
+          </details>
+        </form>
+        <p id="signup-error" class="error" role="alert"></p>
+      </section>
+    </div>
+
+    <!-- Shown once, after sign-up and after a recovery. -->
+    <section id="phrase" class="card" aria-labelledby="phrase-title" hidden>
+      <h2 id="phrase-title">Your recovery phrase</h2>
+      <p class="prose">Write it down and keep it somewhere safe. It is shown only now.</p>
+      <p class="phrase"><code id="phrase-value"></code></p>
+      <p class="prose">If you lose your passkey, your name and this phrase get you back in. Each phrase works once; using it gives you a new one.</p>
+      <button type="button" id="phrase-done">I wrote it down</button>
     </section>
 
+    <!-- Signed in: the dashboard (#55). -->
+    <div id="dashboard" hidden>
+      <p class="signed-in">
+        <span>Signed in as <strong id="user-name"></strong></span>
+        <button type="button" id="logout" class="quiet">Log out</button>
+      </p>
+
+      <section class="card" aria-labelledby="adventures-title">
+        <h2 id="adventures-title">Your adventures</h2>
+        <p id="adventures-empty" class="prose" hidden>You have no adventures yet. Give your first one a name below — you can add maps once it is open.</p>
+        <ul id="adventures" class="adventure-list"></ul>
+        <p id="adventures-status" class="prose" aria-live="polite"></p>
+        <form id="create-form">
+          <label>New adventure<input type="text" id="adv-name" required placeholder="The Lost Mines" autocomplete="off"></label>
+          <button type="submit">Create</button>
+          <p id="create-error" class="error" role="alert"></p>
+        </form>
+      </section>
+
+      <section class="card" aria-labelledby="account-title">
+        <h2 id="account-title">Your account</h2>
+        <p id="account-summary" class="prose"></p>
+        <button type="button" id="add-passkey" class="quiet" data-passkey>Add a passkey</button>
+        <details class="fallback">
+          <summary id="password-summary">Set a password</summary>
+          <form id="set-password">
+            <label>New password, 8 characters or more<input type="password" id="new-secret" required minlength="8" maxlength="128" autocomplete="new-password"></label>
+            <button type="submit">Save password</button>
+          </form>
+        </details>
+        <p id="account-status" class="prose" aria-live="polite"></p>
+        <p id="account-error" class="error" role="alert"></p>
+      </section>
+    </div>
   </main>
 
-  <script>
-    document.getElementById('create-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const name = document.getElementById('adv-name').value.trim();
-      const password = document.getElementById('adv-password').value;
-      const errEl = document.getElementById('create-error');
-      errEl.textContent = '';
-      try {
-        const res = await fetch('/api/adventures', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, gmPassword: password }),
-        });
-        if (!res.ok) {
-          const data = await res.json();
-          errEl.textContent = data.error || 'Error creating adventure';
-          return;
-        }
-        const adv = await res.json();
-        location.href = `/gm#id=${encodeURIComponent(adv.id)}&password=${encodeURIComponent(password)}`;
-      } catch (err) {
-        errEl.textContent = String(err);
-      }
-    });
-
-  </script>
+  <script type="module" src="/dist/home.js"></script>
 </body>
 </html>

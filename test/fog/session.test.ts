@@ -23,7 +23,7 @@ function makeImage(name = "map.png", width = 40, height = 30): string {
 
 beforeEach(() => {
   db = initDatabase(":memory:");
-  adventureId = createAdventure(db, { name: "Aventuria", gmPassword: "pw" }).id;
+  adventureId = createAdventure(db, { name: "Aventuria", ownerId: null }).id;
   imageId = makeImage();
 });
 
@@ -153,7 +153,7 @@ describe("persistence", () => {
   test("flushing one adventure leaves another's pending save alone", async () => {
     // The bug this replaces: a GM disconnect flushed every adventure on the server (#9).
     const registry = createFogRegistry(db);
-    const otherId = createAdventure(db, { name: "Other", gmPassword: "pw" }).id;
+    const otherId = createAdventure(db, { name: "Other", ownerId: null }).id;
     const otherImageId = createImageRecord(db, {
       adventureId: otherId,
       filename: "other.png",
@@ -280,7 +280,7 @@ describe("residency", () => {
 
   test("the cap is per adventure, so one busy table cannot evict another's", async () => {
     const registry = createFogRegistry(db, undefined, { maxResidentMasks: 1 });
-    const otherId = createAdventure(db, { name: "Other", gmPassword: "pw" }).id;
+    const otherId = createAdventure(db, { name: "Other", ownerId: null }).id;
     const otherImageId = createImageRecord(db, {
       adventureId: otherId,
       filename: "other.png",
