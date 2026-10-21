@@ -4,6 +4,7 @@ import { join } from "path";
 import { signIn, startTestServer, type TestServer } from "../helpers";
 import { createAdventure, getAdventure, setActiveImage } from "../../src/db/adventures";
 import { getImage } from "../../src/db/images";
+import { MAX_UPLOAD_BYTES } from "../../src/images";
 import { createToken, getGmTokensByImage } from "../../src/db/tokens";
 
 // Minimal valid 1x1 PNG
@@ -269,13 +270,13 @@ describe("Image API", () => {
       expect(res.status).toBe(404);
     });
 
-    // The extension comes from the uploader's file name, and Bun derives the upload's type from it,
-    // so `.svg` passes as an image. Served by extension, an SVG runs its script on the site's origin.
-    it("a file named like an SVG is served as bytes, never as a document", async () => {
+    // Bun derives an upload's type from its file name, so a `.svg` passed as an image and was
+    // served as SVG, which runs script on the site's origin. The stored name now follows the bytes.
+    it("a map named like an SVG is stored and served as what its bytes are", async () => {
       const image = await upload(adventureId, new File([PNG_BYTES], "map.svg", { type: "image/svg+xml" }));
+      expect(getImage(ts.db, image.id)!.filename).toEndWith(".png");
       const res = await fileOf(image.id, { Cookie: gmCookie });
-      expect(res.status).toBe(200);
-      expect(res.headers.get("content-type")).toBe("application/octet-stream");
+      expect(res.headers.get("content-type")).toBe("image/png");
       expect(res.headers.get("x-content-type-options")).toBe("nosniff");
     });
 
@@ -293,6 +294,43 @@ describe("Image API", () => {
         expect(page.filename).toBeUndefined();
         expect(page.fog_mask).toBeUndefined();
       }
+    });
+  });
+
+  describe("what an upload must be (#10)", () => {
+    async function post(file: File) {
+      const formData = new FormData();
+      formData.append("file", file);
+      return fetch(`${ts.url}/api/adventures/${adventureId}/images`, {
+        method: "POST",
+        headers: { Cookie: gmCookie },
+        body: formData,
+      });
+    }
+    const pageCount = () => (ts.db.query(`SELECT COUNT(*) AS n FROM images WHERE adventure_id = ?`).get(adventureId) as { n: number }).n;
+
+    // A GIF used to be stored 0×0, and the fog never worked on it — silently.
+    it("refuses a format the fog cannot use, and says so", async () => {
+      const before = pageCount();
+      const gif = Buffer.from("GIF89a\x01\x00\x01\x00\x00\x00\x00;", "binary");
+      const res = await post(new File([gif], "map.gif", { type: "image/gif" }));
+      expect(res.status).toBe(415);
+      expect((await res.json()).error).toContain("PNG, JPEG and WebP");
+      expect(pageCount()).toBe(before);
+    });
+
+    it("judges the bytes, not the name or type the browser claims", async () => {
+      const res = await post(new File(["not a map"], "map.png", { type: "image/png" }));
+      expect(res.status).toBe(415);
+    });
+
+    it("refuses a map over the size limit before storing anything", async () => {
+      const before = pageCount();
+      const big = Buffer.alloc(MAX_UPLOAD_BYTES + 1);
+      PNG_BYTES.copy(big);
+      const res = await post(new File([big], "huge.png", { type: "image/png" }));
+      expect(res.status).toBe(413);
+      expect(pageCount()).toBe(before);
     });
   });
 });

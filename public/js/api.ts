@@ -122,7 +122,8 @@ export async function uploadImage(adventureId: string, file: File): Promise<Imag
     method: 'POST',
     body: form,
   });
-  return (await checkOk(res)).json();
+  // The server's sentence, because a refused map is the GM's to fix: convert it, or shrink it.
+  return (await answer(res)).json();
 }
 
 export async function listImages(adventureId: string): Promise<ImageRecord[]> {

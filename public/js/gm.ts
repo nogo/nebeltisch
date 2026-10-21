@@ -1206,6 +1206,7 @@ uploadInput.addEventListener('change', async () => {
     if (!selectedImageId) await focusPage(uploaded.id);
   } catch (e) {
     console.error('Upload failed', e);
+    showNotice(e instanceof Error ? e.message : 'The map could not be uploaded.');
   }
   uploadInput.value = '';
 });

@@ -27,7 +27,7 @@ import { getGmTokensByImage, deleteTokensByImage } from "./db/tokens";
 import { handleAuthRoutes } from "./auth/routes";
 import { currentUser, fromOwnSite } from "./auth/session";
 import { nextFreeSpot } from "./board";
-import { fitsInMask, parseImageDimensions } from "./images";
+import { fitsInMask, MAX_UPLOAD_BYTES, readMapHeader } from "./images";
 import type { ServerDeps } from "./deps";
 import type { ImageRecord } from "./types";
 
@@ -276,6 +276,10 @@ async function handleAdventureRoutes(
       const adventure = asGm(id);
       if (adventure instanceof Response) return adventure;
 
+      // Refused before the body is read; the multipart wrapping is a few hundred bytes.
+      if (Number(req.headers.get("Content-Length")) > MAX_UPLOAD_BYTES + 64 * 1024) {
+        return error(UPLOAD_TOO_BIG, 413);
+      }
       let formData: FormData;
       try {
         formData = await req.formData();
@@ -285,19 +289,17 @@ async function handleAdventureRoutes(
 
       const file = formData.get("file");
       if (!file || !(file instanceof File)) return error("file is required", 400);
-      if (!file.type.startsWith("image/")) return error("file must be an image", 400);
+      if (file.size > MAX_UPLOAD_BYTES) return error(UPLOAD_TOO_BIG, 413);
 
-      const rawExt = file.name.split(".").pop() ?? "bin";
-      const ext = rawExt.replace(/[^a-zA-Z0-9]/g, "").substring(0, 10) || "bin";
-      const filename = `${crypto.randomUUID()}.${ext}`;
-      const filePath = join(uploadsDir, filename);
-
-      const buffer = await file.arrayBuffer();
-      const buf = Buffer.from(buffer);
-      const { width, height } = parseImageDimensions(buf);
+      const buf = Buffer.from(await file.arrayBuffer());
+      const header = readMapHeader(buf);
+      if (!header) return error("Only PNG, JPEG and WebP maps work with the fog — convert this one first", 415);
+      const { ext, width, height } = header;
       if (!fitsInMask(width, height)) {
         return error("This page is too large — keep it under 25 megapixels", 413);
       }
+      const filename = `${crypto.randomUUID()}.${ext}`;
+      const filePath = join(uploadsDir, filename);
       writeFileSync(filePath, buf);
 
       // A new page lands on the board at a free spot, ready to be dragged where it belongs —
@@ -530,6 +532,8 @@ async function readJson<T>(req: Request): Promise<T | null> {
     return null;
   }
 }
+
+const UPLOAD_TOO_BIG = `This map is too big — keep it under ${MAX_UPLOAD_BYTES / 1024 / 1024} MB`;
 
 /**
  * A page as a GM's browser receives it. The file's name stays on the server — the map comes from

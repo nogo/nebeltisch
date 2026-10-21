@@ -17,6 +17,26 @@ export function fitsInMask(width: number, height: number): boolean {
   return width * height <= MAX_PAGE_PIXELS;
 }
 
+/** An uploaded map's ceiling. The body is held in memory whole before it is written. */
+export const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
+
+/**
+ * What an upload is, read from its first bytes rather than from the name or type the browser
+ * claims: PNG, JPEG or WebP with a size in its header, or null. Anything else used to be stored
+ * 0×0 and the fog silently never worked on it (#10). The extension it is stored under comes from
+ * here too, so a file named `.svg` can never be stored as one.
+ */
+export function readMapHeader(buf: Buffer): { ext: "png" | "jpg" | "webp"; width: number; height: number } | null {
+  const ext =
+    buf.length >= 4 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4e && buf[3] === 0x47 ? "png"
+    : buf.length >= 3 && buf[0] === 0xff && buf[1] === 0xd8 && buf[2] === 0xff ? "jpg"
+    : buf.length >= 12 && buf.toString("ascii", 0, 4) === "RIFF" && buf.toString("ascii", 8, 12) === "WEBP" ? "webp"
+    : null;
+  if (!ext) return null;
+  const { width, height } = parseImageDimensions(buf);
+  return width > 0 && height > 0 ? { ext, width, height } : null;
+}
+
 /**
  * Image dimensions read straight from the file header, so no image library is
  * needed — see the zero-dependency rule in docs/architecture.md.
